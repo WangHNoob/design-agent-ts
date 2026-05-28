@@ -45,3 +45,6 @@ sessions/
 
 # Vite
 .vite/
+
+# Knowledge base (large files, not for git)
+knowledge/

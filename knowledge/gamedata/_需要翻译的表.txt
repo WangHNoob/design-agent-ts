@@ -1,3 +1,0 @@
-Text
-TipWord
-language.txt
