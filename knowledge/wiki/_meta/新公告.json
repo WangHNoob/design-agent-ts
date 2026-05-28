@@ -1,0 +1,61 @@
+{
+  "content_hash": "4c0a6c2f8e405493",
+  "entities": [
+    {
+      "name": "多功能公告",
+      "type": "system"
+    },
+    {
+      "name": "公告",
+      "type": "activity"
+    },
+    {
+      "name": "广告",
+      "type": "activity"
+    },
+    {
+      "name": "公告奖励",
+      "type": "resource"
+    },
+    {
+      "name": "跳转链接",
+      "type": "concept"
+    },
+    {
+      "name": "公告图标",
+      "type": "concept"
+    }
+  ],
+  "page_type": "system_rule",
+  "relationships": [
+    {
+      "relation": "belongs_to",
+      "source": "公告",
+      "target": "多功能公告"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "广告",
+      "target": "多功能公告"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "公告奖励",
+      "target": "公告"
+    },
+    {
+      "relation": "configured_in",
+      "source": "跳转链接",
+      "target": "公告"
+    },
+    {
+      "relation": "configured_in",
+      "source": "公告图标",
+      "target": "多功能公告"
+    }
+  ],
+  "source": "新公告.docx",
+  "title": "多功能公告",
+  "warnings": [],
+  "wiki_path": "systems/新公告.md"
+}

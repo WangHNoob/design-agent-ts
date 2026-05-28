@@ -1,0 +1,1855 @@
+{
+  "version": "3.3",
+  "generateTime": "2026-04-28 18:17:37",
+  "totalTables": 0,
+  "statistics": {
+    "totalFields": 0,
+    "enumFields": 0,
+    "foreignKeyFields": 0
+  },
+  "tables": {
+    "TableBuffView": {
+      "className": "TableBuffView",
+      "filePath": "../client/ProjectAll/Assets/ClientRes/script/data/tabledata/datamodel/TableBuffView.cs",
+      "fieldCount": 77,
+      "fields": [
+        {
+          "index": 1,
+          "nameCN": "id",
+          "nameEN": "BuffViewId",
+          "type": "int",
+          "description": "id",
+          "configTips": "主键，全局唯一，新增行须分配未使用的整数"
+        },
+        {
+          "index": 2,
+          "nameCN": "对应BuffId",
+          "nameEN": "BuffId",
+          "type": "int",
+          "description": "对应BuffId",
+          "usageExamples": [
+            "item.BuffId = buffId;",
+            "var buf = buffList.Find((a) => { return a.BuffId == buff.BuffId; });",
+            "var buf = buffList.Find((a) => { return a.BuffId == buffId; });",
+            "if (!buffIds.ContainsKey(buffView.BuffId))",
+            "buffIds.Add(buffView.BuffId,new BattleTeamShipBuffData(buffView));"
+          ],
+          "configTips": "外键，填写对应配置表的主键 | 用作分组键，0=无效"
+        },
+        {
+          "index": 3,
+          "nameCN": "是否在图鉴中显示",
+          "nameEN": "IsShowInManual",
+          "type": "int",
+          "description": "是否在图鉴中显示",
+          "usageExamples": [
+            "if (dict.IsShowInManual > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 4,
+          "nameCN": "瞬时BUFF时，是否忽略显示",
+          "nameEN": "IsIgonreWhenImmediately",
+          "type": "int",
+          "description": "瞬时BUFF时，是否忽略显示",
+          "usageExamples": [
+            "if (IsImmediate() && dictBuffView.IsIgonreWhenImmediately > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用 | 仅在 IsShowInManual=1 时有效"
+        },
+        {
+          "index": 5,
+          "nameCN": "Buff图标",
+          "nameEN": "BuffIcon",
+          "type": "string",
+          "description": "Buff图标",
+          "usageExamples": [
+            "buffIcon.TextureName = dictData.BuffIcon;",
+            "buffIconName = dictBuffView.BuffIcon;",
+            "buffIcon = buffView.BuffIcon;"
+          ],
+          "configTips": "图标资源路径 | 仅在 IsIgonreWhenImmediately=1 时有效"
+        },
+        {
+          "index": 6,
+          "nameCN": "Buff名",
+          "nameEN": "BuffName",
+          "type": "string",
+          "description": "Buff名",
+          "usageExamples": [
+            "buffNameLabel.text = TableTextBlo.TransferText(dictData.BuffName);"
+          ],
+          "configTips": "文本，支持多语言 key（如 #10001）"
+        },
+        {
+          "index": 7,
+          "nameCN": "Buff描述",
+          "nameEN": "BuffDesc",
+          "type": "string",
+          "description": "Buff描述",
+          "usageExamples": [
+            "buffDescLabel.text = TableTextBlo.TransferText(dictData.BuffDesc);",
+            "m_Buff.text = buff.BuffDesc;",
+            "m_PropertyName.text = buff.BuffDesc;",
+            "buffDesc = TableTextBlo.TransferText(dictBuffView.BuffDesc);",
+            "buffDesc = buffView.BuffDesc;"
+          ],
+          "configTips": "描述文本，支持多语言 key"
+        },
+        {
+          "index": 8,
+          "nameCN": "上Buff期望展示时间（会与其他配置一起，作为一个参考值）",
+          "nameEN": "PreferViewDuration",
+          "type": "double",
+          "description": "上Buff期望展示时间（会与其他配置一起，作为一个参考值）",
+          "usageExamples": [
+            "viewDurationArray.Add((float)dictBuffView.PreferViewDuration);",
+            "viewDurationArray.Add((float)dictBuffViewGlobal.PreferViewDuration);"
+          ],
+          "configTips": "时间值（秒），填写正数"
+        },
+        {
+          "index": 9,
+          "nameCN": "下Buff期望展示时间（会与其他配置一起，作为一个参考值）",
+          "nameEN": "PreferViewOffDuration",
+          "type": "double",
+          "description": "下Buff期望展示时间（会与其他配置一起，作为一个参考值）",
+          "usageExamples": [
+            "viewDurationArray.Add((float)dictBuffView.PreferViewOffDuration);",
+            "viewDurationArray.Add((float)dictBuffViewGlobal.PreferViewOffDuration);"
+          ],
+          "configTips": "时间值（秒），填写正数"
+        },
+        {
+          "index": 10,
+          "nameCN": "是否是护盾BUFF",
+          "nameEN": "IsShield",
+          "type": "int",
+          "description": "是否是护盾BUFF",
+          "usageExamples": [
+            "if (dictBuffView.IsShield > 0)",
+            "if (dictBuffView != null && dictBuffView.IsShield > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 11,
+          "nameCN": "是否眩晕",
+          "nameEN": "IsDizzy",
+          "type": "int",
+          "description": "是否眩晕",
+          "usageExamples": [
+            "if (dictBuffView.IsDizzy > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用 | 仅在 IsShield=1 时有效"
+        },
+        {
+          "index": 12,
+          "nameCN": "是否会叠加",
+          "nameEN": "IsGroup",
+          "type": "int",
+          "description": "是否会叠加",
+          "usageExamples": [
+            "if (dictBuffView.IsGroup > 0)",
+            "return dictBuffView.IsGroup > 0;"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用 | 仅在 IsDizzy=1 时有效"
+        },
+        {
+          "index": 13,
+          "nameCN": "叠加最多层数",
+          "nameEN": "GroupMaxNum",
+          "type": "int",
+          "description": "叠加最多层数",
+          "usageExamples": [
+            "maxOverlayNum = dictBuffView.GroupMaxNum;"
+          ],
+          "configTips": "数量值，填写正整数 | 仅在 IsGroup=1 时有效"
+        },
+        {
+          "index": 14,
+          "nameCN": "叠加时的BUFFId",
+          "nameEN": "GroupBuffParticleId",
+          "type": "int[]",
+          "description": "叠加时的BUFFId",
+          "usageExamples": [
+            "if (dictBuffView.GroupBuffParticleId != null)",
+            "foreach (var p in dictBuffView.GroupBuffParticleId)",
+            "if (buffDictData.GroupBuffParticleId != null)",
+            "foreach (var pdId in buffDictData.GroupBuffParticleId)",
+            "foreach (var id in dictBuffView.GroupBuffParticleId)"
+          ],
+          "relatedTable": "TableParticle",
+          "isForeignKey": true,
+          "configTips": "外键，关联 TableParticle 表 | 数组，多个用 | 分隔"
+        },
+        {
+          "index": 15,
+          "nameCN": "EmptyKey-P2",
+          "nameEN": "GroupBuffParticleType",
+          "type": "int",
+          "description": "EmptyKey-P2",
+          "fieldGroup": "GroupBuffParticleId",
+          "usageExamples": [
+            "dictData.GroupBuffParticleType, dictData.GroupBuffParticleId[i], dictData.GroupBuffParticleBoneName,"
+          ],
+          "configTips": "【GroupBuffParticleId 的配套列】与 GroupBuffParticleId（叠加时的BUFFId）配合填写，共同描述同一对象 | 分组 Id，0=不分组"
+        },
+        {
+          "index": 16,
+          "nameCN": "EmptyKey-Q2",
+          "nameEN": "GroupBuffParticleBoneName",
+          "type": "string",
+          "description": "EmptyKey-Q2",
+          "fieldGroup": "GroupBuffParticleId",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(eachSkill.GroupBuffParticleBoneName))",
+            "if (!paths.Contains(eachSkill.GroupBuffParticleBoneName))",
+            "paths.Add(eachSkill.GroupBuffParticleBoneName);",
+            "dictData.GroupBuffParticleType, dictData.GroupBuffParticleId[i], dictData.GroupBuffParticleBoneName,"
+          ],
+          "configTips": "【GroupBuffParticleId 的配套列】与 GroupBuffParticleId（叠加时的BUFFId）配合填写，共同描述同一对象 | 文本，支持多语言 key（如 #10001） | 用作分组键，0=无效"
+        },
+        {
+          "index": 17,
+          "nameCN": "EmptyKey-R2",
+          "nameEN": "GroupBuffParticleOffset",
+          "type": "string",
+          "description": "EmptyKey-R2",
+          "fieldGroup": "GroupBuffParticleId",
+          "usageExamples": [
+            "CommonMethod.GetPosition(dictData.GroupBuffParticleOffset));"
+          ],
+          "configTips": "【GroupBuffParticleId 的配套列】与 GroupBuffParticleId（叠加时的BUFFId）配合填写，共同描述同一对象 | 位置偏移，格式：x,y,z（如 0,0.5,0）"
+        },
+        {
+          "index": 18,
+          "nameCN": "Buff特效Id",
+          "nameEN": "BuffParticle",
+          "type": "int[]",
+          "description": "Buff特效Id",
+          "fieldGroup": "BuffParticle",
+          "usageExamples": [
+            "if (dictBuffView.BuffParticle != null)",
+            "foreach (var p in dictBuffView.BuffParticle)",
+            "if (dictBuffSummon.BuffParticle != null && dictBuffSummon.BuffParticleBoneName != null && dictBuffSummon.BuffOffset != null)",
+            "for (int i = 0; i < dictBuffSummon.BuffParticle.Length; ++i)",
+            "int id = dictBuffSummon.BuffParticle[i];"
+          ],
+          "configTips": "数组，多个用 | 分隔"
+        },
+        {
+          "index": 19,
+          "nameCN": "Buff特效类型 0-持续存在 1-上Buff时 2-下Buff时 3-Buff生效时",
+          "nameEN": "BuffParticleType",
+          "type": "int[]",
+          "description": "Buff特效类型 0-持续存在 1-上Buff时 2-下Buff时 3-Buff生效时",
+          "fieldGroup": "BuffParticle",
+          "usageExamples": [
+            "if (dictData != null && dictData.BuffParticle != null && dictData.BuffParticleType != null && dictData.BuffParticleOffset != null)",
+            "if (i < dictData.BuffParticleType.Length)",
+            "type = dictData.BuffParticleType[i];",
+            "if (dictData != null && dictData.BuffParticle != null && dictData.BuffParticleType != null",
+            "buffCell = new BuffParticleCell(dictData.BuffParticleType[i],"
+          ],
+          "enumType": "BuffParticleType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 BuffParticleType 枚举定义 | 数组，多个用 | 分隔；与同组字段（BuffParticle 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 20,
+          "nameCN": "特效类型--参考HitParticle 0-世界相对 1-人相对 2-我方阵营相对 3-敌方阵营相对",
+          "nameEN": "ParticleType",
+          "type": "int[]",
+          "description": "特效类型--参考HitParticle 0-世界相对 1-人相对 2-我方阵营相对 3-敌方阵营相对",
+          "fieldGroup": "BuffParticle",
+          "usageExamples": [
+            "&& dictData.ParticleType != null)",
+            "if (dictData.ParticleType[i] == (int)BuffParticleMountType.single || dictData.ParticleType[i] == (int)BuffParticleMountType.single_world)",
+            "dictData.ParticleType[i], dictData.BuffParticle[i], \"root\",",
+            "dictData.ParticleType[i], dictData.BuffParticle[i], dictData.BuffParticleBoneName[i],",
+            "dictData.ParticleType[i], dictData.BuffParticle[i], string.Empty,"
+          ],
+          "enumType": "ParticleType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 ParticleType 枚举定义 | 数组，多个用 | 分隔；与同组字段（BuffParticle 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 21,
+          "nameCN": "Buff挂载点 roota--以root往上身高 rootb--以root往下身高一半 buffa--Bip001 HeadNub     buffb--Bip001 Spine",
+          "nameEN": "BuffParticleBoneName",
+          "type": "string[]",
+          "description": "Buff挂载点 roota--以root往上身高 rootb--以root往下身高一半 buffa--Bip001 HeadNub     buffb--Bip001 Spine",
+          "fieldGroup": "BuffParticle",
+          "usageExamples": [
+            "if (null != eachSkill.BuffParticleBoneName)",
+            "foreach (var arg in eachSkill.BuffParticleBoneName)",
+            "if (dictBuffSummon.BuffParticle != null && dictBuffSummon.BuffParticleBoneName != null && dictBuffSummon.BuffOffset != null)",
+            "if (i < dictBuffSummon.BuffParticleBoneName.Length)",
+            "boneName = dictBuffSummon.BuffParticleBoneName[i];"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（BuffParticle 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 22,
+          "nameCN": "Buff偏移",
+          "nameEN": "BuffOffset",
+          "type": "string[]",
+          "description": "Buff偏移",
+          "fieldGroup": "BuffParticle",
+          "usageExamples": [
+            "if (dictBuffSummon.BuffParticle != null && dictBuffSummon.BuffParticleBoneName != null && dictBuffSummon.BuffOffset != null)",
+            "if (i < dictBuffSummon.BuffOffset.Length && !string.IsNullOrEmpty(dictBuffSummon.BuffOffset[i]))",
+            "offset = CommonMethod.GetPosition(dictBuffSummon.BuffOffset[i]);",
+            "CommonMethod.GetPosition(dictData.BuffOffset[i]), 1);",
+            "CommonMethod.GetPosition(dictData.BuffOffset[i]), 2);"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（BuffParticle 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 23,
+          "nameCN": "是否变身",
+          "nameEN": "IsTransfigure",
+          "type": "int",
+          "description": "是否变身",
+          "usageExamples": [
+            "if (dictBuffView.IsTransfigure > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 24,
+          "nameCN": "变身模型Id",
+          "nameEN": "TransferTargetModelId",
+          "type": "int",
+          "description": "变身模型Id",
+          "usageExamples": [
+            "return dictExt.TransferTargetModelId;",
+            "return dict.TransferTargetModelId;"
+          ],
+          "configTips": "模型配置 ID，填写对应配置表的主键 | 仅在 IsTransfigure=1 时有效"
+        },
+        {
+          "index": 25,
+          "nameCN": "换材质，对应MaterialTrans表",
+          "nameEN": "MaterialTransInfo",
+          "type": "string[]",
+          "description": "换材质，对应MaterialTrans表",
+          "usageExamples": [
+            "if (null != dict.MaterialTransInfo && dict.MaterialTransInfo.Length > 0) {",
+            "foreach (var info in dict.MaterialTransInfo) {",
+            "if (dict.MaterialTransInfo != null)",
+            "foreach (var info in dict.MaterialTransInfo)",
+            "if (dictBuffView.MaterialTransInfo != null)"
+          ],
+          "configTips": "数组，多个用 | 分隔"
+        },
+        {
+          "index": 26,
+          "nameCN": "是否换皮",
+          "nameEN": "IsSkinTrans",
+          "type": "int",
+          "description": "是否换皮",
+          "usageExamples": [
+            "if (dictBuffView.IsSkinTrans > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 27,
+          "nameCN": "生效的皮",
+          "nameEN": "SkinTransOn",
+          "type": "int[]",
+          "description": "生效的皮",
+          "fieldGroup": "SkinTransOn",
+          "usageExamples": [
+            "return dictExt.SkinTransOn;",
+            "return dict.SkinTransOn;"
+          ],
+          "configTips": "数组，多个用 | 分隔 | 仅在 IsSkinTrans=1 时有效"
+        },
+        {
+          "index": 28,
+          "nameCN": "失效的皮",
+          "nameEN": "SkinTransOff",
+          "type": "int[]",
+          "description": "失效的皮",
+          "fieldGroup": "SkinTransOn",
+          "usageExamples": [
+            "return dictExt.SkinTransOff;",
+            "return dict.SkinTransOff;"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SkinTransOn 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 29,
+          "nameCN": "是否是沉默",
+          "nameEN": "IsSlience",
+          "type": "int",
+          "description": "是否是沉默",
+          "usageExamples": [
+            "if (dictBuffView.IsSlience == 1)",
+            "else if (dictBuffView.IsSlience == 2)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 30,
+          "nameCN": "沉默的技能类型",
+          "nameEN": "SlienceSkillClass",
+          "type": "int[]",
+          "description": "沉默的技能类型",
+          "fieldGroup": "SlienceSkillClass",
+          "usageExamples": [
+            "slienceSkillClass = dictBuffView.SlienceSkillClass.ToList();"
+          ],
+          "configTips": "数组，多个用 | 分隔 | 仅在 IsSlience=1 时有效"
+        },
+        {
+          "index": 31,
+          "nameCN": "沉默的技能Index",
+          "nameEN": "SlienceSkillIndex",
+          "type": "int[]",
+          "description": "沉默的技能Index",
+          "fieldGroup": "SlienceSkillClass",
+          "usageExamples": [
+            "slienceSkillIndex = dictBuffView.SlienceSkillIndex.ToList();"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SlienceSkillClass 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 32,
+          "nameCN": "是否透明",
+          "nameEN": "IsModelTransparent",
+          "type": "int",
+          "description": "是否透明",
+          "usageExamples": [
+            "if (dictBuffView.IsModelTransparent > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 33,
+          "nameCN": "透明过程时间",
+          "nameEN": "ModelTransparentDuration",
+          "type": "double",
+          "description": "透明过程时间",
+          "usageExamples": [
+            "trasnparentFun.TransparentValue(targetTransprentValue, (float)dictBuffView.ModelTransparentDuration);",
+            "trasnparentFun.TransparentValue(1, (float)dictBuffView.ModelTransparentDuration);",
+            "trasnparentFun.TransparentValue(0f, (float)dictBuffView.ModelTransparentDuration);",
+            "trasnparentFun.TransparentValue(1.0f, (float)dictBuffView.ModelTransparentDuration);"
+          ],
+          "configTips": "时间值（秒），填写正数 | 仅在 IsModelTransparent=1 时有效"
+        },
+        {
+          "index": 34,
+          "nameCN": "骰子BUFF",
+          "nameEN": "DiceNumBuffParticle",
+          "type": "int",
+          "description": "骰子BUFF",
+          "usageExamples": [
+            "if (dictBuffView.DiceNumBuffParticle > 0)",
+            "list.Add(GetParticlePath(dictBuffView.DiceNumBuffParticle));",
+            "if (buffDictData.DiceNumBuffParticle > 0)",
+            "BattleViewManager.Instance.LoadParticle(buffDictData.DiceNumBuffParticle);",
+            "BattleViewManager.Instance.LoadParticle(dictBuffView.DiceNumBuffParticle);"
+          ],
+          "configTips": "数量值，填写正整数 | 用作分组键，0=无效"
+        },
+        {
+          "index": 35,
+          "nameCN": "骰子BUFF-AJ2",
+          "nameEN": "DiceNumBuffParticleType",
+          "type": "int",
+          "description": "骰子BUFF-AJ2",
+          "usageExamples": [
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticle, \"root\", CommonMethod.GetPosition(dictData.DiceNumBuffOffset), 1);",
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticle, \"root\", CommonMethod.GetPosition(dictData.DiceNumBuffOffset), 2);",
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticle, dictData.DiceNumBuffParticleBoneName, CommonMethod.GetPosition(dictData.DiceNumBuffOffset));",
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumParticleType, dictData.DiceNumBuffParticle, string.Empty, CommonMethod.GetPosition(dictData.DiceNumBuffOffset));"
+          ],
+          "enumType": "DiceNumBuffParticleType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 DiceNumBuffParticleType 枚举定义"
+        },
+        {
+          "index": 36,
+          "nameCN": "骰子BUFF-AK2",
+          "nameEN": "DiceNumParticleType",
+          "type": "int",
+          "description": "骰子BUFF-AK2",
+          "usageExamples": [
+            "if (dictData.DiceNumParticleType == (int)BuffParticleMountType.single || dictData.DiceNumParticleType == (int)BuffParticleMountType.single_world)",
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumParticleType, dictData.DiceNumBuffParticle, string.Empty, CommonMethod.GetPosition(dictData.DiceNumBuffOffset));"
+          ],
+          "enumType": "DiceNumParticleType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 DiceNumParticleType 枚举定义"
+        },
+        {
+          "index": 37,
+          "nameCN": "骰子BUFF-AL2",
+          "nameEN": "DiceNumBuffParticleBoneName",
+          "type": "string",
+          "description": "骰子BUFF-AL2",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(eachSkill.DiceNumBuffParticleBoneName))",
+            "if (!paths.Contains(eachSkill.DiceNumBuffParticleBoneName))",
+            "paths.Add(eachSkill.DiceNumBuffParticleBoneName);",
+            "if (dictData.DiceNumBuffParticleBoneName == \"roota\")",
+            "else if (dictData.DiceNumBuffParticleBoneName == \"rootb\")"
+          ],
+          "configTips": "文本，支持多语言 key（如 #10001） | 用作分组键，0=无效"
+        },
+        {
+          "index": 38,
+          "nameCN": "骰子BUFF-AM2",
+          "nameEN": "DiceNumBuffOffset",
+          "type": "string",
+          "description": "骰子BUFF-AM2",
+          "usageExamples": [
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticle, \"root\", CommonMethod.GetPosition(dictData.DiceNumBuffOffset), 1);",
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticle, \"root\", CommonMethod.GetPosition(dictData.DiceNumBuffOffset), 2);",
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticleType, dictData.DiceNumBuffParticle, dictData.DiceNumBuffParticleBoneName, CommonMethod.GetPosition(dictData.DiceNumBuffOffset));",
+            "buffCell = new BuffParticleCell(dictData.DiceNumBuffParticleType, dictData.DiceNumParticleType, dictData.DiceNumBuffParticle, string.Empty, CommonMethod.GetPosition(dictData.DiceNumBuffOffset));"
+          ],
+          "configTips": "位置偏移，格式：x,y,z（如 0,0.5,0）"
+        },
+        {
+          "index": 39,
+          "nameCN": "BUFF的特殊展示",
+          "nameEN": "BuffOffViewInfo",
+          "type": "string",
+          "description": "BUFF的特殊展示",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.BuffOffViewInfo))",
+            "args = dictBuffView.BuffOffViewInfo.Split(',');"
+          ],
+          "configTips": "BUFF消失后的展示配置，逗号分隔的参数字符串（如 type,value）；非空时触发BUFF消失时的额外展示逻辑",
+          "llmEnriched": true
+        },
+        {
+          "index": 40,
+          "nameCN": "BUFF时，会改变被击特效",
+          "nameEN": "ChangeHitParticleId",
+          "type": "int",
+          "description": "BUFF时，会改变被击特效",
+          "usageExamples": [
+            "particleId = dictData.ChangeHitParticleId;",
+            "if (dictBuffView.ChangeHitParticleId > 0)",
+            "list.Add(GetParticlePath(dictBuffView.ChangeHitParticleId));",
+            "if (buffDictData.ChangeHitParticleId > 0)",
+            "BattleViewManager.Instance.LoadParticle(buffDictData.ChangeHitParticleId);"
+          ],
+          "relatedTable": "TableParticle",
+          "isForeignKey": true,
+          "configTips": "外键，关联 TableParticle 表 | 用作分组键，0=无效"
+        },
+        {
+          "index": 41,
+          "nameCN": "EmptyKey-AU2",
+          "nameEN": "ChangeHitParticleType",
+          "type": "int",
+          "description": "EmptyKey-AU2",
+          "fieldGroup": "ChangeHitParticleId",
+          "usageExamples": [
+            "isGloabl = dictData.ChangeHitParticleType == (int)Table.Enum.TableFightHitParticleTypeEnum.all;",
+            "isBindBone = dictData.ChangeHitParticleType == (int)Table.Enum.TableFightHitParticleTypeEnum.single_model;"
+          ],
+          "configTips": "【ChangeHitParticleId 的配套列】与 ChangeHitParticleId（BUFF时，会改变被击特效）配合填写，共同描述同一对象 | 整数值"
+        },
+        {
+          "index": 42,
+          "nameCN": "EmptyKey-AV2",
+          "nameEN": "ChangeHitParticleBone",
+          "type": "string",
+          "description": "EmptyKey-AV2",
+          "fieldGroup": "ChangeHitParticleId",
+          "usageExamples": [
+            "boneName = dictData.ChangeHitParticleBone;",
+            "if (!string.IsNullOrEmpty(eachSkill.ChangeHitParticleBone))",
+            "if (!paths.Contains(eachSkill.ChangeHitParticleBone))",
+            "paths.Add(eachSkill.ChangeHitParticleBone);"
+          ],
+          "configTips": "【ChangeHitParticleId 的配套列】与 ChangeHitParticleId（BUFF时，会改变被击特效）配合填写，共同描述同一对象 | 骨骼挂载点，可填：roota/rootb/buffa/buffb 或具体骨骼名 | 用作分组键，0=无效"
+        },
+        {
+          "index": 43,
+          "nameCN": "EmptyKey-AW2",
+          "nameEN": "ChangeHitParticleOffset",
+          "type": "string",
+          "description": "EmptyKey-AW2",
+          "fieldGroup": "ChangeHitParticleId",
+          "usageExamples": [
+            "_offset = string.IsNullOrEmpty(dictData.ChangeHitParticleOffset) ? Vector3.zero : CommonMethod.GetPosition(dictData.ChangeHitParticleOffset);"
+          ],
+          "configTips": "【ChangeHitParticleId 的配套列】与 ChangeHitParticleId（BUFF时，会改变被击特效）配合填写，共同描述同一对象 | 位置偏移，格式：x,y,z（如 0,0.5,0）"
+        },
+        {
+          "index": 44,
+          "nameCN": "是否是 复活BUFF",
+          "nameEN": "IsRevive",
+          "type": "int",
+          "description": "是否是 复活BUFF",
+          "usageExamples": [
+            "if (dictBuffView.IsRevive > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 45,
+          "nameCN": "EmptyKey-AY2",
+          "nameEN": "TipWord",
+          "type": "string",
+          "description": "EmptyKey-AY2",
+          "fieldGroup": "IsRevive",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.TipWord))",
+            "string content = dictBuffView.TipWord;"
+          ],
+          "configTips": "【IsRevive 的配套列】与 IsRevive（是否是 复活BUFF）配合填写，共同描述同一对象 | 文本内容"
+        },
+        {
+          "index": 46,
+          "nameCN": "EmptyKey-AZ2",
+          "nameEN": "TipWordSize",
+          "type": "string",
+          "description": "EmptyKey-AZ2",
+          "fieldGroup": "IsRevive",
+          "usageExamples": [
+            "string sizeStr = dictBuffView.TipWordSize;"
+          ],
+          "configTips": "【IsRevive 的配套列】与 IsRevive（是否是 复活BUFF）配合填写，共同描述同一对象 | 文本内容"
+        },
+        {
+          "index": 47,
+          "nameCN": "是否有位移",
+          "nameEN": "IsTransferPosition",
+          "type": "int",
+          "description": "是否有位移",
+          "usageExamples": [
+            "if (dictBuffView.IsTransferPosition > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 48,
+          "nameCN": "EmptyKey-BB2",
+          "nameEN": "TransferParticle",
+          "type": "int[]",
+          "description": "EmptyKey-BB2",
+          "fieldGroup": "IsTransferPosition",
+          "usageExamples": [
+            "if (dict != null && dict.TransferParticle != null && dict.TransferParticleBone != null && dict.TransferParticle.Length == dict.TransferParticleBone.Length)",
+            "for (int i = 0; i < dict.TransferParticle.Length; ++i)",
+            "BuffParticleCell cellData = new BuffParticleCell(3, 0, dict.TransferParticle[i], dict.TransferParticleBone[i], Vector3.zero);"
+          ],
+          "configTips": "【IsTransferPosition 的配套列】与 IsTransferPosition（是否有位移）配合填写，共同描述同一对象 | 数组，多个用 | 分隔；与同组字段（IsTransferPosition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 49,
+          "nameCN": "EmptyKey-BC2",
+          "nameEN": "TransferParticleBone",
+          "type": "string[]",
+          "description": "EmptyKey-BC2",
+          "fieldGroup": "IsTransferPosition",
+          "usageExamples": [
+            "if (null != (eachSkill.TransferParticleBone))",
+            "foreach (var arg in eachSkill.TransferParticleBone)",
+            "if (dict != null && dict.TransferParticle != null && dict.TransferParticleBone != null && dict.TransferParticle.Length == dict.TransferParticleBone.Length)",
+            "BuffParticleCell cellData = new BuffParticleCell(3, 0, dict.TransferParticle[i], dict.TransferParticleBone[i], Vector3.zero);"
+          ],
+          "configTips": "【IsTransferPosition 的配套列】与 IsTransferPosition（是否有位移）配合填写，共同描述同一对象 | 数组，多个用 | 分隔；与同组字段（IsTransferPosition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 50,
+          "nameCN": "是否是混乱BUFF",
+          "nameEN": "IsChaos",
+          "type": "int",
+          "description": "是否是混乱BUFF",
+          "usageExamples": [
+            "if (dictBuffView.IsChaos > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 51,
+          "nameCN": "是否回避各种受击效果",
+          "nameEN": "IsCancelHitView",
+          "type": "int",
+          "description": "是否回避各种受击效果",
+          "usageExamples": [
+            "return dict.IsCancelHitView > 0;",
+            "if (dictBuffView.IsCancelHitView > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用 | 仅在 IsChaos=1 时有效"
+        },
+        {
+          "index": 52,
+          "nameCN": "回避的选取规则",
+          "nameEN": "CancelHitViewSelectMutiRule",
+          "type": "int[]",
+          "description": "回避的选取规则",
+          "usageExamples": [
+            "if (dict.CancelHitViewSelectMutiRule != null)",
+            "igonreSelectMutiRule.AddRange(dict.CancelHitViewSelectMutiRule);"
+          ],
+          "configTips": "数组，多个用 | 分隔 | 仅在 IsCancelHitView=1 时有效"
+        },
+        {
+          "index": 53,
+          "nameCN": "上Buff动作",
+          "nameEN": "BuffOnAniName",
+          "type": "string",
+          "description": "上Buff动作",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.BuffOnAniName) ||",
+            "aniName = dictBuffView.BuffOnAniName;"
+          ],
+          "configTips": "文本，支持多语言 key（如 #10001）"
+        },
+        {
+          "index": 54,
+          "nameCN": "EmptyKey-BH2",
+          "nameEN": "BuffOnAniArgs",
+          "type": "string",
+          "description": "EmptyKey-BH2",
+          "fieldGroup": "BuffOnAniName",
+          "usageExamples": [
+            "aniParaments = dictBuffView.BuffOnAniArgs;"
+          ],
+          "configTips": "【BuffOnAniName 的配套列】与 BuffOnAniName（上Buff动作）配合填写，共同描述同一对象 | 参数配置，格式如：id;value 或 id,value"
+        },
+        {
+          "index": 55,
+          "nameCN": "下Buff动作",
+          "nameEN": "BuffOffAniName",
+          "type": "string",
+          "description": "下Buff动作",
+          "usageExamples": [
+            "!string.IsNullOrEmpty(dictBuffView.BuffOffAniName) ||",
+            "aniName = dictBuffView.BuffOffAniName; ;"
+          ],
+          "configTips": "文本，支持多语言 key（如 #10001）"
+        },
+        {
+          "index": 56,
+          "nameCN": "EmptyKey-BJ2",
+          "nameEN": "BuffOffAniArgs",
+          "type": "string",
+          "description": "EmptyKey-BJ2",
+          "fieldGroup": "BuffOffAniName",
+          "usageExamples": [
+            "aniParaments = dictBuffView.BuffOffAniArgs;"
+          ],
+          "configTips": "【BuffOffAniName 的配套列】与 BuffOffAniName（下Buff动作）配合填写，共同描述同一对象 | 参数配置，格式如：id;value 或 id,value"
+        },
+        {
+          "index": 57,
+          "nameCN": "EmptyKey-BK2",
+          "nameEN": "BuffLastAniName",
+          "type": "string",
+          "description": "EmptyKey-BK2",
+          "fieldGroup": "BuffOffAniName",
+          "usageExamples": [
+            "!string.IsNullOrEmpty(dictBuffView.BuffLastAniName) ||",
+            "if (!string.IsNullOrEmpty(dictBuffView.BuffLastAniName) && !string.IsNullOrEmpty(dictBuffView.BuffLastAniConfigure))",
+            "aniName = dictBuffView.BuffLastAniName;"
+          ],
+          "configTips": "【BuffOffAniName 的配套列】与 BuffOffAniName（下Buff动作）配合填写，共同描述同一对象 | 文本，支持多语言 key（如 #10001）"
+        },
+        {
+          "index": 58,
+          "nameCN": "持续动作参数",
+          "nameEN": "BuffLastAniConfigure",
+          "type": "string",
+          "description": "持续动作参数",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.BuffLastAniName) && !string.IsNullOrEmpty(dictBuffView.BuffLastAniConfigure))",
+            "var arr = dictBuffView.BuffLastAniConfigure.Split(',');",
+            "if (!string.IsNullOrEmpty(dictBuffView.BuffLastAniConfigure))"
+          ],
+          "configTips": "图标资源路径"
+        },
+        {
+          "index": 59,
+          "nameCN": "状态动作名",
+          "nameEN": "DizzyState",
+          "type": "string",
+          "description": "状态动作名",
+          "usageExamples": [
+            "dizzyState = dictBuffView.DizzyState;"
+          ],
+          "configTips": "动画名称，填写动画状态机中的动画名"
+        },
+        {
+          "index": 60,
+          "nameCN": "透明度，对应前面transparent字段",
+          "nameEN": "TransparentValue",
+          "type": "float",
+          "description": "透明度，对应前面transparent字段",
+          "usageExamples": [
+            "motionSystem.TransparentValue(0, 1, 1f);",
+            "trasnparentFun.TransparentValue(_transparency, 0);",
+            "transparentFun.TransparentValue(1f, 0);",
+            "transparentFun.TransparentValue(0, 0);",
+            "fun.TransparentValue(1f, 0);"
+          ],
+          "configTips": "透明度，范围 0.0（完全透明）~1.0（完全不透明）"
+        },
+        {
+          "index": 61,
+          "nameCN": "Buff生效时动作",
+          "nameEN": "BuffEffectAniName",
+          "type": "string",
+          "description": "Buff生效时动作",
+          "usageExamples": [
+            "!string.IsNullOrEmpty(dictBuffView.BuffEffectAniName))",
+            "aniName = dictBuffView.BuffEffectAniName; ;"
+          ],
+          "configTips": "文本，支持多语言 key（如 #10001）"
+        },
+        {
+          "index": 62,
+          "nameCN": "EmptyKey-BP2",
+          "nameEN": "BuffEffectAniArgs",
+          "type": "string",
+          "description": "EmptyKey-BP2",
+          "fieldGroup": "BuffEffectAniName",
+          "usageExamples": [
+            "aniParaments = dictBuffView.BuffEffectAniArgs;"
+          ],
+          "configTips": "【BuffEffectAniName 的配套列】与 BuffEffectAniName（Buff生效时动作）配合填写，共同描述同一对象 | 参数配置，格式如：id;value 或 id,value"
+        },
+        {
+          "index": 63,
+          "nameCN": "改变受击动作",
+          "nameEN": "ChangeHitAniName",
+          "type": "string",
+          "description": "改变受击动作",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.ChangeHitAniName))",
+            "replaceAniName = dict.ChangeHitAniName;"
+          ],
+          "configTips": "文本，支持多语言 key（如 #10001）"
+        },
+        {
+          "index": 64,
+          "nameCN": "Buff生效时机",
+          "nameEN": "BuffEffectTimer",
+          "type": "int",
+          "description": "Buff生效时机",
+          "usageExamples": [
+            "return dictBuffView.BuffEffectTimer;"
+          ],
+          "configTips": "时机/时间枚举值，参考对应枚举定义"
+        },
+        {
+          "index": 65,
+          "nameCN": "Buff生效时机参数",
+          "nameEN": "BuffEffectTimerArgs",
+          "type": "string",
+          "description": "Buff生效时机参数",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.BuffEffectTimerArgs))",
+            "float.TryParse(dictBuffView.BuffEffectTimerArgs, out delayTime);"
+          ],
+          "configTips": "参数配置，格式如：id;value 或 id,value"
+        },
+        {
+          "index": 66,
+          "nameCN": "背后灵",
+          "nameEN": "BuffSummonId",
+          "type": "int",
+          "description": "背后灵",
+          "usageExamples": [
+            "if (dictBuffView.BuffSummonId > 0)",
+            "buffSummonId = dictBuffView.BuffSummonId;"
+          ],
+          "configTips": "召唤物 ID，填写对应配置表的主键 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 67,
+          "nameCN": "特写特效id",
+          "nameEN": "BuffFeatureEffectId",
+          "type": "int",
+          "description": "特写特效id",
+          "usageExamples": [
+            "if (dictBuffView.BuffFeatureEffectId > 0)",
+            "return dictData.BuffFeatureEffectId;",
+            "featureEffectId = buffView.BuffFeatureEffectId,"
+          ],
+          "relatedTable": "TableFeatureEffect",
+          "isForeignKey": true,
+          "configTips": "外键，关联 TableFeatureEffect 表 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 68,
+          "nameCN": "是否是消耗魂玉百分比buff",
+          "nameEN": "IsCostActionPointPercent",
+          "type": "int",
+          "description": "是否是消耗魂玉百分比buff",
+          "usageExamples": [
+            "if (dictBuffView.IsCostActionPointPercent > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 69,
+          "nameCN": "音效",
+          "nameEN": "Audios",
+          "type": "string[]",
+          "description": "音效",
+          "usageExamples": [
+            "if (dictBuffView.Audios != null && dictBuffView.Audios.Length > 0)",
+            "if (buffView != null && buffView.Audios != null)",
+            "foreach (var audio in buffView.Audios)"
+          ],
+          "configTips": "数组，多个用 | 分隔 | 仅在 IsCostActionPointPercent=1 时有效"
+        },
+        {
+          "index": 70,
+          "nameCN": "特殊Buff类型",
+          "nameEN": "specialBuffType",
+          "type": "int",
+          "description": "特殊Buff类型",
+          "usageExamples": [
+            "if (dictBuffView.specialBuffType > 0)",
+            "switch (dictBuffView.specialBuffType)"
+          ],
+          "enumType": "specialBuffType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 specialBuffType 枚举定义 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 71,
+          "nameCN": "Buff组",
+          "nameEN": "BuffGroup",
+          "type": "int",
+          "description": "Buff组",
+          "usageExamples": [
+            "if (buffView != null && buffView.BuffGroup > 0)",
+            "if (buffViewA.BuffGroup < buffViewB.BuffGroup)",
+            "else if (buffViewA.BuffGroup > buffViewB.BuffGroup)",
+            "if (exportDict.ContainsKey(buffView.BuffGroup))",
+            "exportDict[buffView.BuffGroup].Add(export);"
+          ],
+          "configTips": "分组 Id，0=不分组 | 用作分组键并参与排序，0=无效"
+        },
+        {
+          "index": 72,
+          "nameCN": "Buff优先级",
+          "nameEN": "BuffPriority",
+          "type": "int",
+          "description": "Buff优先级",
+          "usageExamples": [
+            "if (buffViewA.BuffPriority < buffViewB.BuffPriority)",
+            "else if (buffViewA.BuffPriority > buffViewB.BuffPriority)"
+          ],
+          "configTips": "优先级，数值越大优先级越高 | 排序键，数值决定顺序"
+        },
+        {
+          "index": 73,
+          "nameCN": "战斗日志Buff名",
+          "nameEN": "buffLogName",
+          "type": "string",
+          "description": "战斗日志Buff名",
+          "configTips": "文本，支持多语言 key（如 #10001）"
+        },
+        {
+          "index": 74,
+          "nameCN": "船只buff战斗显示名字",
+          "nameEN": "shipSkillBuff",
+          "type": "string",
+          "description": "船只buff战斗显示名字",
+          "usageExamples": [
+            "if (table != null && (table.shipSkillBuff != null && table.shipSkillBuff.Length > 0))"
+          ],
+          "configTips": "战舰技能BUFF在战斗界面展示的描述文本；非空时在战斗UI的BUFF信息栏显示该内容",
+          "llmEnriched": true
+        },
+        {
+          "index": 75,
+          "nameCN": "BUFF图标分栏类型 0,无类型 1,增益   2,减益  3,机制",
+          "nameEN": "BufficonType",
+          "type": "int[]",
+          "description": "BUFF图标分栏类型 0,无类型 1,增益   2,减益  3,机制",
+          "enumType": "BufficonType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 BufficonType 枚举定义 | 数组，多个用 | 分隔"
+        },
+        {
+          "index": 76,
+          "nameCN": "扩展技能",
+          "nameEN": "ExtendSkillParam",
+          "type": "string",
+          "description": "扩展技能",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.ExtendSkillParam))",
+            "buffExtendSkillParam = dictBuffView.ExtendSkillParam;",
+            "hero.ExtendSkillParam = buffExtendSkillParam;",
+            "hero.ExtendSkillParam = string.Empty;",
+            "if (!string.IsNullOrEmpty(battleHero.ExtendSkillParam))"
+          ],
+          "configTips": "参数配置，格式如：id;value 或 id,value"
+        },
+        {
+          "index": 77,
+          "nameCN": "特殊连携技",
+          "nameEN": "SpecialQteSkillParam",
+          "type": "string",
+          "description": "特殊连携技",
+          "usageExamples": [
+            "if (!string.IsNullOrEmpty(dictBuffView.SpecialQteSkillParam))",
+            "buffSpecialQteSkillParam = dictBuffView.SpecialQteSkillParam;",
+            "hero.SpecialQteSkillParam = buffSpecialQteSkillParam;",
+            "hero.SpecialQteSkillParam = string.Empty;",
+            "if (string.IsNullOrEmpty(battleHero.SpecialQteSkillParam))"
+          ],
+          "configTips": "参数配置，格式如：id;value 或 id,value"
+        }
+      ],
+      "daoFile": "../client/ProjectAll/Assets/ClientRes/script/data/tabledata/dao/TableBuffViewDao.cs",
+      "fieldGroups": {
+        "GroupBuffParticleId": {
+          "type": "companion",
+          "desc": "GroupBuffParticleId 组（GroupBuffParticleId 为主字段，后跟 3 个配套列）。",
+          "fields": [
+            "GroupBuffParticleId",
+            "GroupBuffParticleType",
+            "GroupBuffParticleBoneName",
+            "GroupBuffParticleOffset"
+          ]
+        },
+        "ChangeHitParticleId": {
+          "type": "companion",
+          "desc": "ChangeHitParticleId 组（ChangeHitParticleId 为主字段，后跟 3 个配套列）。",
+          "fields": [
+            "ChangeHitParticleId",
+            "ChangeHitParticleType",
+            "ChangeHitParticleBone",
+            "ChangeHitParticleOffset"
+          ]
+        },
+        "IsRevive": {
+          "type": "companion",
+          "desc": "IsRevive 组（IsRevive 为主字段，后跟 2 个配套列）。",
+          "fields": [
+            "IsRevive",
+            "TipWord",
+            "TipWordSize"
+          ]
+        },
+        "IsTransferPosition": {
+          "type": "companion",
+          "desc": "IsTransferPosition 组（IsTransferPosition 为主字段，后跟 2 个配套列）。",
+          "fields": [
+            "IsTransferPosition",
+            "TransferParticle",
+            "TransferParticleBone"
+          ]
+        },
+        "BuffOnAniName": {
+          "type": "companion",
+          "desc": "BuffOnAniName 组（BuffOnAniName 为主字段，后跟 1 个配套列）。",
+          "fields": [
+            "BuffOnAniName",
+            "BuffOnAniArgs"
+          ]
+        },
+        "BuffOffAniName": {
+          "type": "companion",
+          "desc": "BuffOffAniName 组（BuffOffAniName 为主字段，后跟 2 个配套列）。",
+          "fields": [
+            "BuffOffAniName",
+            "BuffOffAniArgs",
+            "BuffLastAniName"
+          ]
+        },
+        "BuffEffectAniName": {
+          "type": "companion",
+          "desc": "BuffEffectAniName 组（BuffEffectAniName 为主字段，后跟 1 个配套列）。",
+          "fields": [
+            "BuffEffectAniName",
+            "BuffEffectAniArgs"
+          ]
+        },
+        "BuffParticle": {
+          "type": "parallel",
+          "desc": "并行数组组，共 5 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "BuffParticle",
+            "BuffParticleType",
+            "ParticleType",
+            "BuffParticleBoneName",
+            "BuffOffset"
+          ]
+        },
+        "SkinTransOn": {
+          "type": "parallel",
+          "desc": "并行数组组，共 2 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "SkinTransOn",
+            "SkinTransOff"
+          ]
+        },
+        "SlienceSkillClass": {
+          "type": "parallel",
+          "desc": "并行数组组，共 2 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "SlienceSkillClass",
+            "SlienceSkillIndex"
+          ]
+        },
+        "TransferParticle": {
+          "type": "parallel",
+          "desc": "并行数组组，共 2 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "TransferParticle",
+            "TransferParticleBone"
+          ]
+        }
+      }
+    },
+    "TableSailorModel": {
+      "className": "TableSailorModel",
+      "filePath": "../client/ProjectAll/Assets/ClientRes/script/data/tabledata/datamodel/TableSailorModel.cs",
+      "fieldCount": 50,
+      "fields": [
+        {
+          "index": 1,
+          "nameCN": "模型Id",
+          "nameEN": "ModelId",
+          "type": "int",
+          "description": "模型Id",
+          "usageExamples": [
+            "var heroSounds = Table.Blo.TableHeroSceneActionBlo.GetFormationActions(tableModel.ModelId);",
+            "var dictModelOffset = Table.Blo.TableHeroModelDisplayOffsetBlo.GetTableHeroModelDisplayOffset(tableModel.ModelId);",
+            "ExLog.LogError(\"TableSailorModel LowModelSkinsOn数据为null，ModelId:\" + dictModel.ModelId);",
+            "ExLog.LogError(\"TableSailorModel LowModelSkinsOff数据为null，ModelId:\" + dictModel.ModelId);",
+            "ExLog.LogError(\"TableSailorModel HighModelSkinsOn数据为null，ModelId:\" + dictModel.ModelId);"
+          ],
+          "relatedTable": "TableHeroModelDisplayOffset",
+          "isForeignKey": true,
+          "configTips": "外键，关联 TableHeroModelDisplayOffset 表 | 用作分组键，0=无效"
+        },
+        {
+          "index": 2,
+          "nameCN": "模型名",
+          "nameEN": "ModelRes",
+          "type": "string",
+          "description": "模型名",
+          "usageExamples": [
+            "string modelResName = dictModel.ModelRes;",
+            "modelKit.SetModel(tableModel.ModelRes);",
+            "model.SetModel(dictMode.ModelRes, \"_town\", \"UI\");",
+            "ModelKit.SetModel(tableModel.ModelRes);",
+            "var modelRes = _fortressModelData.ModelRes;"
+          ],
+          "configTips": "模型资源文件名，用于加载角色3D模型资产（如 SetModel(ModelRes)）",
+          "llmEnriched": true
+        },
+        {
+          "index": 3,
+          "nameCN": "是否有完整的动作",
+          "nameEN": "IsMain",
+          "type": "int",
+          "description": "是否有完整的动作",
+          "usageExamples": [
+            "if (dictModel.IsMain == 0)",
+            "info.isFullAnim = sailorModelData.IsMain == 1;",
+            "m_IsMainModel = m_DictModel.IsMain > 0;",
+            "string anim = dictModel.IsMain == 0 ? \"_anim\" : \"_town\";",
+            "if (dictModel.IsMain > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 4,
+          "nameCN": "是否有低模存在  1:有  0:没有",
+          "nameEN": "IsHaveLowModel",
+          "type": "int",
+          "description": "是否有低模存在  1:有  0:没有",
+          "usageExamples": [
+            "if (dictModel.IsHaveLowModel > 0 && !isHostPlayer)",
+            "if (dictModel.IsHaveLowModel > 0 && !IsHostPlayer())",
+            "if (sailorModel.IsHaveLowModel > 0 && !IsHostPlayer())"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用 | 仅在 IsMain=1 时有效"
+        },
+        {
+          "index": 5,
+          "nameCN": "缩放比率",
+          "nameEN": "ModelScale",
+          "type": "double",
+          "description": "缩放比率",
+          "usageExamples": [
+            "model.transform.localScale = Vector3.one * (float)dictModel.ModelScale;",
+            "_localScale =Vector3.one * 0.85f * (float)dictModel.ModelScale;",
+            "modelScale *= (float)dictModel.ModelScale;",
+            "uiModelKit.SetModelScale((float)dictModel.ModelScale);",
+            "_height = (float)dictModel.Height * (float)dictModel.ModelScale;"
+          ],
+          "configTips": "小数值 | 仅在 IsHaveLowModel=1 时有效"
+        },
+        {
+          "index": 6,
+          "nameCN": "城镇待机高度",
+          "nameEN": "StandHeight",
+          "type": "double",
+          "description": "城镇待机高度",
+          "usageExamples": [
+            "modelHeight = useScale * (float)dictMode.StandHeight + dictModelOffset.WinnerTitlePosOffset;",
+            "return (float)DictData.StandHeight;",
+            "heroHeight = model.StandHeight;",
+            "GUILayout.Label(\"身高：\" + modelHero.StandHeight);",
+            "_normalStandHeight = (float)dictModel.StandHeight;"
+          ],
+          "configTips": "角色站立/待机状态的高度（单位：米），用于摄像机定位和UI高度显示",
+          "llmEnriched": true
+        },
+        {
+          "index": 7,
+          "nameCN": "战斗场景高度",
+          "nameEN": "Height",
+          "type": "double",
+          "description": "战斗场景高度",
+          "usageExamples": [
+            "new GUILayoutOption[] { GUILayout.Width(150), GUILayout.Height(35) });",
+            "new GUILayoutOption[] { GUILayout.Width(100), GUILayout.Height(35) });",
+            "return GUILayout.Height(Screen.height * percent);",
+            "return (float)DictData.Height;",
+            "int h = bitMatrix.Height;"
+          ],
+          "configTips": "角色战斗/动作状态的高度（单位：米），用于碰撞体和技能高度判定",
+          "llmEnriched": true
+        },
+        {
+          "index": 8,
+          "nameCN": "模型半径",
+          "nameEN": "Radius",
+          "type": "double",
+          "description": "模型半径",
+          "usageExamples": [
+            "return (float)DictData.Radius;",
+            "SetColliderSize(shipModelData.Radius * _scale);",
+            "_radius = (float)dictModel.Radius;",
+            "var offset = (float)(m_DictModel.Radius * (1 - m_DictModel.HugeModelViewScale));",
+            "float modelRadius = (float)dictModel.Radius;"
+          ],
+          "configTips": "模型碰撞半径（单位：米），用于设置碰撞体大小和位移偏移计算",
+          "llmEnriched": true
+        },
+        {
+          "index": 9,
+          "nameCN": "默认被选择的Bone",
+          "nameEN": "DefaultFoundBone",
+          "type": "string",
+          "description": "默认被选择的Bone",
+          "usageExamples": [
+            "_defaultFoundBone = GetModelSubTransformByName(transform, DictData.DefaultFoundBone);",
+            "_defaultFoundReflectBone = GetModelSubTransformByName(reflectModel.transform, DictData.DefaultFoundBone);",
+            "if (!string.IsNullOrEmpty(eachSkill.DefaultFoundBone))",
+            "if (!paths.Contains(eachSkill.DefaultFoundBone))",
+            "paths.Add(eachSkill.DefaultFoundBone);"
+          ],
+          "configTips": "骨骼挂载点，可填：roota/rootb/buffa/buffb 或具体骨骼名 | 用作分组键，0=无效"
+        },
+        {
+          "index": 10,
+          "nameCN": "0:普通  1:瞬移",
+          "nameEN": "RushJumpbType",
+          "type": "int",
+          "description": "0:普通  1:瞬移",
+          "usageExamples": [
+            "if (dictModel.RushJumpbType == 1)",
+            "_movementType = dictModel.RushJumpbType;"
+          ],
+          "enumType": "RushJumpbType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 RushJumpbType 枚举定义 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 11,
+          "nameCN": "向前冲动作开始",
+          "nameEN": "RushAniStartTime",
+          "type": "double",
+          "description": "向前冲动作开始",
+          "usageExamples": [
+            "rushStartTime = (float)dictOffset.RushAniStartTime;",
+            "rushStartTime = (float)dictModel.RushAniStartTime;",
+            "_rushStartTime = (float)dictModel.RushAniStartTime;"
+          ],
+          "configTips": "时间值（秒），填写正数"
+        },
+        {
+          "index": 12,
+          "nameCN": "向前冲动作结束",
+          "nameEN": "RushAniStopTime",
+          "type": "double",
+          "description": "向前冲动作结束",
+          "usageExamples": [
+            "rushStopTime = (float)dictOffset.RushAniStopTime;",
+            "rushStopTime = (float)dictModel.RushAniStopTime;",
+            "_rushStopTime = (float)dictModel.RushAniStopTime;"
+          ],
+          "configTips": "时间值（秒），填写正数"
+        },
+        {
+          "index": 13,
+          "nameCN": "开始前冲动作特效，不填默认18",
+          "nameEN": "RushParticle",
+          "type": "int",
+          "description": "开始前冲动作特效，不填默认18",
+          "usageExamples": [
+            "_beginParticleId = dictModel.RushParticle == 0 ? 18 : dictModel.RushParticle;"
+          ],
+          "configTips": "整数值 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 14,
+          "nameCN": "结束前冲动作特效",
+          "nameEN": "RushEndParticle",
+          "type": "int",
+          "description": "结束前冲动作特效",
+          "usageExamples": [
+            "_endParticleId = dictModel.RushEndParticle;"
+          ],
+          "configTips": "前冲动作结束时播放的特效ID，填0表示无特效",
+          "llmEnriched": true
+        },
+        {
+          "index": 15,
+          "nameCN": "回跳动作开始",
+          "nameEN": "JumpbStartTime",
+          "type": "double",
+          "description": "回跳动作开始",
+          "usageExamples": [
+            "jumpbStartTime = (float)dictOffset.JumpbStartTime;",
+            "jumpbStartTime = (float)dictModel.JumpbStartTime;",
+            "_jumpbStartTime = (float)dictModel.JumpbStartTime;",
+            "realBeginTime = ownHero.sailorActor.JumpbStartTime;",
+            "jumpDuration = heroCtrl.GetBattleHero ().sailorActor.JumpbStopTime - heroCtrl.GetBattleHero ().sailorActor.JumpbStartTime;"
+          ],
+          "configTips": "时间值（秒），填写正数"
+        },
+        {
+          "index": 16,
+          "nameCN": "回跳动作结束",
+          "nameEN": "JumpbStopTime",
+          "type": "double",
+          "description": "回跳动作结束",
+          "usageExamples": [
+            "jumpbStopTime = (float)dictOffset.JumpbStopTime;",
+            "jumpbStopTime = (float)dictModel.JumpbStopTime;",
+            "_jumpbStopTime = (float)dictModel.JumpbStopTime;",
+            "realStopTime = ownHero.sailorActor.JumpbStopTime;",
+            "jumpDuration = heroCtrl.GetBattleHero ().sailorActor.JumpbStopTime - heroCtrl.GetBattleHero ().sailorActor.JumpbStartTime;"
+          ],
+          "configTips": "时间值（秒），填写正数"
+        },
+        {
+          "index": 17,
+          "nameCN": "开始回跳动作特效",
+          "nameEN": "JumpbParticle",
+          "type": "int",
+          "description": "开始回跳动作特效",
+          "usageExamples": [
+            "_beginParticleId = dictModel.JumpbParticle;"
+          ],
+          "configTips": "跳跃动作开始时播放的特效ID，填0表示无特效",
+          "llmEnriched": true
+        },
+        {
+          "index": 18,
+          "nameCN": "结束回跳动作特效",
+          "nameEN": "JumpbEndParticle",
+          "type": "int",
+          "description": "结束回跳动作特效",
+          "usageExamples": [
+            "_endParticleId = dictModel.JumpbEndParticle;"
+          ],
+          "configTips": "跳跃动作结束时播放的特效ID，填0表示无特效",
+          "llmEnriched": true
+        },
+        {
+          "index": 19,
+          "nameCN": "死亡动作持续时长",
+          "nameEN": "DeathDuration",
+          "type": "double",
+          "description": "死亡动作持续时长",
+          "usageExamples": [
+            "_deadDuration = (float)dictModel.DeathDuration;"
+          ],
+          "configTips": "时间值（秒），填写正数"
+        },
+        {
+          "index": 20,
+          "nameCN": "招募相机X",
+          "nameEN": "RecruitCamX",
+          "type": "float",
+          "description": "招募相机X",
+          "usageExamples": [
+            "offset.x = dict.RecruitCamX;"
+          ],
+          "configTips": "招募界面摄像机X轴偏移量",
+          "llmEnriched": true
+        },
+        {
+          "index": 21,
+          "nameCN": "招募相机Y",
+          "nameEN": "RecruitCamY",
+          "type": "float",
+          "description": "招募相机Y",
+          "usageExamples": [
+            "offset.y = dict.RecruitCamY;"
+          ],
+          "configTips": "招募界面摄像机Y轴偏移量",
+          "llmEnriched": true
+        },
+        {
+          "index": 22,
+          "nameCN": "招募相机Z",
+          "nameEN": "RecruitCamZ",
+          "type": "float",
+          "description": "招募相机Z",
+          "usageExamples": [
+            "offset.z = dict.RecruitCamZ;"
+          ],
+          "configTips": "招募界面摄像机Z轴偏移量",
+          "llmEnriched": true
+        },
+        {
+          "index": 23,
+          "nameCN": "招募模型大小",
+          "nameEN": "RecruitScale",
+          "type": "float",
+          "description": "招募模型大小",
+          "usageExamples": [
+            "scale = dict.RecruitScale;"
+          ],
+          "configTips": "招募界面模型缩放比例",
+          "llmEnriched": true
+        },
+        {
+          "index": 24,
+          "nameCN": "特效是否受到星级影响",
+          "nameEN": "IsPlayerSceneParticle",
+          "type": "int[]",
+          "description": "特效是否受到星级影响",
+          "fieldGroup": "IsPlayerSceneParticle",
+          "usageExamples": [
+            "if (dictAnim.ParticleIds != null && dictAnim.ParticleTypes != null && dictAnim.ParticleArgs != null && dictAnim.IsPlayerSceneParticle != null && dictAnim.isBindAnim != null)",
+            "if (dictAnim.IsPlayerSceneParticle.Length != dictAnim.ParticleIds.Length)",
+            "ExLog.LogError(\"SailorModelAnimation表IsPlayerSceneParticle与ParticleIds数组长度不匹配！SailorModelAnimation.id:\" + dictAnim.id + \" IsPlayerSceneParticle.Length:\" + dictAnim.IsPlayerSceneParticle.Length + \" ParticleIds.Length:\" + dictAnim.ParticleIds.Length);",
+            "if (effectType != HeroEffectType.EIGHT_STAR_EFFECT && dictAnim.IsPlayerSceneParticle[i] == 1)    //当前选择的不是八星特效",
+            "if (DictData != null && DictData.ParticleIds != null && DictData.ParticleArgs != null && DictData.IsPlayerSceneParticle != null)"
+          ],
+          "configTips": "数组，多个用 | 分隔"
+        },
+        {
+          "index": 25,
+          "nameCN": "场景模型常驻特效",
+          "nameEN": "ParticleIds",
+          "type": "int[]",
+          "description": "场景模型常驻特效",
+          "fieldGroup": "IsPlayerSceneParticle",
+          "usageExamples": [
+            "if (dictAnim.ParticleIds != null && dictAnim.ParticleTypes != null && dictAnim.ParticleArgs != null && dictAnim.IsPlayerSceneParticle != null && dictAnim.isBindAnim != null)",
+            "if (dictAnim.IsPlayerSceneParticle.Length != dictAnim.ParticleIds.Length)",
+            "ExLog.LogError(\"SailorModelAnimation表IsPlayerSceneParticle与ParticleIds数组长度不匹配！SailorModelAnimation.id:\" + dictAnim.id + \" IsPlayerSceneParticle.Length:\" + dictAnim.IsPlayerSceneParticle.Length + \" ParticleIds.Length:\" + dictAnim.ParticleIds.Length);",
+            "for (int i = 0; i < dictAnim.ParticleIds.Length && i < dictAnim.ParticleArgs.Length; ++i)",
+            "ParticleCellData cellData = new ParticleCellData(dictAnim.ParticleIds[i], boneName, dictAnim.ParticleTypes[i] == (int)Table.Enum.TableParticleType.single_model, offset, Vector3.zero);"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（IsPlayerSceneParticle 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 26,
+          "nameCN": "场景模型常驻特效参数",
+          "nameEN": "ParticleArgs",
+          "type": "string[]",
+          "description": "场景模型常驻特效参数",
+          "fieldGroup": "IsPlayerSceneParticle",
+          "usageExamples": [
+            "if (dictAnim.ParticleIds != null && dictAnim.ParticleTypes != null && dictAnim.ParticleArgs != null && dictAnim.IsPlayerSceneParticle != null && dictAnim.isBindAnim != null)",
+            "for (int i = 0; i < dictAnim.ParticleIds.Length && i < dictAnim.ParticleArgs.Length; ++i)",
+            "string[] arr = dictAnim.ParticleArgs[i].Split('#');",
+            "if (DictData != null && DictData.ParticleIds != null && DictData.ParticleArgs != null && DictData.IsPlayerSceneParticle != null)",
+            "var arr = DictData.ParticleArgs[i].Split('#');"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（IsPlayerSceneParticle 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 27,
+          "nameCN": "添加材质球的数据，强烈建议不使用",
+          "nameEN": "AdditionMaterialArgs",
+          "type": "string",
+          "description": "添加材质球的数据，强烈建议不使用",
+          "usageExamples": [
+            "if (DictData != null && !string.IsNullOrEmpty(DictData.AdditionMaterialArgs))",
+            "string info = DictData.AdditionMaterialArgs;"
+          ],
+          "configTips": "参数配置，格式如：id;value 或 id,value"
+        },
+        {
+          "index": 28,
+          "nameCN": "押送特效",
+          "nameEN": "BeConvoyParticleIds",
+          "type": "int[]",
+          "description": "押送特效",
+          "fieldGroup": "BeConvoyParticleIds",
+          "usageExamples": [
+            "var beConvoyParticleIds = modelData.BeConvoyParticleIds;"
+          ],
+          "configTips": "数组，多个用 | 分隔"
+        },
+        {
+          "index": 29,
+          "nameCN": "押送特效参数",
+          "nameEN": "BeConvoyParticleArgs",
+          "type": "string[]",
+          "description": "押送特效参数",
+          "fieldGroup": "BeConvoyParticleIds",
+          "usageExamples": [
+            "var beConvoyParticleArgs = modelData.BeConvoyParticleArgs;",
+            "if (null != eachSkill.BeConvoyParticleArgs)",
+            "foreach (var args in eachSkill.BeConvoyParticleArgs)"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（BeConvoyParticleIds 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 30,
+          "nameCN": "模型展示动画",
+          "nameEN": "DisplayAni",
+          "type": "string",
+          "description": "模型展示动画",
+          "configTips": "动画名称，填写动画状态机中的动画名"
+        },
+        {
+          "index": 31,
+          "nameCN": "场景中Run02动作间隔",
+          "nameEN": "Run02DetalValue",
+          "type": "double",
+          "description": "场景中Run02动作间隔",
+          "usageExamples": [
+            "runTriggerCooldown = dictModel.Run02DetalValue > 0 ? (float)dictModel.Run02DetalValue : 5f;"
+          ],
+          "configTips": "小数值 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 32,
+          "nameCN": "场景中切换Run02动作条件 格式：星级&&后续扩展条件",
+          "nameEN": "SwitchRun02Condition",
+          "type": "string[]",
+          "description": "场景中切换Run02动作条件 格式：星级&&后续扩展条件",
+          "usageExamples": [
+            "if (dictModel.SwitchRun02Condition != null && dictModel.SwitchRun02Condition.Length > 0)",
+            "float.TryParse(dictModel.SwitchRun02Condition[0], out temp);"
+          ],
+          "configTips": "数组，多个用 | 分隔"
+        },
+        {
+          "index": 33,
+          "nameCN": "死亡展示类型 0: normal 1:particledeath  2:cameraDeath",
+          "nameEN": "DeathShowType",
+          "type": "int",
+          "description": "死亡展示类型 0: normal 1:particledeath  2:cameraDeath",
+          "usageExamples": [
+            "_deadShowType = (int)dictModel.DeathShowType;"
+          ],
+          "enumType": "DeathShowType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 DeathShowType 枚举定义"
+        },
+        {
+          "index": 34,
+          "nameCN": "EmptyKey-AL2",
+          "nameEN": "DeathShowArgs",
+          "type": "string",
+          "description": "EmptyKey-AL2",
+          "fieldGroup": "DeathShowType",
+          "usageExamples": [
+            "_deadShowArgs = (string)dictModel.DeathShowArgs;"
+          ],
+          "configTips": "【DeathShowType 的配套列】与 DeathShowType（死亡展示类型 0: normal 1:particledeath  2:cameraDeath）配合填写，共同描述同一对象 | 参数配置，格式如：id;value 或 id,value"
+        },
+        {
+          "index": 35,
+          "nameCN": "是否为大体型",
+          "nameEN": "IsHuge",
+          "type": "int",
+          "description": "是否为大体型",
+          "usageExamples": [
+            "isHugeUnit = dictModel.IsHuge > 0;",
+            "if (m_DictModel.IsHuge > 0)",
+            "if (dictModel.IsHuge > 0)",
+            "if (kit.DictData.IsHuge > 0)"
+          ],
+          "configTips": "布尔值：0=否，1=是 | 0 表示无效/禁用，非 0 表示启用"
+        },
+        {
+          "index": 36,
+          "nameCN": "EmptyKey-AN2",
+          "nameEN": "HugeModelViewScale",
+          "type": "float",
+          "description": "EmptyKey-AN2",
+          "fieldGroup": "IsHuge",
+          "usageExamples": [
+            "var offset = (float)(m_DictModel.Radius * (1 - m_DictModel.HugeModelViewScale));",
+            "m_ReflectObj.transform.localScale = new Vector3(m_DictModel.HugeModelViewScale, m_DictModel.HugeModelViewScale, m_DictModel.HugeModelViewScale);",
+            "var offset = (float)(dictModel.Radius * (1 - dictModel.HugeModelViewScale));",
+            "reflectObj.transform.localScale = new Vector3(dictModel.HugeModelViewScale, dictModel.HugeModelViewScale, dictModel.HugeModelViewScale);"
+          ],
+          "configTips": "【IsHuge 的配套列】与 IsHuge（是否为大体型）配合填写，共同描述同一对象 | 小数值"
+        },
+        {
+          "index": 37,
+          "nameCN": "EmptyKey-AO2",
+          "nameEN": "HugeModelHpBarHeight",
+          "type": "float",
+          "description": "EmptyKey-AO2",
+          "fieldGroup": "IsHuge",
+          "usageExamples": [
+            "pos.y += kit.DictData.HugeModelHpBarHeight;"
+          ],
+          "configTips": "【IsHuge 的配套列】与 IsHuge（是否为大体型）配合填写，共同描述同一对象 | 小数值"
+        },
+        {
+          "index": 38,
+          "nameCN": "模型特殊类型",
+          "nameEN": "SpecialType",
+          "type": "int",
+          "description": "模型特殊类型",
+          "usageExamples": [
+            "if (dictModel.IsMain > 0 || dictModel.SpecialType == (int)SailorModelSpecialType.NotMainModelRaid)"
+          ],
+          "enumType": "SpecialType",
+          "isEnum": true,
+          "configTips": "枚举值，参考 SpecialType 枚举定义"
+        },
+        {
+          "index": 39,
+          "nameCN": "场景中切换模型皮条件 格式：星级&&后续扩展条件",
+          "nameEN": "SwitchModleSkinCondition",
+          "type": "string[]",
+          "description": "场景中切换模型皮条件 格式：星级&&后续扩展条件",
+          "fieldGroup": "SwitchModleSkinCondition",
+          "usageExamples": [
+            "if (dictModel.SwitchModleSkinCondition != null && dictModel.SwitchModleSkinCondition.Length > 0)",
+            "if (dictModel.SwitchModleSkinCondition.Length == 1 && !dictModel.SwitchModleSkinCondition[0].Contains(\"|\"))// 兼容老参数格式",
+            "int.TryParse(dictModel.SwitchModleSkinCondition[0], out starCondition);",
+            "foreach (var conditionStr in dictModel.SwitchModleSkinCondition)"
+          ],
+          "configTips": "数组，多个用 | 分隔"
+        },
+        {
+          "index": 40,
+          "nameCN": "高模，皮生效",
+          "nameEN": "HighModelSkinsOn",
+          "type": "int[]",
+          "description": "高模，皮生效",
+          "fieldGroup": "SwitchModleSkinCondition",
+          "usageExamples": [
+            "if (dictModel.HighModelSkinsOn != null)",
+            "foreach (var skinId in dictModel.HighModelSkinsOn)"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SwitchModleSkinCondition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 41,
+          "nameCN": "高模，皮失效",
+          "nameEN": "HighModelSkinsOff",
+          "type": "int[]",
+          "description": "高模，皮失效",
+          "fieldGroup": "SwitchModleSkinCondition",
+          "usageExamples": [
+            "if (dictModel.HighModelSkinsOff != null)",
+            "foreach (var skinId in dictModel.HighModelSkinsOff)"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SwitchModleSkinCondition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 42,
+          "nameCN": "低模，皮生效",
+          "nameEN": "LowModelSkinsOn",
+          "type": "int[]",
+          "description": "低模，皮生效",
+          "fieldGroup": "SwitchModleSkinCondition",
+          "usageExamples": [
+            "if (dictModel.LowModelSkinsOn != null)",
+            "foreach (var skinId in dictModel.LowModelSkinsOn)"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SwitchModleSkinCondition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 43,
+          "nameCN": "低模，皮失效",
+          "nameEN": "LowModelSkinsOff",
+          "type": "int[]",
+          "description": "低模，皮失效",
+          "fieldGroup": "SwitchModleSkinCondition",
+          "usageExamples": [
+            "if (dictModel.LowModelSkinsOff != null)",
+            "foreach (var skinId in dictModel.LowModelSkinsOff)"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SwitchModleSkinCondition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 44,
+          "nameCN": "前跳音效",
+          "nameEN": "RushAudios",
+          "type": "string[]",
+          "description": "前跳音效",
+          "fieldGroup": "SwitchModleSkinCondition",
+          "usageExamples": [
+            "if (dictModel != null && dictModel.RushAudios != null && dictModel.RushAudios.Length > 0)",
+            "foreach (var audio in dictModel.RushAudios)",
+            "rushAudios = dictModel.RushAudios;"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SwitchModleSkinCondition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 45,
+          "nameCN": "后跳音效",
+          "nameEN": "JumpAudios",
+          "type": "string[]",
+          "description": "后跳音效",
+          "fieldGroup": "SwitchModleSkinCondition",
+          "usageExamples": [
+            "if (dictModel != null && dictModel.JumpAudios != null && dictModel.JumpAudios.Length > 0)",
+            "foreach (var audio in dictModel.JumpAudios)",
+            "jumpAudios = dictModel.JumpAudios;"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（SwitchModleSkinCondition 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 46,
+          "nameCN": "变身后模型偏移",
+          "nameEN": "TransferOffset",
+          "type": "string",
+          "description": "变身后模型偏移",
+          "usageExamples": [
+            "var offsetStr = tableSailorModel.TransferOffset;"
+          ],
+          "configTips": "位置偏移，格式：x,y,z（如 0,0.5,0）"
+        },
+        {
+          "index": 47,
+          "nameCN": "场景模型觉醒常驻特效",
+          "nameEN": "AwakeParticleids",
+          "type": "int[]",
+          "description": "场景模型觉醒常驻特效",
+          "fieldGroup": "AwakeParticleids",
+          "usageExamples": [
+            "if (DictData != null && DictData.AwakeParticleids != null && DictData.AwakeParticleArgs != null)",
+            "for (int i = 0; i < DictData.AwakeParticleids.Length; ++i)",
+            "int particleId = DictData.AwakeParticleids[i];"
+          ],
+          "configTips": "数组，多个用 | 分隔"
+        },
+        {
+          "index": 48,
+          "nameCN": "场景模型觉醒常驻特效参数",
+          "nameEN": "AwakeParticleArgs",
+          "type": "string[]",
+          "description": "场景模型觉醒常驻特效参数",
+          "fieldGroup": "AwakeParticleids",
+          "usageExamples": [
+            "if (DictData != null && DictData.AwakeParticleids != null && DictData.AwakeParticleArgs != null)",
+            "var arr = DictData.AwakeParticleArgs[i].Split('#');"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（AwakeParticleids 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 49,
+          "nameCN": "时装特效",
+          "nameEN": "FashionParticleids",
+          "type": "int[]",
+          "description": "时装特效",
+          "fieldGroup": "AwakeParticleids",
+          "usageExamples": [
+            "if (DictData != null && DictData.FashionParticleids != null && DictData.FashionParticleArgs != null)",
+            "for (int i = 0; i < DictData.FashionParticleids.Length; ++i)",
+            "int particleId = DictData.FashionParticleids[i];"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（AwakeParticleids 组）须等长，第 N 项共同描述第 N 个对象"
+        },
+        {
+          "index": 50,
+          "nameCN": "时装特效参数",
+          "nameEN": "FashionParticleArgs",
+          "type": "string[]",
+          "description": "时装特效参数",
+          "fieldGroup": "AwakeParticleids",
+          "usageExamples": [
+            "if (DictData != null && DictData.FashionParticleids != null && DictData.FashionParticleArgs != null)",
+            "var arr = DictData.FashionParticleArgs[i].Split('#');"
+          ],
+          "configTips": "数组，多个用 | 分隔；与同组字段（AwakeParticleids 组）须等长，第 N 项共同描述第 N 个对象"
+        }
+      ],
+      "daoFile": "../client/ProjectAll/Assets/ClientRes/script/data/tabledata/dao/TableSailorModelDao.cs",
+      "fieldGroups": {
+        "DeathShowType": {
+          "type": "companion",
+          "desc": "DeathShowType 组（DeathShowType 为主字段，后跟 1 个配套列）。",
+          "fields": [
+            "DeathShowType",
+            "DeathShowArgs"
+          ]
+        },
+        "IsHuge": {
+          "type": "companion",
+          "desc": "IsHuge 组（IsHuge 为主字段，后跟 2 个配套列）。",
+          "fields": [
+            "IsHuge",
+            "HugeModelViewScale",
+            "HugeModelHpBarHeight"
+          ]
+        },
+        "IsPlayerSceneParticle": {
+          "type": "parallel",
+          "desc": "并行数组组，共 3 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "IsPlayerSceneParticle",
+            "ParticleIds",
+            "ParticleArgs"
+          ]
+        },
+        "BeConvoyParticleIds": {
+          "type": "parallel",
+          "desc": "并行数组组，共 2 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "BeConvoyParticleIds",
+            "BeConvoyParticleArgs"
+          ]
+        },
+        "SwitchModleSkinCondition": {
+          "type": "parallel",
+          "desc": "并行数组组，共 7 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "SwitchModleSkinCondition",
+            "HighModelSkinsOn",
+            "HighModelSkinsOff",
+            "LowModelSkinsOn",
+            "LowModelSkinsOff",
+            "RushAudios",
+            "JumpAudios"
+          ]
+        },
+        "AwakeParticleids": {
+          "type": "parallel",
+          "desc": "并行数组组，共 4 列须等长，第 N 项共同描述第 N 个对象。",
+          "fields": [
+            "AwakeParticleids",
+            "AwakeParticleArgs",
+            "FashionParticleids",
+            "FashionParticleArgs"
+          ]
+        }
+      }
+    }
+  }
+}

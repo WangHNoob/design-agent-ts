@@ -1,0 +1,3 @@
+Text
+TipWord
+language.txt

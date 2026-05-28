@@ -1,0 +1,47 @@
+{
+  "content_hash": "05a3e32f477a421b",
+  "entities": [
+    {
+      "name": "新绝境",
+      "type": "activity"
+    },
+    {
+      "name": "预设阵容",
+      "type": "system"
+    },
+    {
+      "name": "阶段奖励",
+      "type": "activity"
+    },
+    {
+      "name": "公会",
+      "type": "concept"
+    },
+    {
+      "name": "开放时间",
+      "type": "attribute"
+    }
+  ],
+  "page_type": "activity_template",
+  "relationships": [
+    {
+      "relation": "belongs_to",
+      "source": "预设阵容",
+      "target": "新绝境"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "阶段奖励",
+      "target": "新绝境"
+    },
+    {
+      "relation": "configured_in",
+      "source": "开放时间",
+      "target": "新绝境"
+    }
+  ],
+  "source": "新绝境优化.docx",
+  "title": "新绝境",
+  "warnings": [],
+  "wiki_path": "activities/新绝境优化.md"
+}

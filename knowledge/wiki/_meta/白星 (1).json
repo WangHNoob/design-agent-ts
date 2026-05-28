@@ -1,0 +1,71 @@
+{
+  "content_hash": "471a655db082d7b8",
+  "entities": [
+    {
+      "name": "白星",
+      "type": "concept"
+    },
+    {
+      "name": "鱼人岛",
+      "type": "concept"
+    },
+    {
+      "name": "海之森",
+      "type": "concept"
+    },
+    {
+      "name": "战船列表",
+      "type": "concept"
+    },
+    {
+      "name": "码头界面",
+      "type": "concept"
+    },
+    {
+      "name": "招募券",
+      "type": "resource"
+    },
+    {
+      "name": "蓝钻",
+      "type": "resource"
+    },
+    {
+      "name": "金块",
+      "type": "resource"
+    }
+  ],
+  "page_type": "system_rule",
+  "relationships": [
+    {
+      "relation": "belongs_to",
+      "source": "白星",
+      "target": "战船列表"
+    },
+    {
+      "relation": "references",
+      "source": "白星",
+      "target": "鱼人岛"
+    },
+    {
+      "relation": "produces",
+      "source": "白星",
+      "target": "招募券"
+    },
+    {
+      "relation": "produces",
+      "source": "白星",
+      "target": "蓝钻"
+    },
+    {
+      "relation": "produces",
+      "source": "白星",
+      "target": "金块"
+    }
+  ],
+  "source": "白星 (1).docx",
+  "title": "白星战船与NPC系统",
+  "warnings": [
+    "drop relation '玩家'-[depends_on]->'白星': endpoint not in entities"
+  ],
+  "wiki_path": "systems/白星战船与NPC系统.md"
+}

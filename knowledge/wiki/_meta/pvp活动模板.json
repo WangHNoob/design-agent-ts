@@ -1,0 +1,43 @@
+{
+  "content_hash": "cf65dbc16fbdb1f9",
+  "entities": [
+    {
+      "name": "竞技狂欢",
+      "type": "activity"
+    },
+    {
+      "name": "竞技任务",
+      "type": "activity"
+    },
+    {
+      "name": "竞技大赛",
+      "type": "activity"
+    },
+    {
+      "name": "ActivityEntrance/ActivityEntrance",
+      "type": "table"
+    }
+  ],
+  "page_type": "activity_template",
+  "relationships": [
+    {
+      "relation": "belongs_to",
+      "source": "竞技狂欢",
+      "target": "竞技任务"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "竞技狂欢",
+      "target": "竞技大赛"
+    },
+    {
+      "relation": "configured_in",
+      "source": "竞技狂欢",
+      "target": "ActivityEntrance/ActivityEntrance"
+    }
+  ],
+  "source": "pvp活动模板.docx",
+  "title": "竞技狂欢",
+  "warnings": [],
+  "wiki_path": "activities/pvp活动模板.md"
+}

@@ -1,0 +1,34 @@
+{
+  "content_hash": "17e8bfbd7b36c837",
+  "entities": [
+    {
+      "name": "个性形象",
+      "type": "system"
+    },
+    {
+      "name": "SwitchCondition",
+      "type": "table"
+    },
+    {
+      "name": "图鉴对外展示",
+      "type": "system"
+    }
+  ],
+  "page_type": "system_rule",
+  "relationships": [
+    {
+      "relation": "configured_in",
+      "source": "个性形象",
+      "target": "SwitchCondition"
+    },
+    {
+      "relation": "references",
+      "source": "个性形象",
+      "target": "图鉴对外展示"
+    }
+  ],
+  "source": "个性形象.docx",
+  "title": "个性形象",
+  "warnings": [],
+  "wiki_path": "systems/个性形象.md"
+}

@@ -1,0 +1,19 @@
+---
+type: table_schema
+title: "表族 enterAutoChess"
+group: "enterAutoChess"
+table_count: 1
+---
+
+# 表族 `enterAutoChess`
+
+共 1 张表。数据源：`knowledge/gamedata/`。
+
+## 成员表清单
+| 表名 | 字段数 | 相对路径 |
+|------|--------|----------|
+| `enterAutoChess/EnterAutoChessConfig` | 2 | enterAutoChess/EnterAutoChessConfig.xlsx |
+
+## 字段明细
+### `enterAutoChess/EnterAutoChessConfig`
+- `id` · `value`

@@ -1,0 +1,47 @@
+{
+  "content_hash": "6569e20593af56e4",
+  "entities": [
+    {
+      "name": "阵法特权",
+      "type": "activity"
+    },
+    {
+      "name": "临时阵法",
+      "type": "concept"
+    },
+    {
+      "name": "阵法",
+      "type": "concept"
+    },
+    {
+      "name": "特权积分",
+      "type": "resource"
+    },
+    {
+      "name": "SwitchCondition",
+      "type": "table"
+    }
+  ],
+  "page_type": "system_rule",
+  "relationships": [
+    {
+      "relation": "unlocks",
+      "source": "阵法特权",
+      "target": "临时阵法"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "临时阵法",
+      "target": "阵法特权"
+    },
+    {
+      "relation": "configured_in",
+      "source": "SwitchCondition",
+      "target": "阵法特权"
+    }
+  ],
+  "source": "阵法特权.docx",
+  "title": "阵法特权",
+  "warnings": [],
+  "wiki_path": "systems/阵法特权.md"
+}

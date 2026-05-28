@@ -1,0 +1,67 @@
+﻿------- 一.文本替换 -------
+
+宏定义支持范围：
+
+1.Dialog：标题，内容，选项（任务名称除外）
+2.PlotEpisode：标题，内容
+3.Cutscene（剧情动画）内的嵌入式PlotEpisode：标题，内容
+
+格式；
+
+  宏(包含括号和$字符)           意义                 举例
+  
+   [$player$]                  玩家名称           你好[$player$]！
+   [$hero_name$]              当前英雄名          我好像看到了[$hero_name$]刚刚走过！
+   [$scene_name$]             当前场景名称        终于来到了<color=blue>[$scene_name$]</color>！
+   
+   
+
+   
+------- 二.剧情动画中的模型替换 -------
+
+宏定义支持范围：
+
+1.Dialog: 每个对话中的出场人物（coming soon）
+2.Cutscene：挂载ActorAnchor下的人物模型（即位置在Model文件夹下的模型。不包括SimpleModel文件夹下的模型）
+
+格式：
+
+    宏(包含冒号，不能使用全角字符)         意义                                 举例                   备注
+  
+      player                             玩家模型                              player
+	 team_member:index                队伍中第index个队员的模型（0起）      team_member:0            coming soon
+     npc:npcId                        指定npcId的NPC模型和controller          npc:100
+     convoyer                         悬赏押送者的模型                       convoyer
+	 beconvoyer                       悬赏被押送者的模型                     beconvoyer
+	 
+
+
+
+------- 三.剧情动画中的BGM音频特殊值 -------
+
+特殊值支持范围：
+
+1.Dialog: 每个对话的BGM。
+2.Cutscene：每个PlayBGM事件。
+
+格式：
+
+    宏(包含冒号，不能使用全角字符)         意义                                 举例                   备注
+  
+     _pause                               暂停BGM
+	 _resume                              恢复BGM
+     _stop                                停止BGM
+	 _default                     使用进入剧情/对白之前的BGM                                如果进入剧情/对白之前没有播放BGM，则使用_default将停止播放BGM
+	 _scene                             当前场景的BGM
+	 
+	 
+------- 四.剧情动画中图片的特殊值 -------
+特殊值支持范围：
+
+1.Dialog: 每个对话的背景。
+
+格式：
+
+    宏(包含冒号，不能使用全角字符)         意义                                 举例                   备注
+  
+     _none                         无背景图片/清除背景图片                               如果当前有显示背景图片，则清除背景图片，反之什么也不做

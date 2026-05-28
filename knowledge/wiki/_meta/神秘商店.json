@@ -1,0 +1,95 @@
+{
+  "content_hash": "196ad9068285af00",
+  "entities": [
+    {
+      "name": "神秘商店",
+      "type": "activity"
+    },
+    {
+      "name": "彩钻",
+      "type": "resource"
+    },
+    {
+      "name": "蓝钻",
+      "type": "resource"
+    },
+    {
+      "name": "金块",
+      "type": "resource"
+    },
+    {
+      "name": "玩法币1",
+      "type": "resource"
+    },
+    {
+      "name": "玩法币2",
+      "type": "resource"
+    },
+    {
+      "name": "幸运值",
+      "type": "attribute"
+    },
+    {
+      "name": "MysteryShop/MysteryShopTime",
+      "type": "table"
+    },
+    {
+      "name": "MysteryShop/MysteryShopBuy",
+      "type": "table"
+    },
+    {
+      "name": "MysteryShop/MysteryShopSell",
+      "type": "table"
+    },
+    {
+      "name": "MysteryShop/MysteryShopRefresh",
+      "type": "table"
+    },
+    {
+      "name": "MysteryShop/_MysteryShopShelf",
+      "type": "table"
+    }
+  ],
+  "page_type": "activity_template",
+  "relationships": [
+    {
+      "relation": "depends_on",
+      "source": "神秘商店",
+      "target": "MysteryShop/MysteryShopTime"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "MysteryShop/MysteryShopBuy",
+      "target": "神秘商店"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "MysteryShop/MysteryShopSell",
+      "target": "神秘商店"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "MysteryShop/MysteryShopRefresh",
+      "target": "神秘商店"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "MysteryShop/MysteryShopTime",
+      "target": "神秘商店"
+    },
+    {
+      "relation": "belongs_to",
+      "source": "MysteryShop/_MysteryShopShelf",
+      "target": "神秘商店"
+    },
+    {
+      "relation": "configured_in",
+      "source": "幸运值",
+      "target": "MysteryShop/MysteryShopRefresh"
+    }
+  ],
+  "source": "神秘商店.docx",
+  "title": "神秘商店",
+  "warnings": [],
+  "wiki_path": "activities/神秘商店.md"
+}

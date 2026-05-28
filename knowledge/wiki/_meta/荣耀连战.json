@@ -1,0 +1,34 @@
+{
+  "content_hash": "76440b415721ddb7",
+  "entities": [
+    {
+      "name": "荣耀连战",
+      "type": "activity"
+    },
+    {
+      "name": "连胜状态",
+      "type": "concept"
+    },
+    {
+      "name": "装备惩罚",
+      "type": "concept"
+    }
+  ],
+  "page_type": "activity_template",
+  "relationships": [
+    {
+      "relation": "depends_on",
+      "source": "荣耀连战",
+      "target": "连胜状态"
+    },
+    {
+      "relation": "configured_in",
+      "source": "装备惩罚",
+      "target": "荣耀连战"
+    }
+  ],
+  "source": "荣耀连战.docx",
+  "title": "荣耀连战",
+  "warnings": [],
+  "wiki_path": "activities/荣耀连战.md"
+}
