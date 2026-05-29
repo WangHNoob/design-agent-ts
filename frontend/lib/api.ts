@@ -150,3 +150,43 @@ export async function reviewHITLCheckpoint(
   });
   return res.json();
 }
+
+// Settings API
+export interface AppSettingsResponse {
+  modelProvider?: string;
+  modelName?: string;
+  temperature?: number;
+  maxTokens?: number;
+  hitlEnabled?: boolean;
+  maxClarifyRounds?: number;
+  streamingEnabled?: boolean;
+  autoSaveSessions?: boolean;
+  tavilyEnabled?: boolean;
+  tavilyApiKeyPreview?: string;
+}
+
+export interface TavilyStatus {
+  connected: boolean;
+  enabled: boolean;
+  apiKeySet: boolean;
+  preview: string;
+}
+
+export async function getSettings(): Promise<AppSettingsResponse> {
+  const res = await fetch(`${API_BASE}/api/settings`);
+  return res.json();
+}
+
+export async function saveSettings(settings: Partial<AppSettingsResponse> & { tavilyApiKey?: string }): Promise<{ success: boolean; settings: AppSettingsResponse }> {
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  return res.json();
+}
+
+export async function getTavilyStatus(): Promise<TavilyStatus> {
+  const res = await fetch(`${API_BASE}/api/settings/mcp/status`);
+  return res.json();
+}

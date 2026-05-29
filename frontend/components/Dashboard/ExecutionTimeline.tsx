@@ -1,28 +1,35 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Route, ListChecks, Users, Merge, CheckCircle2, Clock } from 'lucide-react';
+import { Route, ListChecks, Users, Merge, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import type { SessionMeta } from '@/lib/api';
 
-const timelineData = [
-  { step: 'Router', icon: Route, desc: '需求分析与路由决策', time: '0.2s', status: 'done' },
-  { step: 'Planner', icon: ListChecks, desc: '生成任务执行计划', time: '0.5s', status: 'done' },
-  { step: 'SubAgent', icon: Users, desc: '战斗策划Agent执行中', time: '3.2s', status: 'active' },
-  { step: 'Integrator', icon: Merge, desc: '整合各Agent输出结果', time: '-', status: 'pending' },
-];
+interface Props {
+  sessions: SessionMeta[];
+}
 
-export default function ExecutionTimeline() {
+const statusConfig: Record<string, { label: string; color: string; bg: string; icon: typeof CheckCircle2 }> = {
+  running: { label: '执行中', color: 'text-coral', bg: 'bg-coral/10', icon: Users },
+  completed: { label: '已完成', color: 'text-success', bg: 'bg-success/10', icon: CheckCircle2 },
+  failed: { label: '失败', color: 'text-coral', bg: 'bg-coral/10', icon: AlertCircle },
+  waiting_hitl: { label: '等待审阅', color: 'text-warning', bg: 'bg-warning/10', icon: Clock },
+  clarifying: { label: '澄清中', color: 'text-indigo', bg: 'bg-indigo/10', icon: ListChecks },
+};
+
+export default function ExecutionTimeline({ sessions }: Props) {
   return (
     <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
       <h3 className="mb-5 text-sm font-medium text-ink/50">最近执行流程</h3>
       <div className="space-y-0">
-        {timelineData.map((item, index) => {
-          const Icon = item.icon;
-          const isDone = item.status === 'done';
-          const isActive = item.status === 'active';
+        {sessions.map((session, index) => {
+          const config = statusConfig[session.status] || statusConfig.running;
+          const Icon = config.icon;
+          const isDone = session.status === 'completed';
+          const isActive = session.status === 'running';
 
           return (
             <motion.div
-              key={item.step}
+              key={session.id}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.15 }}
@@ -41,7 +48,7 @@ export default function ExecutionTimeline() {
                 >
                   {isDone ? <CheckCircle2 size={18} /> : <Icon size={18} />}
                 </div>
-                {index < timelineData.length - 1 && (
+                {index < sessions.length - 1 && (
                   <div
                     className={`w-0.5 flex-1 min-h-[32px] ${
                       isDone ? 'bg-success/30' : 'bg-ink/8'
@@ -58,20 +65,26 @@ export default function ExecutionTimeline() {
                       isActive ? 'text-coral' : isDone ? 'text-ink' : 'text-ink/30'
                     }`}
                   >
-                    {item.step}
+                    {session.role}
                   </span>
                   <div className="flex items-center gap-1 text-[11px] text-ink/30">
                     <Clock size={11} />
-                    {item.time}
+                    {new Date(session.createdAt).toLocaleTimeString()}
                   </div>
                 </div>
                 <p
-                  className={`mt-0.5 text-xs ${
+                  className={`mt-0.5 text-xs truncate max-w-[300px] ${
                     isActive ? 'text-ink/60' : isDone ? 'text-ink/40' : 'text-ink/25'
                   }`}
                 >
-                  {item.desc}
+                  {session.requirement}
                 </p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${config.bg} ${config.color}`}>
+                    {config.label}
+                  </span>
+                  <span className="text-[10px] text-ink/25">{session.mode}</span>
+                </div>
                 {isActive && (
                   <motion.div
                     className="mt-2 h-1 w-full rounded-full bg-ink/5 overflow-hidden"

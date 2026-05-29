@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, RotateCcw, Database, Cpu, MessageSquare } from 'lucide-react';
+import { Settings, Save, RotateCcw, Database, Cpu, MessageSquare, Globe } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
+import { getSettings, saveSettings, getTavilyStatus, type TavilyStatus } from '@/lib/api';
 
 interface AppSettings {
   modelProvider: string;
@@ -15,6 +16,8 @@ interface AppSettings {
   maxClarifyRounds: number;
   streamingEnabled: boolean;
   autoSaveSessions: boolean;
+  tavilyEnabled: boolean;
+  tavilyApiKey: string;
 }
 
 const defaultSettings: AppSettings = {
@@ -22,31 +25,84 @@ const defaultSettings: AppSettings = {
   modelName: 'gpt-4o',
   temperature: 0.7,
   maxTokens: 4096,
-  hitlEnabled: true,
+  hitlEnabled: false,
   maxClarifyRounds: 3,
   streamingEnabled: true,
   autoSaveSessions: true,
+  tavilyEnabled: false,
+  tavilyApiKey: '',
 };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [tavilyStatus, setTavilyStatus] = useState<TavilyStatus | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem('game-designer-settings');
-    if (stored) {
+    const load = async () => {
       try {
-        setSettings({ ...defaultSettings, ...JSON.parse(stored) });
+        const [backendSettings, status] = await Promise.all([
+          getSettings(),
+          getTavilyStatus().catch(() => null),
+        ]);
+        setTavilyStatus(status);
+        setSettings((prev) => ({
+          ...prev,
+          modelProvider: backendSettings.modelProvider ?? prev.modelProvider,
+          modelName: backendSettings.modelName ?? prev.modelName,
+          temperature: backendSettings.temperature ?? prev.temperature,
+          maxTokens: backendSettings.maxTokens ?? prev.maxTokens,
+          hitlEnabled: backendSettings.hitlEnabled ?? prev.hitlEnabled,
+          maxClarifyRounds: backendSettings.maxClarifyRounds ?? prev.maxClarifyRounds,
+          streamingEnabled: backendSettings.streamingEnabled ?? prev.streamingEnabled,
+          autoSaveSessions: backendSettings.autoSaveSessions ?? prev.autoSaveSessions,
+          tavilyEnabled: backendSettings.tavilyEnabled ?? prev.tavilyEnabled,
+          // Keep local tavilyApiKey empty; preview comes from status
+        }));
       } catch {
-        // ignore
+        // fallback to localStorage if backend unreachable
+        const stored = localStorage.getItem('game-designer-settings');
+        if (stored) {
+          try {
+            setSettings({ ...defaultSettings, ...JSON.parse(stored) });
+          } catch {
+            // ignore
+          }
+        }
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+    load();
   }, []);
 
-  const handleSave = () => {
-    localStorage.setItem('game-designer-settings', JSON.stringify(settings));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    setSaved(false);
+    try {
+      await saveSettings({
+        modelProvider: settings.modelProvider,
+        modelName: settings.modelName,
+        temperature: settings.temperature,
+        maxTokens: settings.maxTokens,
+        hitlEnabled: settings.hitlEnabled,
+        maxClarifyRounds: settings.maxClarifyRounds,
+        streamingEnabled: settings.streamingEnabled,
+        autoSaveSessions: settings.autoSaveSessions,
+        tavilyEnabled: settings.tavilyEnabled,
+        tavilyApiKey: settings.tavilyApiKey || undefined,
+      });
+      // Refresh Tavily status
+      const status = await getTavilyStatus().catch(() => null);
+      if (status) setTavilyStatus(status);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      // fallback to localStorage
+      localStorage.setItem('game-designer-settings', JSON.stringify(settings));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
   };
 
   const handleReset = () => {
@@ -73,6 +129,14 @@ export default function SettingsPage() {
     </button>
   );
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-sm text-ink/40">加载设置中...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -89,7 +153,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <h1 className="font-display text-3xl font-bold text-ink">系统设置</h1>
-              <p className="text-sm text-ink/40">配置模型参数、HITL 策略与交互偏好</p>
+              <p className="text-sm text-ink/40">配置模型参数、联网搜索、HITL 策略与交互偏好</p>
             </div>
           </div>
         </motion.div>
@@ -100,6 +164,7 @@ export default function SettingsPage() {
           transition={{ delay: 0.1 }}
           className="space-y-6"
         >
+          {/* Model Config */}
           <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
             <div className="flex items-center gap-2 mb-5">
               <Cpu size={18} className="text-coral" />
@@ -157,6 +222,49 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Web Search (Tavily) */}
+          <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
+            <div className="flex items-center gap-2 mb-5">
+              <Globe size={18} className="text-coral" />
+              <h2 className="font-semibold text-ink">联网搜索 (Tavily)</h2>
+              {tavilyStatus?.connected && (
+                <span className="ml-2 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
+                  已连接
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-ink">启用 Tavily 联网搜索</p>
+                  <p className="text-xs text-ink/40">Agent 可在知识库不足时搜索互联网补充信息</p>
+                </div>
+                <Switch value={settings.tavilyEnabled} onChange={(v) => update('tavilyEnabled', v)} />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-ink/60 mb-1.5 block">
+                  Tavily API Key
+                  {tavilyStatus?.preview && (
+                    <span className="ml-2 text-xs text-ink/30">当前: {tavilyStatus.preview}</span>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  value={settings.tavilyApiKey}
+                  onChange={(e) => update('tavilyApiKey', e.target.value)}
+                  placeholder={tavilyStatus?.apiKeySet ? '已配置，输入新值可覆盖' : 'tvly-...'}
+                  className="w-full rounded-xl border-2 border-ink/8 bg-paper/50 px-4 py-2.5 text-sm text-ink placeholder:text-ink/25 focus:border-coral/50 focus:outline-none transition-all"
+                />
+                <p className="mt-1 text-[11px] text-ink/30">
+                  获取免费 Key: <a href="https://tavily.com" target="_blank" rel="noreferrer" className="text-coral hover:underline">tavily.com</a>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* HITL & Interaction */}
           <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
             <div className="flex items-center gap-2 mb-5">
               <MessageSquare size={18} className="text-coral" />
@@ -205,6 +313,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Actions */}
           <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
             <div className="flex items-center gap-2 mb-5">
               <Database size={18} className="text-coral" />

@@ -4,6 +4,7 @@ import { logger } from "hono/logger";
 import { consoleRoute } from "./routes/console.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { hitlRoute } from "./routes/hitl.js";
+import { settingsRoute } from "./routes/settings.js";
 
 export function createApp() {
   const app = new Hono();
@@ -14,6 +15,7 @@ export function createApp() {
   app.route("/api/console", consoleRoute);
   app.route("/api/sessions", sessionsRoute);
   app.route("/api/hitl", hitlRoute);
+  app.route("/api/settings", settingsRoute);
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 

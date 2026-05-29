@@ -21,6 +21,8 @@ import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js
 import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
 import { loadPrompt } from "../config/PromptLoader.js";
+import { SettingsManager } from "../core/settings/SettingsManager.js";
+import { setSettingsManager } from "./routes/settings.js";
 
 export async function bootstrap() {
   const config = loadConfig();
@@ -28,6 +30,10 @@ export async function bootstrap() {
   if (!config.model.apiKey) {
     throw new Error("LLM_API_KEY is not set. Please configure your environment variables.");
   }
+
+  // Load user settings from settings.json (overrides env defaults)
+  const settingsManager = new SettingsManager();
+  await settingsManager.initialize();
 
   // Load prompts from filesystem (composition root responsibility)
   const subAgentPrompts = {
@@ -54,8 +60,12 @@ export async function bootstrap() {
     config.knowledge.graphPath || "./knowledge/wiki/graph.json"
   );
   const tavilyTool = new TavilySearchTool();
-  if (config.webSearch.tavilyEnabled && config.webSearch.tavilyApiKey) {
-    tavilyTool.setApiKey(config.webSearch.tavilyApiKey);
+
+  // Apply Tavily config: settings.json takes priority over env
+  const tavilyEnabled = settingsManager.isTavilyEnabled() || (config.webSearch.tavilyEnabled && !!config.webSearch.tavilyApiKey);
+  const tavilyApiKey = settingsManager.getTavilyApiKey() || config.webSearch.tavilyApiKey;
+  if (tavilyEnabled && tavilyApiKey) {
+    tavilyTool.setApiKey(tavilyApiKey);
   }
 
   // Register with names matching prompt expectations
@@ -119,7 +129,8 @@ export async function bootstrap() {
   setConsoleHITLManager(hitlManager);
   setSessionManager(sessionManager);
   setHITLManager(hitlManager);
+  setSettingsManager(settingsManager);
 
   const app = createApp();
-  return { app, config, container, director, sessionManager, hitlManager };
+  return { app, config, container, director, sessionManager, hitlManager, settingsManager };
 }
