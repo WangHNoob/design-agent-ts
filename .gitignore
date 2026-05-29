@@ -46,5 +46,10 @@ sessions/
 # Vite
 .vite/
 
+# Next.js frontend build output
+frontend/.next/
+frontend/dist/
+frontend/node_modules/
+
 # Knowledge base (large files, not for git)
 knowledge/
