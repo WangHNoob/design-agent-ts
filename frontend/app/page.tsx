@@ -19,6 +19,7 @@ export default function ConsolePage() {
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamedText, setStreamedText] = useState('');
+  const [progressMessage, setProgressMessage] = useState('');
   const [result, setResult] = useState<{ output: string | null; error: string | null; sessionId: string } | null>(null);
   const [useStream, setUseStream] = useState(true);
 
@@ -28,6 +29,22 @@ export default function ConsolePage() {
       case 'start':
         setStreaming(true);
         setStreamedText('');
+        setProgressMessage('开始执行...');
+        break;
+      case 'plan':
+        setProgressMessage(d.message as string);
+        break;
+      case 'route':
+        setProgressMessage(d.message as string);
+        break;
+      case 'task_start':
+        setProgressMessage(`正在执行: ${d.description as string}`);
+        break;
+      case 'task_complete':
+        setProgressMessage(`任务完成: ${d.taskId as string}`);
+        break;
+      case 'integrate':
+        setProgressMessage('整合结果中...');
         break;
       case 'chunk':
         setStreamedText((prev) => prev + (d.text as string));
@@ -35,6 +52,7 @@ export default function ConsolePage() {
       case 'complete':
         setStreaming(false);
         setLoading(false);
+        setProgressMessage('');
         setResult({
           output: d.output as string,
           error: d.error as string | null,
@@ -44,6 +62,7 @@ export default function ConsolePage() {
       case 'error':
         setStreaming(false);
         setLoading(false);
+        setProgressMessage('');
         setResult({
           output: null,
           error: d.error as string,
@@ -179,7 +198,7 @@ export default function ConsolePage() {
           </motion.div>
         )}
 
-        {streaming && streamedText && (
+        {streaming && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -187,12 +206,14 @@ export default function ConsolePage() {
           >
             <div className="flex items-center gap-2 mb-3">
               <div className="h-2 w-2 rounded-full bg-coral animate-pulse" />
-              <span className="text-xs font-medium text-ink/50">实时输出中</span>
+              <span className="text-xs font-medium text-ink/50">{progressMessage || '实时输出中'}</span>
             </div>
-            <div className="markdown-content text-sm text-ink/80 whitespace-pre-wrap">
-              {streamedText}
-              <span className="inline-block w-0.5 h-4 bg-coral animate-pulse ml-0.5 align-middle" />
-            </div>
+            {streamedText && (
+              <div className="markdown-content text-sm text-ink/80 whitespace-pre-wrap">
+                {streamedText}
+                <span className="inline-block w-0.5 h-4 bg-coral animate-pulse ml-0.5 align-middle" />
+              </div>
+            )}
           </motion.div>
         )}
 

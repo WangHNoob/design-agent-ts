@@ -117,33 +117,59 @@ consoleRoute.post("/execute/stream", async (c) => {
       };
 
       try {
-        send("start", { sessionId, mode: body.mode, role });
+        const eventStream = directorInstance!.executeStream(
+          body.requirement,
+          sessionId,
+          body.mode,
+          role
+        );
 
-        // simulate streaming by chunking the final result
-        const response = await directorInstance!.execute(body.requirement, sessionId, body.mode, role);
-        const output = AR.getTextContent(response) ?? "";
+        let finalOutput = "";
+        let hasError = false;
+        let errorMsg = "";
 
-        // chunk output into ~30 char pieces for typing effect
-        const chunkSize = 30;
-        for (let i = 0; i < output.length; i += chunkSize) {
-          const chunk = output.slice(i, i + chunkSize);
-          send("chunk", { text: chunk, index: i });
-          // small delay for typing effect feel
-          await new Promise((r) => setTimeout(r, 15));
+        for await (const event of eventStream) {
+          switch (event.type) {
+            case "start":
+              send("start", event.data);
+              break;
+            case "plan":
+              send("plan", event.data);
+              break;
+            case "route":
+              send("route", event.data);
+              break;
+            case "task_start":
+              send("task_start", event.data);
+              break;
+            case "task_complete":
+              send("task_complete", event.data);
+              break;
+            case "integrate":
+              send("integrate", event.data);
+              break;
+            case "chunk":
+              send("chunk", event.data);
+              finalOutput += (event.data.text as string) ?? "";
+              break;
+            case "complete":
+              finalOutput = (event.data.output as string) ?? finalOutput;
+              send("complete", { ...event.data, sessionId });
+              break;
+            case "error":
+              hasError = true;
+              errorMsg = (event.data.error as string) ?? "Unknown error";
+              send("error", { ...event.data, sessionId });
+              break;
+          }
         }
 
         await sessionManagerInstance?.update(sessionId, {
-          status: response.success ? "completed" : "failed",
-          output: output ?? undefined,
-          error: response.errorMessage ?? undefined,
+          status: hasError ? "failed" : "completed",
+          output: finalOutput || undefined,
+          error: errorMsg || undefined,
         });
 
-        send("complete", {
-          success: response.success,
-          output,
-          error: response.errorMessage,
-          sessionId,
-        });
         controller.close();
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);

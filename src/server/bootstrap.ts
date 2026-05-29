@@ -14,6 +14,11 @@ import { ValidationHook } from "../core/hook/ValidationHook.js";
 import { IterationBudgetHook } from "../core/hook/IterationBudgetHook.js";
 import { OutputEnforcementHook } from "../core/hook/OutputEnforcementHook.js";
 import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
+import { WikiPageTool } from "../core/tool/knowledge/WikiPageTool.js";
+import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
+import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
+import { TavilySearchTool } from "../core/tool/web/TavilySearchTool.js";
+import { DelegatingTool } from "../core/tool/DelegatingTool.js";
 
 export async function bootstrap() {
   const config = loadConfig();
@@ -25,7 +30,41 @@ export async function bootstrap() {
   const toolRegistry = new ToolManager();
   const skillRegistry = new SkillManager();
 
+  // Register knowledge tools
+  const wikiTool = new WikiPageTool(config.knowledge.wikiPath);
+  const grepTool = new GrepSearchTool(config.knowledge.wikiPath);
+  const kgTool = new KnowledgeGraphTool(
+    config.knowledge.graphPath || "./knowledge/wiki/graph.json"
+  );
+  const tavilyTool = new TavilySearchTool();
+  if (config.webSearch.tavilyEnabled && config.webSearch.tavilyApiKey) {
+    tavilyTool.setApiKey(config.webSearch.tavilyApiKey);
+  }
+
+  // Register with names matching prompt expectations
+  toolRegistry.register(new DelegatingTool("wiki_lookup", "在 Wiki 索引中查找主题对应的页面路径。参数: topic (string)", wikiTool, { action: "lookup" }));
+  toolRegistry.register(new DelegatingTool("wiki_read", "读取指定 Wiki 页面的完整内容。参数: pagePath (string)", wikiTool, { action: "read" }));
+  toolRegistry.register(new DelegatingTool("wiki_list", "列出指定分类下的所有 Wiki 页面。参数: category (string)", wikiTool, { action: "list" }));
+  toolRegistry.register(grepTool);
+  toolRegistry.register(new DelegatingTool("kg_query_node", "查询知识图谱中指定节点的信息。参数: node_id (string)", kgTool, { action: "query_node" }));
+  toolRegistry.register(new DelegatingTool("kg_query_neighbors", "查询知识图谱中指定节点的邻居关系。参数: node_id (string)", kgTool, { action: "query_neighbors" }));
+  toolRegistry.register(new DelegatingTool("kg_list_nodes", "列出知识图谱中指定类型的所有节点。参数: node_type (string, optional)", kgTool, { action: "list_nodes" }));
+  toolRegistry.register(new DelegatingTool("tavily_search", "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)", tavilyTool, { action: "search" }));
+  toolRegistry.register(new DelegatingTool("tavily_extract", "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)", tavilyTool, { action: "extract" }));
+
   const container = new Container(config, toolRegistry, skillRegistry);
+
+  // Configure HITL review points
+  if (container.humanReviewGateway.configure && config.hitl.enabled) {
+    container.humanReviewGateway.configure(
+      Object.fromEntries(
+        Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
+          k,
+          { enabled: v, timeout: 300000, autoContinueOnTimeout: false },
+        ])
+      )
+    );
+  }
 
   const director = new DirectorAgent({
     model: container.model,

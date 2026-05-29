@@ -1,6 +1,7 @@
 import type { FrameworkConfig } from "./FrameworkConfig.js";
 
 export function loadConfig(): FrameworkConfig {
+  const hitlEnabled = process.env.HITL_ENABLED === "true";
   return {
     framework: (process.env.AGENT_FRAMEWORK as FrameworkConfig["framework"]) ?? "langgraph",
     model: {
@@ -10,13 +11,23 @@ export function loadConfig(): FrameworkConfig {
       baseUrl: process.env.LLM_BASE_URL,
     },
     hitl: {
-      enabled: process.env.HITL_ENABLED === "true",
-      reviewPoints: {},
+      enabled: hitlEnabled,
+      reviewPoints: hitlEnabled
+        ? {
+            "hitl-1-task-plan": true,
+            "hitl-2-agent-output": true,
+            "hitl-3-final": true,
+          }
+        : {},
       maxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS ?? 3),
     },
     knowledge: {
       wikiPath: process.env.KNOWLEDGE_WIKI_PATH ?? "./knowledge/wiki",
       graphPath: process.env.KNOWLEDGE_GRAPH_PATH ?? "./knowledge/processed",
+    },
+    webSearch: {
+      tavilyApiKey: process.env.TAVILY_API_KEY,
+      tavilyEnabled: process.env.TAVILY_ENABLED === "true",
     },
   };
 }

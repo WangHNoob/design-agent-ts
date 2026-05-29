@@ -17,4 +17,8 @@ export interface FrameworkConfig {
     wikiPath: string;
     graphPath: string;
   };
+  webSearch: {
+    tavilyApiKey?: string;
+    tavilyEnabled: boolean;
+  };
 }

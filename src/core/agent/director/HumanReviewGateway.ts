@@ -11,6 +11,7 @@ export interface ReviewPointConfig {
 }
 
 export interface HumanReviewGateway {
+  configure?(points: Record<string, ReviewPointConfig>): void;
   isEnabled(): boolean;
   isReviewPointEnabled(point: string): boolean;
   requestReview<T>(sessionId: string, reviewPoint: string, content: T): Promise<ReviewResult<T>>;
