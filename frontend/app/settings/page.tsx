@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, RotateCcw, Database, Cpu, MessageSquare, Globe } from 'lucide-react';
+import { Settings, Save, RotateCcw, Database, Cpu, MessageSquare, Globe, KeyRound, Link2 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
 import { getSettings, saveSettings, getTavilyStatus, type TavilyStatus } from '@/lib/api';
@@ -10,6 +10,8 @@ import { getSettings, saveSettings, getTavilyStatus, type TavilyStatus } from '@
 interface AppSettings {
   modelProvider: string;
   modelName: string;
+  modelApiKey: string;
+  modelBaseUrl: string;
   temperature: number;
   maxTokens: number;
   hitlEnabled: boolean;
@@ -23,6 +25,8 @@ interface AppSettings {
 const defaultSettings: AppSettings = {
   modelProvider: 'openai',
   modelName: 'gpt-4o',
+  modelApiKey: '',
+  modelBaseUrl: '',
   temperature: 0.7,
   maxTokens: 4096,
   hitlEnabled: false,
@@ -51,6 +55,8 @@ export default function SettingsPage() {
           ...prev,
           modelProvider: backendSettings.modelProvider ?? prev.modelProvider,
           modelName: backendSettings.modelName ?? prev.modelName,
+          modelApiKey: '', // never prefill sensitive keys
+          modelBaseUrl: backendSettings.modelBaseUrl ?? prev.modelBaseUrl,
           temperature: backendSettings.temperature ?? prev.temperature,
           maxTokens: backendSettings.maxTokens ?? prev.maxTokens,
           hitlEnabled: backendSettings.hitlEnabled ?? prev.hitlEnabled,
@@ -58,10 +64,9 @@ export default function SettingsPage() {
           streamingEnabled: backendSettings.streamingEnabled ?? prev.streamingEnabled,
           autoSaveSessions: backendSettings.autoSaveSessions ?? prev.autoSaveSessions,
           tavilyEnabled: backendSettings.tavilyEnabled ?? prev.tavilyEnabled,
-          // Keep local tavilyApiKey empty; preview comes from status
+          tavilyApiKey: '', // never prefill sensitive keys
         }));
       } catch {
-        // fallback to localStorage if backend unreachable
         const stored = localStorage.getItem('game-designer-settings');
         if (stored) {
           try {
@@ -80,7 +85,7 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaved(false);
     try {
-      await saveSettings({
+      const payload: Partial<AppSettings> = {
         modelProvider: settings.modelProvider,
         modelName: settings.modelName,
         temperature: settings.temperature,
@@ -90,15 +95,18 @@ export default function SettingsPage() {
         streamingEnabled: settings.streamingEnabled,
         autoSaveSessions: settings.autoSaveSessions,
         tavilyEnabled: settings.tavilyEnabled,
-        tavilyApiKey: settings.tavilyApiKey || undefined,
-      });
-      // Refresh Tavily status
+      };
+      // Only send API keys if user has entered something
+      if (settings.modelApiKey) payload.modelApiKey = settings.modelApiKey;
+      if (settings.modelBaseUrl) payload.modelBaseUrl = settings.modelBaseUrl;
+      if (settings.tavilyApiKey) payload.tavilyApiKey = settings.tavilyApiKey;
+
+      await saveSettings(payload);
       const status = await getTavilyStatus().catch(() => null);
       if (status) setTavilyStatus(status);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
-      // fallback to localStorage
       localStorage.setItem('game-designer-settings', JSON.stringify(settings));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -153,7 +161,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <h1 className="font-display text-3xl font-bold text-ink">系统设置</h1>
-              <p className="text-sm text-ink/40">配置模型参数、联网搜索、HITL 策略与交互偏好</p>
+              <p className="text-sm text-ink/40">配置 LLM 模型、联网搜索、HITL 策略与交互偏好</p>
             </div>
           </div>
         </motion.div>
@@ -164,32 +172,62 @@ export default function SettingsPage() {
           transition={{ delay: 0.1 }}
           className="space-y-6"
         >
-          {/* Model Config */}
+          {/* LLM Config */}
           <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
             <div className="flex items-center gap-2 mb-5">
-              <Cpu size={18} className="text-coral" />
-              <h2 className="font-semibold text-ink">模型配置</h2>
+              <KeyRound size={18} className="text-coral" />
+              <h2 className="font-semibold text-ink">LLM 配置</h2>
+              <span className="ml-2 text-[11px] text-ink/30">修改后实时生效，无需重启</span>
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label className="text-sm font-medium text-ink/60 mb-1.5 block">提供商</label>
+                <label className="text-sm font-medium text-ink/60 mb-1.5 block">供应商</label>
                 <select
                   value={settings.modelProvider}
                   onChange={(e) => update('modelProvider', e.target.value)}
                   className="w-full rounded-xl border-2 border-ink/8 bg-paper/50 px-4 py-2.5 text-sm text-ink focus:border-coral/50 focus:outline-none transition-all"
                 >
                   <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
+                  <option value="anthropic">Claude (Anthropic)</option>
+                  <option value="openai-compatible">OpenAI 兼容</option>
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-ink/60 mb-1.5 block">模型</label>
+                <label className="text-sm font-medium text-ink/60 mb-1.5 block">模型名称</label>
                 <input
                   value={settings.modelName}
                   onChange={(e) => update('modelName', e.target.value)}
-                  className="w-full rounded-xl border-2 border-ink/8 bg-paper/50 px-4 py-2.5 text-sm text-ink focus:border-coral/50 focus:outline-none transition-all"
+                  placeholder="gpt-4o / claude-3-5-sonnet / ..."
+                  className="w-full rounded-xl border-2 border-ink/8 bg-paper/50 px-4 py-2.5 text-sm text-ink placeholder:text-ink/25 focus:border-coral/50 focus:outline-none transition-all"
                 />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium text-ink/60 mb-1.5 block">
+                  API Key
+                </label>
+                <input
+                  type="password"
+                  value={settings.modelApiKey}
+                  onChange={(e) => update('modelApiKey', e.target.value)}
+                  placeholder="sk-... 或 输入新值覆盖当前配置"
+                  className="w-full rounded-xl border-2 border-ink/8 bg-paper/50 px-4 py-2.5 text-sm text-ink placeholder:text-ink/25 focus:border-coral/50 focus:outline-none transition-all"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium text-ink/60 mb-1.5 block flex items-center gap-1">
+                  <Link2 size={12} />
+                  请求地址 Base URL（可选）
+                </label>
+                <input
+                  value={settings.modelBaseUrl}
+                  onChange={(e) => update('modelBaseUrl', e.target.value)}
+                  placeholder="https://api.openai.com/v1  或自定义代理地址"
+                  className="w-full rounded-xl border-2 border-ink/8 bg-paper/50 px-4 py-2.5 text-sm text-ink placeholder:text-ink/25 focus:border-coral/50 focus:outline-none transition-all"
+                />
+                <p className="mt-1 text-[11px] text-ink/30">
+                  OpenAI 兼容供应商必须填写，如本地 Ollama、Azure OpenAI、第三方代理等
+                </p>
               </div>
               <div>
                 <label className="text-sm font-medium text-ink/60 mb-1.5 block">

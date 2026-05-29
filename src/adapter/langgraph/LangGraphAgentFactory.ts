@@ -45,4 +45,8 @@ export class LangGraphAgentFactory implements AgentFactory {
     this.agentCache.set(cacheKey, agent);
     return agent;
   }
+
+  clearCache(): void {
+    this.agentCache.clear();
+  }
 }

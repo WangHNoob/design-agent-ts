@@ -22,18 +22,34 @@ import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
 import { loadPrompt } from "../config/PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
-import { setSettingsManager } from "./routes/settings.js";
+import { setSettingsManager, setSettingsContainer } from "./routes/settings.js";
 
 export async function bootstrap() {
   const config = loadConfig();
 
-  if (!config.model.apiKey) {
-    throw new Error("LLM_API_KEY is not set. Please configure your environment variables.");
-  }
+  // API key can come from env or settings.json; don't throw here, check after loading settings
+  let apiKey = config.model.apiKey;
 
   // Load user settings from settings.json (overrides env defaults)
   const settingsManager = new SettingsManager();
   await settingsManager.initialize();
+
+  // Apply model settings from settings.json if available
+  const settings = settingsManager.getSettings();
+  if (settings.modelApiKey) {
+    apiKey = settings.modelApiKey;
+  }
+  if (!apiKey) {
+    throw new Error("LLM_API_KEY is not set. Please configure it in settings or environment variables.");
+  }
+  // Override config.model with settings.json values
+  const mergedModelConfig = {
+    ...config.model,
+    apiKey,
+    provider: (settings.modelProvider as typeof config.model.provider) || config.model.provider,
+    modelName: settings.modelName || config.model.modelName,
+    baseUrl: settings.modelBaseUrl || config.model.baseUrl,
+  };
 
   // Load prompts from filesystem (composition root responsibility)
   const subAgentPrompts = {
@@ -88,7 +104,7 @@ export async function bootstrap() {
   ];
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames);
 
-  const container = new Container(config, toolRegistry, skillRegistry);
+  const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
 
   // Configure HITL review points
   if (container.humanReviewGateway.configure && config.hitl.enabled) {
@@ -130,6 +146,7 @@ export async function bootstrap() {
   setSessionManager(sessionManager);
   setHITLManager(hitlManager);
   setSettingsManager(settingsManager);
+  setSettingsContainer(container);
 
   const app = createApp();
   return { app, config, container, director, sessionManager, hitlManager, settingsManager };

@@ -4,6 +4,7 @@ import type { ToolRegistry } from "../port/tool/ToolRegistry.js";
 import type { SkillRegistry } from "../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "../core/agent/director/HumanReviewGateway.js";
 import type { FrameworkConfig } from "../config/FrameworkConfig.js";
+import type { ModelConfig } from "../port/model/ModelConfig.js";
 import { LangGraphAgentFactory } from "../adapter/langgraph/LangGraphAgentFactory.js";
 import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
 import { LangGraphHumanReviewGateway } from "../adapter/langgraph/LangGraphHumanReviewGateway.js";
@@ -34,6 +35,15 @@ export class Container {
         this.agentFactory = new MockAgentFactory();
         this.humanReviewGateway = new MockHumanReviewGateway();
         break;
+    }
+  }
+
+  reconfigureModel(config: ModelConfig): void {
+    if (this.model instanceof LangGraphModelAdapter) {
+      this.model.reconfigure(config);
+      if (this.agentFactory instanceof LangGraphAgentFactory) {
+        this.agentFactory.clearCache();
+      }
     }
   }
 }

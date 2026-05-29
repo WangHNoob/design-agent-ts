@@ -3,6 +3,7 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import type { ChatModelPort } from "../../port/model/ChatModelPort.js";
 import type { ModelOptions } from "../../port/model/ModelOptions.js";
 import type { ModelResponse } from "../../port/model/ModelResponse.js";
+import type { ModelConfig } from "../../port/model/ModelConfig.js";
 import type { ChatMessage } from "../../port/message/ChatMessage.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 
@@ -11,29 +12,31 @@ export class LangGraphModelAdapter implements ChatModelPort {
   private langchainModel: ChatOpenAI | ChatAnthropic;
   private provider: string;
 
-  constructor(config: {
-    provider: "openai" | "anthropic" | "openai-compatible";
-    modelName: string;
-    apiKey: string;
-    baseUrl?: string;
-  }) {
+  constructor(config: ModelConfig) {
     this.provider = config.provider === "openai-compatible" ? "openai" : config.provider;
+    this.langchainModel = this.buildModel(config);
+  }
+
+  private buildModel(config: ModelConfig): ChatOpenAI | ChatAnthropic {
     switch (config.provider) {
       case "openai":
       case "openai-compatible":
-        this.langchainModel = new ChatOpenAI({
+        return new ChatOpenAI({
           modelName: config.modelName,
           openAIApiKey: config.apiKey,
           configuration: config.baseUrl ? { baseURL: config.baseUrl } : undefined,
         });
-        break;
       case "anthropic":
-        this.langchainModel = new ChatAnthropic({
+        return new ChatAnthropic({
           modelName: config.modelName,
           anthropicApiKey: config.apiKey,
         });
-        break;
     }
+  }
+
+  reconfigure(config: ModelConfig): void {
+    this.provider = config.provider === "openai-compatible" ? "openai" : config.provider;
+    this.langchainModel = this.buildModel(config);
   }
 
   getLangChainModel(): ChatOpenAI | ChatAnthropic {

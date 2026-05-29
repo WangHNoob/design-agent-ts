@@ -4,6 +4,8 @@ import path from "path";
 export interface AppSettings {
   modelProvider?: string;
   modelName?: string;
+  modelApiKey?: string;
+  modelBaseUrl?: string;
   temperature?: number;
   maxTokens?: number;
   hitlEnabled?: boolean;
@@ -17,6 +19,8 @@ export interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   modelProvider: "openai",
   modelName: "gpt-4o",
+  modelApiKey: "",
+  modelBaseUrl: "",
   temperature: 0.7,
   maxTokens: 4096,
   hitlEnabled: false,
@@ -57,13 +61,17 @@ export class SettingsManager {
     return { ...this.settings };
   }
 
-  getPublicSettings(): Omit<AppSettings, "tavilyApiKey"> & { tavilyApiKeyPreview?: string } {
+  getPublicSettings(): Omit<AppSettings, "tavilyApiKey" | "modelApiKey"> & { tavilyApiKeyPreview?: string; modelApiKeyPreview?: string } {
     const s = { ...this.settings };
-    const preview = s.tavilyApiKey
+    const tavilyPreview = s.tavilyApiKey
       ? s.tavilyApiKey.substring(0, Math.min(8, s.tavilyApiKey.length)) + "..."
       : "";
+    const modelPreview = s.modelApiKey
+      ? s.modelApiKey.substring(0, Math.min(8, s.modelApiKey.length)) + "..."
+      : "";
     delete (s as AppSettings & { tavilyApiKey?: string }).tavilyApiKey;
-    return { ...s, tavilyApiKeyPreview: preview };
+    delete (s as AppSettings & { modelApiKey?: string }).modelApiKey;
+    return { ...s, tavilyApiKeyPreview: tavilyPreview, modelApiKeyPreview: modelPreview };
   }
 
   updateSettings(updates: Partial<AppSettings>): void {

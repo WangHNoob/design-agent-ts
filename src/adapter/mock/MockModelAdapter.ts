@@ -1,6 +1,7 @@
 import type { ChatModelPort } from "../../port/model/ChatModelPort.js";
 import type { ModelOptions } from "../../port/model/ModelOptions.js";
 import type { ModelResponse } from "../../port/model/ModelResponse.js";
+import type { ModelConfig } from "../../port/model/ModelConfig.js";
 import type { ChatMessage } from "../../port/message/ChatMessage.js";
 import { ChatMessage as CM } from "../../port/message/ChatMessage.js";
 
@@ -12,6 +13,10 @@ export class MockModelAdapter implements ChatModelPort {
     this.presetResponses = responses ?? [
       CM.text("assistant", "mock", "This is a mock response."),
     ];
+  }
+
+  reconfigure(_config: ModelConfig): void {
+    // no-op for mock
   }
 
   async generate(_messages: ChatMessage[], _options?: ModelOptions): Promise<ModelResponse> {

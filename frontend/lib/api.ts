@@ -155,6 +155,7 @@ export async function reviewHITLCheckpoint(
 export interface AppSettingsResponse {
   modelProvider?: string;
   modelName?: string;
+  modelBaseUrl?: string;
   temperature?: number;
   maxTokens?: number;
   hitlEnabled?: boolean;
@@ -163,6 +164,7 @@ export interface AppSettingsResponse {
   autoSaveSessions?: boolean;
   tavilyEnabled?: boolean;
   tavilyApiKeyPreview?: string;
+  modelApiKeyPreview?: string;
 }
 
 export interface TavilyStatus {
