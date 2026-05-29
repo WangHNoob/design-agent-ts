@@ -1,5 +1,5 @@
 ---
-name: "table_config_generation"
+name: "table-config-generation"
 description: "配表生成工作流 — 专注于配置表的查询、创建、修改与校验，由数值策划主导，QA最终校验"
 keywords:
   - "配表"

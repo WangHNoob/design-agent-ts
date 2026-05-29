@@ -1,5 +1,5 @@
 ---
-name: "knowledge_query"
+name: "knowledge-query"
 description: "供子 Agent 读取的知识查询 skill，约束其优先使用知识库与工具而不是自由发挥"
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: "gameplay_activity"
+name: "gameplay-activity"
 description: "玩法活动策划工作流 — 覆盖玩法规则、奖励投放、活动节奏、复用框架、商业化关联五大维度"
 keywords:
   - "活动"

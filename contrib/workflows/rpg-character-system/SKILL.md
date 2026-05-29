@@ -1,5 +1,5 @@
 ---
-name: "rpg_character_system"
+name: "rpg-character-system"
 description: "RPG角色系统策划工作流 — 覆盖从系统设计、数值规划、战斗设计到QA审阅的完整角色系统开发流程"
 keywords:
   - "角色"

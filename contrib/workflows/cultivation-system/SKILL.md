@@ -1,5 +1,5 @@
 ---
-name: "cultivation_system"
+name: "cultivation-system"
 description: "养成系统策划工作流 — 覆盖系统规则、产销关系、数值模型、玩法体验、商业化关联五大维度"
 keywords:
   - "养成"

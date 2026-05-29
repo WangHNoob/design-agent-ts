@@ -1,5 +1,5 @@
 ---
-name: "universal_dimensions"
+name: "universal-dimensions"
 description: "通用维度工作流 — 覆盖配表需求、跨系统影响、前端表现、数据埋点四大通用维度，适用于所有功能设计"
 keywords:
   - "配表"

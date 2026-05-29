@@ -1,5 +1,5 @@
 ---
-name: "default_design"
+name: "default-design"
 description: "通用游戏策划工作流，由人为定义固定任务结构，供 DirectorAgent 选择使用"
 keywords:
   - "游戏"

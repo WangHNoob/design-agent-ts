@@ -1,5 +1,5 @@
 ---
-name: "combat_design"
+name: "combat-design"
 description: "战斗设计工作流 — 覆盖技能体系、怪物与BOSS设计、伤害模型、战斗平衡四大维度"
 keywords:
   - "战斗"

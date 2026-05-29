@@ -1,5 +1,5 @@
 ---
-name: "operation_activity"
+name: "operation-activity"
 description: "运营活动策划工作流 — 覆盖付费设计、定价策略、概率与保底、投放节奏、留存目标五大维度"
 keywords:
   - "运营"

@@ -1,5 +1,5 @@
 ---
-name: "hybrid_design"
+name: "hybrid-design"
 description: "混合型工作流 — 当功能跨多个分类时（如赛季战令=玩法活动+运营活动），合并对应分类的维度"
 keywords:
   - "混合"
