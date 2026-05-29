@@ -2,6 +2,8 @@ export interface ReviewResult<T = unknown> {
   decision: "approved" | "rejected" | "modified";
   modifications?: T;
   feedback?: string;
+  /** 当 HITL 机制因上下文不可用而自动降级通过时标记为 true */
+  fallback?: boolean;
 }
 
 export interface ReviewPointConfig {

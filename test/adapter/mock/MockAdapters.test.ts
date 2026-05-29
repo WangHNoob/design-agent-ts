@@ -3,7 +3,7 @@ import { MockModelAdapter } from "../../../src/adapter/mock/MockModelAdapter.js"
 import { MockAgentAdapter } from "../../../src/adapter/mock/MockAgentAdapter.js";
 import { MockToolAdapter } from "../../../src/adapter/mock/MockToolAdapter.js";
 import { MockHumanReviewGateway } from "../../../src/adapter/mock/MockHumanReviewGateway.js";
-import { InMemoryMemoryPort } from "../../../src/adapter/mock/InMemoryMemoryPort.js";
+import { InMemoryMemoryPort } from "../../../src/core/memory/InMemoryMemoryPort.js";
 import { ChatMessage } from "../../../src/port/message/ChatMessage.js";
 import { ToolResult } from "../../../src/port/tool/ToolResult.js";
 

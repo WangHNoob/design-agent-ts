@@ -15,11 +15,16 @@ import { PlanPipeline } from "../../pipeline/PlanPipeline.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
 import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
-import { loadPrompt } from "../../tool/prompts/PromptLoader.js";
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error";
   data: Record<string, unknown>;
+}
+
+export interface DirectorPrompts {
+  querySystem?: string;
+  taskPlanner?: string;
+  router?: string;
 }
 
 export interface DirectorDeps {
@@ -29,6 +34,7 @@ export interface DirectorDeps {
   skillRegistry: SkillRegistry;
   humanReviewGateway: HumanReviewGateway;
   hooks: AgentHook[];
+  prompts?: DirectorPrompts;
 }
 
 export class DirectorAgent {
@@ -38,10 +44,10 @@ export class DirectorAgent {
   private querySystemPrompt: string;
 
   constructor(private deps: DirectorDeps) {
-    this.taskPlanner = new TaskPlanner(deps.model);
-    this.router = new Router(deps.model);
+    this.taskPlanner = new TaskPlanner(deps.model, deps.prompts?.taskPlanner);
+    this.router = new Router(deps.model, deps.prompts?.router);
     this.integrator = new Integrator();
-    this.querySystemPrompt = loadPrompt("query_knowledge") || "你是游戏策划知识库助手。";
+    this.querySystemPrompt = deps.prompts?.querySystem ?? "你是游戏策划知识库助手。";
   }
 
   async execute(
@@ -159,7 +165,7 @@ export class DirectorAgent {
     task: TaskAssignment,
     sessionId: string
   ): Promise<TaskResult> {
-    const { InMemoryMemoryPort } = await import("../../../adapter/mock/InMemoryMemoryPort.js");
+    const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
     const agent = this.deps.agentFactory.createAgent(
       task.agentDescriptor,
       this.deps.toolRegistry,

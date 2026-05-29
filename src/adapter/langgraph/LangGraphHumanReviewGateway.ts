@@ -37,11 +37,14 @@ export class LangGraphHumanReviewGateway implements HumanReviewGateway {
         modifications: reviewRecord?.modifications as T | undefined,
         feedback: reviewRecord?.feedback as string | undefined,
       };
-    } catch {
+    } catch (err) {
       // interrupt() only works inside a LangGraph graph node.
-      // Outside of LangGraph context, auto-approve to avoid blocking the flow.
-      console.warn(`[HITL] interrupt() failed for ${reviewPoint} — not inside LangGraph graph. Auto-approving.`);
-      return { decision: "approved" };
+      // Outside of LangGraph context, auto-approve with fallback flag so callers can audit.
+      console.warn(
+        `[HITL] interrupt() failed for ${reviewPoint} — not inside LangGraph graph. ` +
+        `Auto-approving with fallback flag. Error: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return { decision: "approved", fallback: true };
     }
   }
 

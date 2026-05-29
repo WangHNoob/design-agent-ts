@@ -1,6 +1,6 @@
-import type { ToolPort } from "../../../port/tool/ToolPort.js";
-import { ToolDescriptor } from "../../../port/tool/ToolDescriptor.js";
-import { ToolResult } from "../../../port/tool/ToolResult.js";
+import type { ToolPort } from "../../port/tool/ToolPort.js";
+import { ToolDescriptor } from "../../port/tool/ToolDescriptor.js";
+import { ToolResult } from "../../port/tool/ToolResult.js";
 
 const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 const TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";

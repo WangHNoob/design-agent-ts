@@ -12,6 +12,8 @@ export interface FrameworkConfig {
     enabled: boolean;
     reviewPoints: Record<string, boolean>;
     maxRevisionRounds: number;
+    timeout: number;
+    autoContinueOnTimeout: boolean;
   };
   knowledge: {
     wikiPath: string;

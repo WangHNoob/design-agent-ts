@@ -20,6 +20,8 @@ export function loadConfig(): FrameworkConfig {
           }
         : {},
       maxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS ?? 3),
+      timeout: Number(process.env.HITL_TIMEOUT ?? 300000),
+      autoContinueOnTimeout: process.env.HITL_AUTO_CONTINUE === "true",
     },
     knowledge: {
       wikiPath: process.env.KNOWLEDGE_WIKI_PATH ?? "./knowledge/wiki",

@@ -1,9 +1,10 @@
 import { createApp } from "./app.js";
 import { loadConfig } from "../config/loadConfig.js";
-import { Container } from "../config/Container.js";
+import { Container } from "./Container.js";
 import { ToolManager } from "../core/tool/ToolManager.js";
 import { SkillManager } from "../core/skill/SkillManager.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
+import { configureSubAgentDescriptors } from "../core/agent/subagents/SubAgentFactory.js";
 import { setDirector, setConsoleSessionManager, setConsoleHITLManager } from "./routes/console.js";
 import { setSessionManager } from "./routes/sessions.js";
 import { setHITLManager } from "./routes/hitl.js";
@@ -17,8 +18,9 @@ import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
 import { WikiPageTool } from "../core/tool/knowledge/WikiPageTool.js";
 import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
-import { TavilySearchTool } from "../core/tool/web/TavilySearchTool.js";
+import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
+import { loadPrompt } from "../config/PromptLoader.js";
 
 export async function bootstrap() {
   const config = loadConfig();
@@ -26,6 +28,21 @@ export async function bootstrap() {
   if (!config.model.apiKey) {
     throw new Error("LLM_API_KEY is not set. Please configure your environment variables.");
   }
+
+  // Load prompts from filesystem (composition root responsibility)
+  const subAgentPrompts = {
+    SystemDesigner: loadPrompt("system_designer"),
+    CombatDesigner: loadPrompt("combat_designer"),
+    NumericalPlanner: loadPrompt("numerical_planner"),
+    GameplayDesigner: loadPrompt("gameplay_designer"),
+    ExecutivePlanner: loadPrompt("executive_planner"),
+    QAPlanner: loadPrompt("qa_planner"),
+  };
+  const directorPrompts = {
+    querySystem: loadPrompt("query_knowledge") || undefined,
+    taskPlanner: loadPrompt("task_planner_freeform") || undefined,
+    router: loadPrompt("router_classify") || undefined,
+  };
 
   const toolRegistry = new ToolManager();
   const skillRegistry = new SkillManager();
@@ -52,6 +69,15 @@ export async function bootstrap() {
   toolRegistry.register(new DelegatingTool("tavily_search", "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)", tavilyTool, { action: "search" }));
   toolRegistry.register(new DelegatingTool("tavily_extract", "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)", tavilyTool, { action: "extract" }));
 
+  // Configure sub-agent descriptors (tool names and prompts from composition root)
+  const subAgentToolNames = [
+    "wiki_lookup", "wiki_read", "wiki_list",
+    "grep_search",
+    "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
+    "tavily_search", "tavily_extract",
+  ];
+  configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames);
+
   const container = new Container(config, toolRegistry, skillRegistry);
 
   // Configure HITL review points
@@ -60,7 +86,7 @@ export async function bootstrap() {
       Object.fromEntries(
         Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
           k,
-          { enabled: v, timeout: 300000, autoContinueOnTimeout: false },
+          { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
         ])
       )
     );
@@ -79,6 +105,7 @@ export async function bootstrap() {
       new OutputEnforcementHook(),
       new ContextManagementHook(),
     ],
+    prompts: directorPrompts,
   });
 
   const sessionManager = new SessionManager();

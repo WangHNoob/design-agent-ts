@@ -3,7 +3,7 @@ import type { ChatModelPort } from "../port/model/ChatModelPort.js";
 import type { ToolRegistry } from "../port/tool/ToolRegistry.js";
 import type { SkillRegistry } from "../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "../core/agent/director/HumanReviewGateway.js";
-import type { FrameworkConfig } from "./FrameworkConfig.js";
+import type { FrameworkConfig } from "../config/FrameworkConfig.js";
 import { LangGraphAgentFactory } from "../adapter/langgraph/LangGraphAgentFactory.js";
 import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
 import { LangGraphHumanReviewGateway } from "../adapter/langgraph/LangGraphHumanReviewGateway.js";
