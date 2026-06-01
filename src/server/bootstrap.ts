@@ -38,15 +38,17 @@ import { DelegatingTool } from "../core/tool/DelegatingTool.js";
 import { loadPrompt } from "../config/PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./routes/settings.js";
+import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 
 export async function bootstrap() {
   const config = loadConfig();
+  const fileSystem = new NodeFileSystemAdapter();
 
   // API key can come from env or settings.json; don't throw here, check after loading settings
   let apiKey = config.model.apiKey;
 
   // Load user settings from settings.json (overrides env defaults)
-  const settingsManager = new SettingsManager();
+  const settingsManager = new SettingsManager(fileSystem);
   await settingsManager.initialize();
 
   // Apply model settings from settings.json if available

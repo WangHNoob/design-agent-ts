@@ -1,5 +1,4 @@
-import fs from "fs/promises";
-import path from "path";
+import type { FileSystemPort } from "../../port/fs/FileSystemPort.js";
 
 export interface AppSettings {
   modelProvider?: string;
@@ -36,25 +35,31 @@ export class SettingsManager {
   private settings: AppSettings = { ...DEFAULT_SETTINGS };
   private initialized = false;
 
-  constructor(baseDir = ".") {
-    this.settingsFile = path.join(baseDir, "settings.json");
+  constructor(
+    private fs: FileSystemPort,
+    private baseDir = "."
+  ) {
+    this.settingsFile = this.fs.join(baseDir, "settings.json");
   }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
     try {
-      const content = await fs.readFile(this.settingsFile, "utf-8");
-      const parsed = JSON.parse(content) as AppSettings;
-      this.settings = { ...DEFAULT_SETTINGS, ...parsed };
+      const content = await this.fs.readFile(this.settingsFile);
+      if (content) {
+        const parsed = JSON.parse(content) as AppSettings;
+        this.settings = { ...DEFAULT_SETTINGS, ...parsed };
+      } else {
+        this.settings = { ...DEFAULT_SETTINGS };
+      }
     } catch {
-      // File not found or invalid, use defaults
       this.settings = { ...DEFAULT_SETTINGS };
     }
     this.initialized = true;
   }
 
   async save(): Promise<void> {
-    await fs.writeFile(this.settingsFile, JSON.stringify(this.settings, null, 2), "utf-8");
+    await this.fs.writeFile(this.settingsFile, JSON.stringify(this.settings, null, 2));
   }
 
   getSettings(): AppSettings {
