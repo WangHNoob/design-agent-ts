@@ -154,7 +154,7 @@ consoleRoute.post("/execute/stream", async (c) => {
               break;
             case "complete":
               finalOutput = (event.data.output as string) ?? finalOutput;
-              send("complete", { ...event.data, sessionId });
+              send("complete", { ...event.data, output: finalOutput, sessionId });
               break;
             case "error":
               hasError = true;
