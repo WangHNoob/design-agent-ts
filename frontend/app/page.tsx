@@ -49,6 +49,7 @@ export default function ConsolePage() {
   const [requirement, setRequirement] = useState('');
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const streamingTextRef = useRef('');
 
   // Session & messages
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -130,6 +131,7 @@ export default function ConsolePage() {
         setStreaming(true);
         setStatus('working');
         setStatusText('处理中');
+        streamingTextRef.current = '';
         addStep('→ 请求已接收，AI 正在分析需求…');
         addLog('info', '执行开始', JSON.stringify({ sessionId: d.sessionId, mode, role }));
         startExecutionTimer();
@@ -182,7 +184,7 @@ export default function ConsolePage() {
         break;
 
       case 'chunk':
-        // Query mode streaming text
+        streamingTextRef.current += (d.text as string) ?? '';
         break;
 
       case 'complete': {
@@ -190,7 +192,7 @@ export default function ConsolePage() {
         setLoading(false);
         setStatus('idle');
         setStatusText('就绪');
-        const output = (d.output as string) || '';
+        const output = (d.output as string) || streamingTextRef.current || '';
         if (output) addMessage('ai', output);
         addStep('✓ 执行完成');
         addLog('info', '执行完成', JSON.stringify({ outputLength: output.length }));
@@ -199,6 +201,7 @@ export default function ConsolePage() {
         );
         stopExecutionTimer();
         setRefreshTick((t) => t + 1);
+        streamingTextRef.current = '';
         break;
       }
 

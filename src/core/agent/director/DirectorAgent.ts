@@ -302,36 +302,49 @@ export class DirectorAgent {
 
   private async *executeQueryStream(requirement: string, sessionId: string): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
+
+    const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
+    runtimeStatus(sessionId, traceId, "LLM", 10, "Preparing query agent", "QueryAgent", null);
+
     try {
       const agent = await this.createQueryAgent();
       const messages = [ChatMessage.text("user", "user", requirement)];
 
+      runtimeStatus(sessionId, traceId, "LLM", 30, "Executing query with tools", "QueryAgent", null);
+
+      let finalOutput = "";
+
       if (agent.processStream) {
         for await (const chunk of agent.processStream(sessionId, messages)) {
           if (!chunk.success) {
+            runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query failed", "QueryAgent", null);
             yield { type: "error", data: { error: chunk.errorMessage ?? "Agent execution failed" } };
             return;
           }
           const text = chunk.message ? ChatMessage.textContent(chunk.message) : "";
           if (text) {
+            finalOutput = text;
             yield { type: "chunk", data: { text } };
           }
         }
       } else {
         const response = await agent.process(sessionId, messages);
         if (!response.success) {
+          runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query failed", "QueryAgent", null);
           yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
           return;
         }
-        const text = response.message ? ChatMessage.textContent(response.message) : "";
-        // Simulate streaming by yielding chunks
+        finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
         const chunkSize = 20;
-        for (let i = 0; i < text.length; i += chunkSize) {
-          yield { type: "chunk", data: { text: text.substring(i, i + chunkSize) } };
+        for (let i = 0; i < finalOutput.length; i += chunkSize) {
+          yield { type: "chunk", data: { text: finalOutput.substring(i, i + chunkSize) } };
         }
       }
-      yield { type: "complete", data: { success: true } };
+
+      runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query completed", "QueryAgent", null);
+      yield { type: "complete", data: { success: true, output: finalOutput } };
     } catch (err) {
+      runtimeStatus(sessionId, traceId, "COMPLETE", 100, `Query error: ${err instanceof Error ? err.message : String(err)}`, "QueryAgent", null);
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
   }

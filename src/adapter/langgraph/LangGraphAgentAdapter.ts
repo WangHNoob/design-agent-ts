@@ -245,22 +245,40 @@ export class LangGraphAgentAdapter implements AgentPort {
         { messages: lgMessages, sessionId, iteration: 0 },
         config
       );
+      let yielded = false;
+      let lastLlmMessage: BaseMessage | null = null;
+
       for await (const chunk of stream) {
         for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
           if (nodeName === "llmCall" && nodeOutput.messages) {
             const lastMsg = nodeOutput.messages.at(-1) as AIMessageType | undefined;
-            if (lastMsg && !lastMsg.tool_calls?.length) {
-              const responseMessage = this.messageMapper.fromLangGraph(lastMsg);
-              yield {
-                agentName: this.descriptor.name,
-                message: responseMessage,
-                metadata: {},
-                success: true,
-                errorMessage: null,
-              };
+            if (lastMsg) {
+              lastLlmMessage = lastMsg;
+              if (!lastMsg.tool_calls?.length) {
+                const responseMessage = this.messageMapper.fromLangGraph(lastMsg);
+                yielded = true;
+                yield {
+                  agentName: this.descriptor.name,
+                  message: responseMessage,
+                  metadata: {},
+                  success: true,
+                  errorMessage: null,
+                };
+              }
             }
           }
         }
+      }
+
+      if (!yielded && lastLlmMessage) {
+        const responseMessage = this.messageMapper.fromLangGraph(lastLlmMessage);
+        yield {
+          agentName: this.descriptor.name,
+          message: responseMessage,
+          metadata: {},
+          success: true,
+          errorMessage: null,
+        };
       }
 
       await this.runHooks("post_agent_call", HookContext.create({
