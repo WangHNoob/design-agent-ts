@@ -2,6 +2,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import String, DateTime, Text, ForeignKey, Index
+
+# PostgreSQL requires timezone-aware DateTime for offset-aware datetimes
+UtcDateTime = lambda **kw: DateTime(timezone=True, **kw)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -16,8 +19,8 @@ class Session(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=utcnow, onupdate=utcnow)
     metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     traces: Mapped[list["Trace"]] = relationship("Trace", back_populates="session", cascade="all, delete-orphan")
@@ -29,8 +32,8 @@ class Trace(Base):
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="running")
-    start_time: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    start_time: Mapped[datetime] = mapped_column(UtcDateTime(), default=utcnow)
+    end_time: Mapped[Optional[datetime]] = mapped_column(UtcDateTime(), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(nullable=True)
     metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -46,8 +49,8 @@ class Span(Base):
     parent_span_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("spans.id", ondelete="SET NULL"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
     span_type: Mapped[str] = mapped_column(String(50))
-    start_time: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    start_time: Mapped[datetime] = mapped_column(UtcDateTime(), default=utcnow)
+    end_time: Mapped[Optional[datetime]] = mapped_column(UtcDateTime(), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(nullable=True)
     input_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     output_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -70,7 +73,7 @@ class Log(Base):
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
     trace_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("traces.id", ondelete="CASCADE"), nullable=True, index=True)
     span_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("spans.id", ondelete="CASCADE"), nullable=True, index=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
     level: Mapped[str] = mapped_column(String(10))
     logger: Mapped[str] = mapped_column(String(255))
     message: Mapped[str] = mapped_column(Text)
