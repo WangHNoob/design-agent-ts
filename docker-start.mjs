@@ -132,8 +132,8 @@ function printAccessInfo() {
   console.log("║  主后端 API:    http://localhost:3000                        ║");
   console.log("║  O11y 前端:     http://localhost:3004                        ║");
   console.log("║  O11y API:      http://localhost:3003                        ║");
-  console.log("║  PostgreSQL:    localhost:5432                               ║");
-  console.log("║  Redis:         localhost:6379                               ║");
+  console.log("║  PostgreSQL:    localhost:15432                              ║");
+  console.log("║  Redis:         localhost:16379                              ║");
   console.log("╚══════════════════════════════════════════════════════════════╝");
   console.log("");
   console.log("提示: 按 Ctrl+C 停止日志查看，服务仍在后台运行");
@@ -146,8 +146,8 @@ function printInfraInfo() {
   console.log("╔══════════════════════════════════════════════════════════════╗");
   console.log("║              🚀 基础设施已启动（本地开发模式）                ║");
   console.log("╠══════════════════════════════════════════════════════════════╣");
-  console.log("║  PostgreSQL:    localhost:5432                               ║");
-  console.log("║  Redis:         localhost:6379                               ║");
+  console.log("║  PostgreSQL:    localhost:15432                              ║");
+  console.log("║  Redis:         localhost:16379                              ║");
   console.log("╚══════════════════════════════════════════════════════════════╝");
   console.log("");
   console.log("接下来可以运行本地开发服务:");
@@ -224,10 +224,10 @@ if (!existsSync("o11y/backend/.env")) {
   }
 }
 
-// 检查关键端口是否被占用
+// 检查关键端口是否被占用（使用非标准端口避免与其他应用冲突）
 const portsToCheck = infraOnly
-  ? [5432, 6379]
-  : [3000, 3001, 3003, 3004, 5432, 6379];
+  ? [15432, 16379]
+  : [3000, 3001, 3003, 3004, 15432, 16379];
 
 const occupiedPorts = [];
 for (const port of portsToCheck) {
@@ -272,17 +272,17 @@ try {
 // 健康检查
 if (infraOnly) {
   log("info", "等待 PostgreSQL 就绪...");
-  const pgPortReady = await waitForPort(5432, 30);
+  const pgPortReady = await waitForPort(15432, 30);
   if (pgPortReady) {
-    log("success", "PostgreSQL 已就绪 (localhost:5432)");
+    log("success", "PostgreSQL 已就绪 (localhost:15432)");
   } else {
     log("error", "PostgreSQL 未在预期时间内就绪");
   }
 
   log("info", "等待 Redis 就绪...");
-  const redisPortReady = await waitForPort(6379, 30);
+  const redisPortReady = await waitForPort(16379, 30);
   if (redisPortReady) {
-    log("success", "Redis 已就绪 (localhost:6379)");
+    log("success", "Redis 已就绪 (localhost:16379)");
   } else {
     log("error", "Redis 未在预期时间内就绪");
   }
