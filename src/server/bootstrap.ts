@@ -35,7 +35,7 @@ import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
 import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
-import { loadPrompt } from "../config/PromptLoader.js";
+import { loadPrompt } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
