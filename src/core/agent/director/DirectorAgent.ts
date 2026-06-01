@@ -8,6 +8,7 @@ import type { ToolRegistry } from "../../../port/tool/ToolRegistry.js";
 import type { SkillRegistry } from "../../../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "./HumanReviewGateway.js";
 import type { AgentHook } from "../../../port/hook/AgentHook.js";
+import type { IdGeneratorPort } from "../../../port/infra/IdGeneratorPort.js";
 import { TaskPlanner } from "./TaskPlanner.js";
 import { Router } from "./Router.js";
 import { Integrator } from "./Integrator.js";
@@ -18,6 +19,14 @@ import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
 import { runInContext } from "../../o11y/O11yContext.js";
 import { startSpan, endSpan, failSpan, createTrace } from "../../o11y/O11yTraceBridge.js";
 import { status as runtimeStatus } from "../../o11y/O11yRuntimeBridge.js";
+
+function fallbackUUID(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error";
@@ -38,6 +47,7 @@ export interface DirectorDeps {
   humanReviewGateway: HumanReviewGateway;
   hooks: AgentHook[];
   prompts?: DirectorPrompts;
+  idGenerator?: IdGeneratorPort;
 }
 
 export class DirectorAgent {
@@ -59,7 +69,7 @@ export class DirectorAgent {
     mode: "design" | "query" | "table",
     role: string
   ): Promise<AgentResponse> {
-    const traceId = crypto.randomUUID();
+    const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
     const trace = await createTrace({
       id: traceId,
       session_id: sessionId,

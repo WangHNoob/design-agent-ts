@@ -1,3 +1,5 @@
+import type { IdGeneratorPort } from "../../port/infra/IdGeneratorPort.js";
+
 export type SpanType =
   | "LLM"
   | "TOOL"
@@ -32,6 +34,20 @@ export interface O11ySpan {
   status: "ok" | "error" | "unset";
 }
 
+let idGenerator: IdGeneratorPort | null = null;
+
+export function configureIdGenerator(generator: IdGeneratorPort): void {
+  idGenerator = generator;
+}
+
+function fallbackUUID(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export function createSpan(
   traceId: string,
   sessionId: string,
@@ -42,7 +58,7 @@ export function createSpan(
   metadata?: Record<string, unknown> | null
 ): O11ySpan {
   return {
-    id: crypto.randomUUID(),
+    id: idGenerator?.randomUUID() ?? fallbackUUID(),
     traceId,
     sessionId,
     parentSpanId: parentSpanId ?? null,

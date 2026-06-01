@@ -39,10 +39,16 @@ import { loadPrompt } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
+import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
+import { NodeContextStorageAdapter } from "../adapter/infra/NodeContextStorageAdapter.js";
+import { configureIdGenerator } from "../core/o11y/O11ySpan.js";
+import { configureContextStorage } from "../core/o11y/O11yContext.js";
 
 export async function bootstrap() {
   const config = loadConfig();
   const fileSystem = new NodeFileSystemAdapter();
+  configureIdGenerator(new NodeIdGeneratorAdapter());
+  configureContextStorage(new NodeContextStorageAdapter());
 
   // API key can come from env or settings.json; don't throw here, check after loading settings
   let apiKey = config.model.apiKey;
@@ -172,6 +178,7 @@ export async function bootstrap() {
     humanReviewGateway: container.humanReviewGateway,
     hooks,
     prompts: directorPrompts,
+    idGenerator: new NodeIdGeneratorAdapter(),
   });
 
   const sessionManager = new SessionManager(fileSystem);

@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+import type { ContextStoragePort } from "../../port/infra/ContextStoragePort.js";
 
 export interface O11yContext {
   traceId: string;
@@ -6,14 +6,25 @@ export interface O11yContext {
   sessionId: string;
 }
 
-const asyncLocalStorage = new AsyncLocalStorage<O11yContext>();
+let contextStorage: ContextStoragePort<O11yContext> | null = null;
+
+export function configureContextStorage(storage: ContextStoragePort<O11yContext>): void {
+  contextStorage = storage;
+}
+
+function getStorage(): ContextStoragePort<O11yContext> {
+  if (!contextStorage) {
+    throw new Error("ContextStorage not configured. Call configureContextStorage() during bootstrap.");
+  }
+  return contextStorage;
+}
 
 export function runInContext<T>(ctx: O11yContext, fn: () => T): T {
-  return asyncLocalStorage.run(ctx, fn);
+  return getStorage().run(ctx, fn);
 }
 
 export function getCurrentContext(): O11yContext | null {
-  return asyncLocalStorage.getStore() ?? null;
+  return getStorage().getStore() ?? null;
 }
 
 export function getCurrentTraceId(): string | null {
