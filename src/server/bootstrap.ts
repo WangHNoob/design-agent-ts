@@ -146,9 +146,9 @@ export async function bootstrap() {
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
     new LoggingHook(),
     new ValidationHook(),
-    new IterationBudgetHook(),
+    new IterationBudgetHook(10),
     new OutputEnforcementHook(),
-    new ContextManagementHook(),
+    new ContextManagementHook(0.7, 128000),
   ];
 
   if (config.o11y.enabled) {
@@ -163,7 +163,7 @@ export async function bootstrap() {
     setTraceReporter(new HttpTraceReporter(baseUrl));
     setSpanReporter(batchSpanReporter);
     setRuntimeBridgeReporter(new HttpRuntimeStatusReporter(baseUrl));
-    hooks.push(new O11yReportingHook());
+    hooks.push(new O11yReportingHook(100));
   } else {
     setTraceReporter(new NoOpTraceReporter());
     setSpanReporter(new NoOpSpanReporter());

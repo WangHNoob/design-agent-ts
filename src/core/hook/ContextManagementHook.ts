@@ -4,13 +4,16 @@ import type { HookContext } from "../../port/hook/HookContext.js";
 
 export class ContextManagementHook implements AgentHook {
   priority = 30;
-  private readonly compressionThreshold = 0.7;
+
+  constructor(
+    private readonly compressionThreshold = 0.7,
+    private readonly maxTokens = 128000
+  ) {}
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (point === "pre_reasoning" && context.messages) {
       const estimatedTokens = this.estimateTokens(context.messages);
-      const maxTokens = 128000;
-      if (estimatedTokens / maxTokens > this.compressionThreshold) {
+      if (estimatedTokens / this.maxTokens > this.compressionThreshold) {
         console.log(`[ContextManagementHook] 触发压缩: ${estimatedTokens} tokens`);
       }
     }

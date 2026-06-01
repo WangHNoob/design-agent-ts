@@ -11,7 +11,11 @@ function spanKey(sessionId: string | undefined, point: string): string {
 }
 
 export class O11yReportingHook implements AgentHook {
-  priority = 100; // Run after other hooks so we capture final state
+  readonly priority: number;
+
+  constructor(priority = 100) {
+    this.priority = priority;
+  }
 
   async onEvent(point: HookPoint, ctx: HookContext): Promise<HookContext> {
     const sessionId = ctx.sessionId ?? "unknown";
