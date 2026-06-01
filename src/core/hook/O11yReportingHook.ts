@@ -23,10 +23,14 @@ export class O11yReportingHook implements AgentHook {
 
     switch (point) {
       case "pre_agent_call": {
-        const span = startSpan(ctx.agentName ?? "agent", "AGENT_CHAIN", null, {
-          messages: ctx.messages?.map((m) => ({ role: m.role, name: m.name })),
-        });
-        spanMap.set(key, span);
+        try {
+          const span = startSpan(ctx.agentName ?? "agent", "AGENT_CHAIN", null, {
+            messages: ctx.messages?.map((m) => ({ role: m.role, name: m.name })),
+          });
+          spanMap.set(key, span);
+        } catch {
+          // O11y context not available (e.g., streaming path), skip silently
+        }
         break;
       }
       case "post_agent_call": {
@@ -38,11 +42,15 @@ export class O11yReportingHook implements AgentHook {
         break;
       }
       case "pre_reasoning": {
-        const span = startSpan(ctx.agentName ?? "llm", "LLM", null, {
-          iteration: ctx.iteration,
-          maxIterations: ctx.maxIterations,
-        });
-        spanMap.set(key, span);
+        try {
+          const span = startSpan(ctx.agentName ?? "llm", "LLM", null, {
+            iteration: ctx.iteration,
+            maxIterations: ctx.maxIterations,
+          });
+          spanMap.set(key, span);
+        } catch {
+          // O11y context not available, skip silently
+        }
         break;
       }
       case "post_reasoning": {
@@ -54,10 +62,14 @@ export class O11yReportingHook implements AgentHook {
         break;
       }
       case "pre_tool_execution": {
-        const span = startSpan(ctx.toolName ?? "tool", "TOOL", null, {
-          arguments: ctx.toolArguments,
-        });
-        spanMap.set(key, span);
+        try {
+          const span = startSpan(ctx.toolName ?? "tool", "TOOL", null, {
+            arguments: ctx.toolArguments,
+          });
+          spanMap.set(key, span);
+        } catch {
+          // O11y context not available, skip silently
+        }
         break;
       }
       case "post_tool_execution": {

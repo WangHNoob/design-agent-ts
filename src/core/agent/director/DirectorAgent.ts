@@ -308,6 +308,10 @@ export class DirectorAgent {
 
       if (agent.processStream) {
         for await (const chunk of agent.processStream(sessionId, messages)) {
+          if (!chunk.success) {
+            yield { type: "error", data: { error: chunk.errorMessage ?? "Agent execution failed" } };
+            return;
+          }
           const text = chunk.message ? ChatMessage.textContent(chunk.message) : "";
           if (text) {
             yield { type: "chunk", data: { text } };
@@ -315,6 +319,10 @@ export class DirectorAgent {
         }
       } else {
         const response = await agent.process(sessionId, messages);
+        if (!response.success) {
+          yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
+          return;
+        }
         const text = response.message ? ChatMessage.textContent(response.message) : "";
         // Simulate streaming by yielding chunks
         const chunkSize = 20;
