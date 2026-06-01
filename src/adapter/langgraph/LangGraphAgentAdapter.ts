@@ -237,14 +237,15 @@ export class LangGraphAgentAdapter implements AgentPort {
     const config = { configurable: { thread_id: sessionId }, streamMode: "updates" as const };
 
     const compiled = this.compiledGraph as {
-      stream(state: unknown, config: unknown): AsyncIterable<Record<string, { messages?: BaseMessage[] }>>;
+      stream(state: unknown, config: unknown): Promise<AsyncIterable<Record<string, { messages?: BaseMessage[] }>>>;
     };
 
     try {
-      for await (const chunk of compiled.stream(
+      const stream = await compiled.stream(
         { messages: lgMessages, sessionId, iteration: 0 },
         config
-      )) {
+      );
+      for await (const chunk of stream) {
         for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
           if (nodeName === "llmCall" && nodeOutput.messages) {
             const lastMsg = nodeOutput.messages.at(-1) as AIMessageType | undefined;
