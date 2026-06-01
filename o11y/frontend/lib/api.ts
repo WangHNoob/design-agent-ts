@@ -1,4 +1,4 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003";
+const BASE_URL = process.env.NEXT_PUBLIC_O11Y_API_BASE || "http://localhost:3003";
 
 export interface Span {
   id: string;

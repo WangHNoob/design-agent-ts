@@ -19,7 +19,7 @@ export default function Home() {
 
   // ── SSE ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const base = process.env.NEXT_PUBLIC_O11Y_API_BASE || "http://localhost:3003";
     const sse = new EventSource(`${base}/api/v1/events`);
 
     sse.onopen = () => setConnected(true);
