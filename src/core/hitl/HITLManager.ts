@@ -1,5 +1,4 @@
-import fs from "fs/promises";
-import path from "path";
+import type { FileSystemPort } from "../../port/fs/FileSystemPort.js";
 
 export interface HITLCheckpoint {
   id: string;
@@ -21,21 +20,26 @@ export class HITLManager {
   private checkpoints: Map<string, HITLCheckpoint> = new Map();
   private initialized = false;
 
-  constructor(baseDir = "sessions") {
-    this.checkpointDir = path.join(baseDir, "hitl-checkpoint");
+  constructor(
+    private fs: FileSystemPort,
+    baseDir = "sessions"
+  ) {
+    this.checkpointDir = this.fs.join(baseDir, "hitl-checkpoint");
   }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await fs.mkdir(this.checkpointDir, { recursive: true });
+    await this.fs.mkdir(this.checkpointDir, { recursive: true });
 
     try {
-      const files = await fs.readdir(this.checkpointDir);
-      for (const file of files.filter((f) => f.endsWith(".json"))) {
-        const data = await fs.readFile(path.join(this.checkpointDir, file), "utf-8");
-        const list = JSON.parse(data) as HITLCheckpoint[];
-        for (const cp of list) {
-          this.checkpoints.set(cp.id, cp);
+      const entries = await this.fs.readdir(this.checkpointDir);
+      for (const entry of entries.filter((e) => e.isFile && e.name.endsWith(".json"))) {
+        const data = await this.fs.readFile(this.fs.join(this.checkpointDir, entry.name));
+        if (data) {
+          const list = JSON.parse(data) as HITLCheckpoint[];
+          for (const cp of list) {
+            this.checkpoints.set(cp.id, cp);
+          }
         }
       }
     } catch {
@@ -110,10 +114,10 @@ export class HITLManager {
   }
 
   private async persistSession(sessionId: string): Promise<void> {
-    const filePath = path.join(this.checkpointDir, `${sessionId}.json`);
+    const filePath = this.fs.join(this.checkpointDir, `${sessionId}.json`);
     const sessionCheckpoints = Array.from(this.checkpoints.values()).filter(
       (c) => c.sessionId === sessionId
     );
-    await fs.writeFile(filePath, JSON.stringify(sessionCheckpoints, null, 2), "utf-8");
+    await this.fs.writeFile(filePath, JSON.stringify(sessionCheckpoints, null, 2));
   }
 }

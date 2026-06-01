@@ -176,7 +176,7 @@ export async function bootstrap() {
   const sessionManager = new SessionManager(fileSystem);
   await sessionManager.initialize();
 
-  const hitlManager = new HITLManager();
+  const hitlManager = new HITLManager(fileSystem);
   await hitlManager.initialize();
 
   setDirector(director);
