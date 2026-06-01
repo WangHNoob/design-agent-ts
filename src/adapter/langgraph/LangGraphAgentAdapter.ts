@@ -187,6 +187,12 @@ export class LangGraphAgentAdapter implements AgentPort {
         messages: responseMessage ? [...(preCtx.messages ?? []), responseMessage] : (preCtx.messages ?? []),
       }));
 
+      await this.runHooks("pre_summary", HookContext.create({
+        agentName: this.descriptor.name,
+        sessionId,
+        messages: postCtx.messages,
+      }));
+
       return {
         agentName: this.descriptor.name,
         message: responseMessage,

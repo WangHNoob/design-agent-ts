@@ -17,9 +17,9 @@ export class MockHumanReviewGateway implements HumanReviewGateway {
 
   async requestReview<T>(_sessionId: string, _reviewPoint: string, content: T): Promise<ReviewResult<T>> {
     if (this.autoApprove) {
-      return { decision: "approved", modifications: content };
+      return { decision: "approved", modifications: content, fallback: true };
     }
-    return { decision: "rejected", feedback: "Mock rejection" };
+    return { decision: "rejected", feedback: "Mock rejection", fallback: true };
   }
 
   getMaxRevisionRounds(): number {
