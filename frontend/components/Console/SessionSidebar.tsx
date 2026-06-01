@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, MessageSquare, Clock, Zap, Trash2, Plus } from 'lucide-react';
 import { listSessions, deleteSession, type SessionMeta } from '@/lib/api';
 
@@ -9,6 +9,11 @@ interface Props {
   onSelect: (s: SessionMeta) => void;
   onNew: () => void;
   refreshTick: number;
+}
+
+function formatTime(iso: string) {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 
 export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTick }: Props) {
@@ -39,20 +44,14 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
     }
   };
 
-  const filtered = search
-    ? sessions.filter((s) => {
-        const needle = search.toLowerCase();
-        return (
-          s.requirement.toLowerCase().includes(needle) ||
-          s.id.toLowerCase().includes(needle)
-        );
-      })
-    : sessions;
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-  };
+  const filtered = useMemo(() => {
+    if (!search) return sessions;
+    const needle = search.toLowerCase();
+    return sessions.filter((s) =>
+      s.requirement.toLowerCase().includes(needle) ||
+      s.id.toLowerCase().includes(needle)
+    );
+  }, [search, sessions]);
 
   return (
     <aside className="h-full flex flex-col bg-white border-r border-ink/8 shadow-sm w-72 shrink-0">

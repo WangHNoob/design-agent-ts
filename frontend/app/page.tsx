@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Sparkles, Loader2, Zap, User, Bot, Info } from 'lucide-react';
 import Header from '@/components/Console/Header';
@@ -430,7 +430,7 @@ export default function ConsolePage() {
 
 // ── Sub-components ──
 
-function ChatBubble({ msg }: { msg: ChatMessage }) {
+const ChatBubble = React.memo(function ChatBubble({ msg }: { msg: ChatMessage }) {
   if (msg.type === 'system') {
     return (
       <div className="flex items-center justify-center">
@@ -465,7 +465,8 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
       </div>
     </motion.div>
   );
-}
+});
+ChatBubble.displayName = 'ChatBubble';
 
 const EXAMPLES = [
   { emoji: '🃏', title: '卡牌对战游戏', text: '设计一个卡牌对战游戏，包含英雄系统、卡牌系统、战斗系统、成长系统和PVP对战。' },
@@ -474,7 +475,7 @@ const EXAMPLES = [
   { emoji: '🔍', title: '查询知识库', text: '什么是角色养成系统？' },
 ];
 
-function WelcomeScreen({ mode, role, onExampleClick }: {
+const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick }: {
   mode: string;
   role: string;
   onExampleClick: (text: string) => void;
@@ -524,4 +525,5 @@ function WelcomeScreen({ mode, role, onExampleClick }: {
       </div>
     </motion.div>
   );
-}
+});
+WelcomeScreen.displayName = 'WelcomeScreen';

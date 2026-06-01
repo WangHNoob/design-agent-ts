@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 
 export interface AgentStatus {
   id: string;
@@ -44,7 +44,7 @@ export default function AgentStatusCards({ agents }: Props) {
   );
 }
 
-function AgentCard({ agent }: { agent: AgentStatus }) {
+const AgentCard = memo(function AgentCard({ agent }: { agent: AgentStatus }) {
   const statusMeta = {
     pending: { label: '等待', bg: 'bg-ink/5', text: 'text-ink/30', bar: 'bg-ink/10' },
     running: { label: '执行中', bg: 'bg-amber-50', text: 'text-amber-600', bar: 'bg-amber-400' },
@@ -83,4 +83,5 @@ function AgentCard({ agent }: { agent: AgentStatus }) {
       )}
     </div>
   );
-}
+});
+AgentCard.displayName = 'AgentCard';

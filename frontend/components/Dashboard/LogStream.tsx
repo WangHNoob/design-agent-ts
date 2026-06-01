@@ -34,8 +34,36 @@ export default function LogStream() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (!interval) {
+        interval = setInterval(load, 5000);
+      }
+    };
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+        load();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   return (
