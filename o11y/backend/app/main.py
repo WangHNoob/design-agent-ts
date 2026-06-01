@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.api.v1 import api_router
 from app.api.v1.sessions import cleanup_expired_sessions
+from app.events import event_bus
 
 
 async def ttl_cleanup_loop():
@@ -24,11 +25,22 @@ async def ttl_cleanup_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize event bus (Redis if available, memory fallback)
+    await event_bus.initialize()
+    
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
     task = asyncio.create_task(ttl_cleanup_loop())
     yield
+    
     task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    
+    await event_bus.shutdown()
     await engine.dispose()
 
 app = FastAPI(
