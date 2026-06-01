@@ -1,0 +1,41 @@
+{
+  "name": "o11y-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3004",
+    "build": "next build",
+    "start": "next start -p 3004",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-virtual": "^3.13.24",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "15.5.18",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "swr": "^2.4.1",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
+}

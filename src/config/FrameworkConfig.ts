@@ -23,4 +23,10 @@ export interface FrameworkConfig {
     tavilyApiKey?: string;
     tavilyEnabled: boolean;
   };
+  o11y: {
+    enabled: boolean;
+    baseUrl: string;
+    flushIntervalMs: number;
+    batchSize: number;
+  };
 }

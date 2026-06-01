@@ -15,6 +15,21 @@ import { ValidationHook } from "../core/hook/ValidationHook.js";
 import { IterationBudgetHook } from "../core/hook/IterationBudgetHook.js";
 import { OutputEnforcementHook } from "../core/hook/OutputEnforcementHook.js";
 import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
+import { O11yReportingHook } from "../core/hook/O11yReportingHook.js";
+import { setSpanReporter, setTraceReporter } from "../core/o11y/O11yTraceBridge.js";
+import { setRuntimeStatusReporter as setRuntimeBridgeReporter } from "../core/o11y/O11yRuntimeBridge.js";
+import { BatchSpanReporter } from "../core/o11y/BatchSpanReporter.js";
+import { BatchLogReporter } from "../core/o11y/BatchLogReporter.js";
+import {
+  NoOpTraceReporter,
+  NoOpSpanReporter,
+  NoOpLogReporter,
+  NoOpRuntimeStatusReporter,
+} from "../core/o11y/NoOpReporter.js";
+import { HttpTraceReporter } from "../adapter/o11y/HttpTraceReporter.js";
+import { HttpSpanReporter } from "../adapter/o11y/HttpSpanReporter.js";
+import { HttpLogReporter } from "../adapter/o11y/HttpLogReporter.js";
+import { HttpRuntimeStatusReporter } from "../adapter/o11y/HttpRuntimeStatusReporter.js";
 import { WikiPageTool } from "../core/tool/knowledge/WikiPageTool.js";
 import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
@@ -22,7 +37,7 @@ import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
 import { loadPrompt } from "../config/PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
-import { setSettingsManager, setSettingsContainer } from "./routes/settings.js";
+import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./routes/settings.js";
 
 export async function bootstrap() {
   const config = loadConfig();
@@ -118,19 +133,41 @@ export async function bootstrap() {
     );
   }
 
+  // Initialize O11y reporters
+  const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
+    new LoggingHook(),
+    new ValidationHook(),
+    new IterationBudgetHook(),
+    new OutputEnforcementHook(),
+    new ContextManagementHook(),
+  ];
+
+  if (config.o11y.enabled) {
+    const baseUrl = config.o11y.baseUrl;
+    const httpSpanReporter = new HttpSpanReporter(baseUrl);
+    const httpLogReporter = new HttpLogReporter(baseUrl);
+    const batchSpanReporter = new BatchSpanReporter(httpSpanReporter, config.o11y.flushIntervalMs, config.o11y.batchSize);
+    const batchLogReporter = new BatchLogReporter(httpLogReporter, config.o11y.flushIntervalMs, config.o11y.batchSize);
+    batchSpanReporter.start();
+    batchLogReporter.start();
+
+    setTraceReporter(new HttpTraceReporter(baseUrl));
+    setSpanReporter(batchSpanReporter);
+    setRuntimeBridgeReporter(new HttpRuntimeStatusReporter(baseUrl));
+    hooks.push(new O11yReportingHook());
+  } else {
+    setTraceReporter(new NoOpTraceReporter());
+    setSpanReporter(new NoOpSpanReporter());
+    setRuntimeBridgeReporter(new NoOpRuntimeStatusReporter());
+  }
+
   const director = new DirectorAgent({
     model: container.model,
     agentFactory: container.agentFactory,
     toolRegistry,
     skillRegistry,
     humanReviewGateway: container.humanReviewGateway,
-    hooks: [
-      new LoggingHook(),
-      new ValidationHook(),
-      new IterationBudgetHook(),
-      new OutputEnforcementHook(),
-      new ContextManagementHook(),
-    ],
+    hooks,
     prompts: directorPrompts,
   });
 
@@ -147,6 +184,7 @@ export async function bootstrap() {
   setHITLManager(hitlManager);
   setSettingsManager(settingsManager);
   setSettingsContainer(container);
+  setTavilyTool(tavilyTool);
 
   const app = createApp();
   return { app, config, container, director, sessionManager, hitlManager, settingsManager };

@@ -1,9 +1,12 @@
 import { Hono } from "hono";
 import type { SettingsManager } from "../../core/settings/SettingsManager.js";
 import type { Container } from "../Container.js";
+import type { TavilySearchTool } from "../../adapter/tavily/TavilySearchTool.js";
+import { syncEnvFromSettings } from "../envSync.js";
 
 let settingsManagerInstance: SettingsManager | null = null;
 let containerInstance: Container | null = null;
+let tavilyToolInstance: TavilySearchTool | null = null;
 
 export function setSettingsManager(sm: SettingsManager) {
   settingsManagerInstance = sm;
@@ -11,6 +14,10 @@ export function setSettingsManager(sm: SettingsManager) {
 
 export function setSettingsContainer(container: Container) {
   containerInstance = container;
+}
+
+export function setTavilyTool(tool: TavilySearchTool) {
+  tavilyToolInstance = tool;
 }
 
 export const settingsRoute = new Hono();
@@ -31,6 +38,9 @@ settingsRoute.post("/", async (c) => {
   settingsManagerInstance.updateSettings(body);
   await settingsManagerInstance.save();
 
+  // Sync .env file so changes survive restarts
+  syncEnvFromSettings(body);
+
   // Reconfigure LLM in real-time if model config changed
   if (
     containerInstance &&
@@ -46,6 +56,14 @@ settingsRoute.post("/", async (c) => {
       apiKey: settings.modelApiKey ?? "",
       baseUrl: settings.modelBaseUrl || undefined,
     });
+  }
+
+  // Reconfigure Tavily in real-time
+  if (tavilyToolInstance && (body.tavilyEnabled !== undefined || body.tavilyApiKey !== undefined)) {
+    const settings = settingsManagerInstance.getSettings();
+    const enabled = settingsManagerInstance.isTavilyEnabled();
+    const apiKey = settingsManagerInstance.getTavilyApiKey();
+    tavilyToolInstance.setApiKey(enabled ? apiKey ?? null : null);
   }
 
   return c.json({ success: true, settings: settingsManagerInstance.getPublicSettings() });

@@ -15,6 +15,9 @@ import { PlanPipeline } from "../../pipeline/PlanPipeline.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
 import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
+import { runInContext } from "../../o11y/O11yContext.js";
+import { startSpan, endSpan, failSpan, createTrace } from "../../o11y/O11yTraceBridge.js";
+import { status as runtimeStatus } from "../../o11y/O11yRuntimeBridge.js";
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error";
@@ -56,14 +59,48 @@ export class DirectorAgent {
     mode: "design" | "query" | "table",
     role: string
   ): Promise<AgentResponse> {
-    switch (mode) {
-      case "design":
-        return this.executeDesignFlow(requirement, sessionId, role);
-      case "query":
-        return this.executeQueryFlow(requirement, sessionId);
-      case "table":
-        return this.executeTableFlow(requirement, sessionId, role);
-    }
+    const traceId = crypto.randomUUID();
+    const trace = await createTrace({
+      id: traceId,
+      session_id: sessionId,
+      name: `DirectorAgent.${mode}`,
+      status: "running",
+    });
+
+    const rootCtx = { traceId, spanId: traceId, sessionId };
+
+    return runInContext(rootCtx, async () => {
+      const rootSpan = startSpan("DirectorAgent.execute", "DIRECTOR", rootCtx, {
+        mode,
+        role,
+        requirementPreview: requirement.substring(0, 100),
+      });
+
+      runtimeStatus(sessionId, traceId, "PLANNING", 0, `Starting ${mode} execution`, role, null);
+
+      try {
+        let result: AgentResponse;
+        switch (mode) {
+          case "design":
+            result = await this.executeDesignFlow(requirement, sessionId, role, traceId);
+            break;
+          case "query":
+            result = await this.executeQueryFlow(requirement, sessionId, traceId);
+            break;
+          case "table":
+            result = await this.executeTableFlow(requirement, sessionId, role, traceId);
+            break;
+        }
+        endSpan(rootSpan, { resultLength: result.message?.content?.length ?? 0 });
+        runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Execution completed", null, null);
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        failSpan(rootSpan, msg);
+        runtimeStatus(sessionId, traceId, "COMPLETE", 100, `Execution failed: ${msg}`, null, null);
+        throw err;
+      }
+    });
   }
 
   async *executeStream(
@@ -86,16 +123,25 @@ export class DirectorAgent {
   private async executeDesignFlow(
     requirement: string,
     sessionId: string,
-    role: string
+    role: string,
+    traceId?: string
   ): Promise<AgentResponse> {
+    const planSpan = startSpan("TaskPlanner.plan", "TASK_PLANNER", null, { requirementPreview: requirement.substring(0, 100) });
     const skill = this.deps.skillRegistry.matchSkill(requirement, role);
     const plan = await this.taskPlanner.plan(requirement, role, skill);
+    endSpan(planSpan, { subTaskCount: plan.subTasks.length });
+
+    runtimeStatus(sessionId, traceId ?? "unknown", "PIPELINE", 20, `${plan.subTasks.length} sub-tasks planned`, null, null);
 
     const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
       sessionId, "hitl-1-task-plan", plan
     );
 
+    const routeSpan = startSpan("Router.route", "ROUTER", null);
     const routing = await this.router.route(reviewedPlan.modifications ?? plan, role);
+    endSpan(routeSpan, { decisionCount: routing.length });
+
+    runtimeStatus(sessionId, traceId ?? "unknown", "PIPELINE", 40, `Routed to ${routing.length} agents`, null, null);
 
     // Map RouteDecision[] to TaskAssignment[]
     const assignments: TaskAssignment[] = routing
@@ -128,6 +174,7 @@ export class DirectorAgent {
       })),
     };
 
+    const pipelineSpan = startSpan("PlanPipeline.execute", "PIPELINE", null, { taskCount: mergedPlan.subTasks.length });
     const pipeline = new PlanPipeline(
       mergedPlan,
       (task) => this.executeSingleTask(
@@ -137,16 +184,24 @@ export class DirectorAgent {
           assignment: task.description,
           agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor ?? getSubAgentDescriptor("SystemDesigner")!,
         },
-        sessionId
+        sessionId,
+        traceId
       )
     );
     const results = await pipeline.execute();
+    endSpan(pipelineSpan, { resultCount: results.length });
+
+    runtimeStatus(sessionId, traceId ?? "unknown", "AGENT", 60, `Executed ${results.length} sub-tasks`, null, null);
 
     const reviewedResults = await this.deps.humanReviewGateway.requestReview(
       sessionId, "hitl-2-agent-output", results
     );
 
+    const integrateSpan = startSpan("Integrator.integrate", "INTEGRATOR", null);
     const finalOutput = this.integrator.integrate(reviewedResults.modifications ?? results);
+    endSpan(integrateSpan, { outputLength: finalOutput.length });
+
+    runtimeStatus(sessionId, traceId ?? "unknown", "INTEGRATING", 80, "Integrating results", null, null);
 
     const finalReviewed = await this.deps.humanReviewGateway.requestReview(
       sessionId, "hitl-3-final", finalOutput
@@ -163,29 +218,42 @@ export class DirectorAgent {
 
   private async executeSingleTask(
     task: TaskAssignment,
-    sessionId: string
+    sessionId: string,
+    traceId?: string
   ): Promise<TaskResult> {
-    const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
-    const agent = this.deps.agentFactory.createAgent(
-      task.agentDescriptor,
-      this.deps.toolRegistry,
-      new InMemoryMemoryPort(),
-      this.deps.hooks
-    );
-
-    const input = ChatMessage.text("user", "director", task.assignment);
-    const response = await agent.process(sessionId, [input]);
-
-    return {
+    const taskSpan = startSpan(task.agentDescriptor.name, "SUB_AGENT", null, {
       taskId: task.taskId,
       domain: task.domain,
-      status: response.success ? "success" : "error",
-      output: AR.getTextContent(response) ?? "",
-      errorMessage: response.errorMessage,
-    };
+    });
+    try {
+      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+      const agent = this.deps.agentFactory.createAgent(
+        task.agentDescriptor,
+        this.deps.toolRegistry,
+        new InMemoryMemoryPort(),
+        this.deps.hooks
+      );
+
+      const input = ChatMessage.text("user", "director", task.assignment);
+      const response = await agent.process(sessionId, [input]);
+
+      endSpan(taskSpan, { success: response.success });
+      return {
+        taskId: task.taskId,
+        domain: task.domain,
+        status: response.success ? "success" : "error",
+        output: AR.getTextContent(response) ?? "",
+        errorMessage: response.errorMessage,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      failSpan(taskSpan, msg);
+      throw err;
+    }
   }
 
-  private async executeQueryFlow(requirement: string, _sessionId: string): Promise<AgentResponse> {
+  private async executeQueryFlow(requirement: string, sessionId: string, traceId?: string): Promise<AgentResponse> {
+    runtimeStatus(sessionId, traceId ?? "unknown", "LLM", 50, "Executing simple query", null, null);
     const response = await this.deps.model.generate([
       ChatMessage.text("system", "system", this.querySystemPrompt),
       ChatMessage.text("user", "user", requirement),
@@ -295,8 +363,9 @@ export class DirectorAgent {
   private async executeTableFlow(
     requirement: string,
     sessionId: string,
-    role: string
+    role: string,
+    traceId?: string
   ): Promise<AgentResponse> {
-    return this.executeDesignFlow(requirement, sessionId, role);
+    return this.executeDesignFlow(requirement, sessionId, role, traceId);
   }
 }

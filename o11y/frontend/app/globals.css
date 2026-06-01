@@ -1,0 +1,234 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* Scrollbar */
+/* ------------------------------------------------------------------ */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* ------------------------------------------------------------------ */
+/* Background: subtle grid on clean light canvas */
+/* ------------------------------------------------------------------ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Selection */
+/* ------------------------------------------------------------------ */
+::selection {
+  background: rgb(2 132 199 / 0.18);
+  color: #0c4a6e;
+}
+
+/* ------------------------------------------------------------------ */
+/* Running animation for active spans */
+/* ------------------------------------------------------------------ */
+@keyframes running-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(2, 132, 199, 0); }
+  50%      { box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18); }
+}
+.animate-running {
+  animation: running-glow 1.5s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/* Performance warning border */
+/* ------------------------------------------------------------------ */
+@keyframes perf-warn-border {
+  0%, 100% { border-color: rgba(245, 158, 11, 0.45); }
+  50%      { border-color: rgba(245, 158, 11, 0.85); }
+}
+.animate-perf-warn {
+  animation: perf-warn-border 2s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/* Markdown rendered content */
+/* ------------------------------------------------------------------ */
+.markdown-body {
+  color: #1e293b;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.markdown-body p {
+  margin-bottom: 0.5em;
+}
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: rgb(0 0 0 / 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #0369a1;
+}
+.markdown-body pre {
+  background: rgb(0 0 0 / 0.04);
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  color: #1e293b;
+}
+.markdown-body ul, .markdown-body ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.5em;
+}
+.markdown-body li {
+  margin-bottom: 0.15em;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+  color: #0f172a;
+}
+.markdown-body h1 { font-size: 1.2em; }
+.markdown-body h2 { font-size: 1.1em; }
+.markdown-body h3 { font-size: 1em; }
+.markdown-body blockquote {
+  border-left: 2px solid #0284c7;
+  padding-left: 12px;
+  color: #334155;
+  margin: 0.5em 0;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid #cbd5e1;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.markdown-body th {
+  background: rgb(0 0 0 / 0.04);
+  color: #0f172a;
+}
+
+/* ------------------------------------------------------------------ */
+/* JSON viewer */
+/* ------------------------------------------------------------------ */
+.json-viewer .json-key   { color: #0369a1; }
+.json-viewer .json-string{ color: #15803d; }
+.json-viewer .json-number{ color: #c2410c; }
+.json-viewer .json-bool  { color: #0369a1; }
+.json-viewer .json-null  { color: #64748b; }
+.json-viewer .json-brace { color: #64748b; }
+
+/* ------------------------------------------------------------------ */
+/* JSON tree (collapsible)                                            */
+/* ------------------------------------------------------------------ */
+.json-tree {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.json-tree .jt-line {
+  padding-left: 0;
+  white-space: nowrap;
+}
+.json-tree .jt-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  color: #64748b;
+  user-select: none;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.json-tree .jt-toggle:hover {
+  color: #0f172a;
+}
+.json-tree .jt-key {
+  color: #0369a1;
+}
+.json-tree .jt-string {
+  color: #15803d;
+}
+.json-tree .jt-number {
+  color: #c2410c;
+}
+.json-tree .jt-bool {
+  color: #0369a1;
+}
+.json-tree .jt-null {
+  color: #64748b;
+}
+.json-tree .jt-brace {
+  color: #64748b;
+}
+.json-tree .jt-ellipsis {
+  color: #64748b;
+  font-style: italic;
+}
+.json-tree .jt-count {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Thinking callout                                                   */
+/* ------------------------------------------------------------------ */
+.thinking-callout {
+  border-left: 2px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 0 6px 6px 0;
+}
+.thinking-callout .markdown-body {
+  font-size: 12px;
+  color: #92400e;
+}
+
+/* ------------------------------------------------------------------ */
+/* View toggle pill                                                   */
+/* ------------------------------------------------------------------ */
+.view-toggle {
+  display: inline-flex;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-toggle button {
+  font-size: 11px;
+  padding: 3px 12px;
+  color: #64748b;
+  transition: all 0.15s;
+}
+.view-toggle button.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}

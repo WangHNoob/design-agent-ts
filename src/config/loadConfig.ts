@@ -31,5 +31,11 @@ export function loadConfig(): FrameworkConfig {
       tavilyApiKey: process.env.TAVILY_API_KEY,
       tavilyEnabled: process.env.TAVILY_ENABLED === "true",
     },
+    o11y: {
+      enabled: process.env.O11Y_ENABLED === "true",
+      baseUrl: process.env.O11Y_BASE_URL ?? "http://localhost:3003",
+      flushIntervalMs: Number(process.env.O11Y_FLUSH_INTERVAL ?? 1000),
+      batchSize: Number(process.env.O11Y_BATCH_SIZE ?? 50),
+    },
   };
 }

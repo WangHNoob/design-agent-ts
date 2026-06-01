@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+venv/
+.venv/
+*.pyc
+
+# Node
+node_modules/
+.next/
+*.tsbuildinfo
+
+# Java
+target/
+*.class
+
+# Database
+*.db
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+
+# Game data / binary files
+*.xlsx
+*.xls
+
+.agents/
