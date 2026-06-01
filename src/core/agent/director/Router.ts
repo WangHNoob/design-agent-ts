@@ -3,16 +3,16 @@ import type { TaskPlan } from "../../schema/TaskPlan.js";
 import type { RouteDecision } from "../../schema/RouteDecision.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
 
-const DEFAULT_PROMPT_TEMPLATE = `你是路由分发器。根据任务计划，为每个子任务分配最适合的 Agent。
+const DEFAULT_PROMPT_TEMPLATE = `Route each sub-task to the most suitable agent.
 
-任务计划:
+Task plan:
 {taskPlan}
 
-可用 Agent: SystemDesigner, CombatDesigner, NumericalPlanner, GameplayDesigner, ExecutivePlanner, QAPlanner
+Available agents: SystemDesigner, CombatDesigner, NumericalPlanner, GameplayDesigner, ExecutivePlanner, QAPlanner
 
-输出格式（JSON数组）:
+Output format (JSON array):
 [
-  { "fragmentId": "F1", "domain": "system_design", "agentName": "SystemDesigner", "assignment": "具体任务描述", "priority": 1 }
+  { "fragmentId": "F1", "domain": "system_design", "agentName": "SystemDesigner", "assignment": "...", "priority": 1 }
 ]`;
 
 export class Router {

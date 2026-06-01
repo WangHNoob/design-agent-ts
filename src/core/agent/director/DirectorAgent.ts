@@ -50,7 +50,7 @@ export class DirectorAgent {
     this.taskPlanner = new TaskPlanner(deps.model, deps.prompts?.taskPlanner);
     this.router = new Router(deps.model, deps.prompts?.router);
     this.integrator = new Integrator();
-    this.querySystemPrompt = deps.prompts?.querySystem ?? "你是游戏策划知识库助手。";
+    this.querySystemPrompt = deps.prompts?.querySystem ?? "";
   }
 
   async execute(

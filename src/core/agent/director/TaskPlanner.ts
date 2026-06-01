@@ -3,12 +3,12 @@ import type { SkillPort } from "../../../port/skill/SkillPort.js";
 import type { TaskPlan } from "../../schema/TaskPlan.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
 
-const DEFAULT_PROMPT_TEMPLATE = `你是任务规划器。将以下需求拆解为子任务列表（JSON格式）。
+const DEFAULT_PROMPT_TEMPLATE = `Plan the following requirement into sub-tasks (JSON format).
 
-角色: {role}
-{skillHint}需求: {requirement}
+Role: {role}
+{skillHint}Requirement: {requirement}
 
-输出格式:
+Output format:
 {
   "planId": "auto",
   "subTasks": [
