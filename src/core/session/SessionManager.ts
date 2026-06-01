@@ -1,5 +1,4 @@
-import fs from "fs/promises";
-import path from "path";
+import type { FileSystemPort } from "../../port/fs/FileSystemPort.js";
 
 export interface SessionMeta {
   id: string;
@@ -20,21 +19,26 @@ export class SessionManager {
   private sessions: Map<string, SessionMeta> = new Map();
   private initialized = false;
 
-  constructor(baseDir = "sessions") {
+  constructor(
+    private fs: FileSystemPort,
+    baseDir = "sessions"
+  ) {
     this.sessionsDir = baseDir;
-    this.sessionsFile = path.join(baseDir, "sessions.jsonl");
+    this.sessionsFile = this.fs.join(baseDir, "sessions.jsonl");
   }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await fs.mkdir(this.sessionsDir, { recursive: true });
-    await fs.mkdir(path.join(this.sessionsDir, "hitl-checkpoint"), { recursive: true });
+    await this.fs.mkdir(this.sessionsDir, { recursive: true });
+    await this.fs.mkdir(this.fs.join(this.sessionsDir, "hitl-checkpoint"), { recursive: true });
 
     try {
-      const data = await fs.readFile(this.sessionsFile, "utf-8");
-      for (const line of data.split("\n").filter((l) => l.trim())) {
-        const meta = JSON.parse(line) as SessionMeta;
-        this.sessions.set(meta.id, meta);
+      const data = await this.fs.readFile(this.sessionsFile);
+      if (data) {
+        for (const line of data.split("\n").filter((l) => l.trim())) {
+          const meta = JSON.parse(line) as SessionMeta;
+          this.sessions.set(meta.id, meta);
+        }
       }
     } catch {
       // file may not exist yet
@@ -80,8 +84,8 @@ export class SessionManager {
     if (existed) {
       await this.persist();
       try {
-        const checkpointFile = path.join(this.sessionsDir, "hitl-checkpoint", `${id}.json`);
-        await fs.unlink(checkpointFile);
+        const checkpointFile = this.fs.join(this.sessionsDir, "hitl-checkpoint", `${id}.json`);
+        await this.fs.unlink(checkpointFile);
       } catch {
         // ignore
       }
@@ -93,6 +97,6 @@ export class SessionManager {
     const lines = Array.from(this.sessions.values())
       .map((s) => JSON.stringify(s))
       .join("\n");
-    await fs.writeFile(this.sessionsFile, lines + "\n", "utf-8");
+    await this.fs.writeFile(this.sessionsFile, lines + "\n");
   }
 }

@@ -173,7 +173,7 @@ export async function bootstrap() {
     prompts: directorPrompts,
   });
 
-  const sessionManager = new SessionManager();
+  const sessionManager = new SessionManager(fileSystem);
   await sessionManager.initialize();
 
   const hitlManager = new HITLManager();
