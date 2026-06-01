@@ -397,14 +397,37 @@ export default function ConsolePage() {
                     </button>
                     <span className="text-[10px] text-ink/25 hidden sm:inline">Enter 发送，Shift+Enter 换行</span>
                   </div>
-                  <button
-                    onClick={handleSubmit}
-                    disabled={loading || !requirement.trim()}
-                    className="flex items-center gap-1.5 rounded-lg bg-coral px-3 py-1.5 text-xs font-semibold text-white hover:bg-coral/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                    {loading ? '处理中' : '发送'}
-                  </button>
+                  {loading ? (
+                    <button
+                      onClick={() => {
+                        streamRef.current?.close();
+                        streamRef.current = null;
+                        setLoading(false);
+                        setStreaming(false);
+                        setStatus('idle');
+                        setStatusText('已取消');
+                        stopExecutionTimer();
+                        addStep('✗ 用户取消');
+                        addLog('warn', '用户取消执行');
+                        setRawAgentStatuses((prev) =>
+                          prev.map((a) => ({ ...a, status: a.status === 'running' ? 'error' : a.status }))
+                        );
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg bg-ink/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-ink/30 transition-colors"
+                    >
+                      <Loader2 size={14} className="animate-spin" />
+                      取消
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSubmit}
+                      disabled={!requirement.trim()}
+                      className="flex items-center gap-1.5 rounded-lg bg-coral px-3 py-1.5 text-xs font-semibold text-white hover:bg-coral/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Send size={14} />
+                      发送
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
