@@ -35,7 +35,7 @@ services:
       dockerfile: Dockerfile
     container_name: gdt-backend
     ports:
-      - "3000:3000"
+      - "13000:3000"
     environment:
       - PORT=3000
       - O11Y_ENABLED=true
@@ -65,7 +65,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE: http://localhost:3000
+        NEXT_PUBLIC_API_BASE: http://localhost:13000
         NEXT_PUBLIC_O11Y_BASE: http://localhost:3003
     container_name: gdt-frontend
     ports:

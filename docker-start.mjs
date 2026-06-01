@@ -129,7 +129,7 @@ function printAccessInfo() {
   console.log("║                      🚀 服务访问地址                          ║");
   console.log("╠══════════════════════════════════════════════════════════════╣");
   console.log("║  主前端:        http://localhost:3001                        ║");
-  console.log("║  主后端 API:    http://localhost:3000                        ║");
+  console.log("║  主后端 API:    http://localhost:13000                       ║");
   console.log("║  O11y 前端:     http://localhost:3004                        ║");
   console.log("║  O11y API:      http://localhost:3003                        ║");
   console.log("║  PostgreSQL:    localhost:15432                              ║");
@@ -227,7 +227,7 @@ if (!existsSync("o11y/backend/.env")) {
 // 检查关键端口是否被占用（使用非标准端口避免与其他应用冲突）
 const portsToCheck = infraOnly
   ? [15432, 16379]
-  : [3000, 3001, 3003, 3004, 15432, 16379];
+  : [13000, 3001, 3003, 3004, 15432, 16379];
 
 const occupiedPorts = [];
 for (const port of portsToCheck) {
