@@ -3,6 +3,8 @@ import type { DirectorAgent } from "../../core/agent/director/DirectorAgent.js";
 import { AgentResponse as AR } from "../../port/agent/AgentResponse.js";
 import type { SessionManager } from "../../core/session/SessionManager.js";
 import type { HITLManager } from "../../core/hitl/HITLManager.js";
+import { runInContext } from "../../core/o11y/O11yContext.js";
+import { createTrace } from "../../core/o11y/O11yTraceBridge.js";
 
 interface ExecuteRequest {
   requirement: string;
@@ -116,58 +118,70 @@ consoleRoute.post("/execute/stream", async (c) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
+      const traceId = crypto.randomUUID();
+      const rootCtx = { traceId, spanId: traceId, sessionId };
+
       try {
-        const eventStream = directorInstance!.executeStream(
-          body.requirement,
-          sessionId,
-          body.mode,
-          role
-        );
+        await runInContext(rootCtx, async () => {
+          await createTrace({
+            id: traceId,
+            session_id: sessionId,
+            name: `DirectorAgent.${body.mode}`,
+            status: "running",
+          });
 
-        let finalOutput = "";
-        let hasError = false;
-        let errorMsg = "";
+          const eventStream = directorInstance!.executeStream(
+            body.requirement,
+            sessionId,
+            body.mode,
+            role
+          );
 
-        for await (const event of eventStream) {
-          switch (event.type) {
-            case "start":
-              send("start", event.data);
-              break;
-            case "plan":
-              send("plan", event.data);
-              break;
-            case "route":
-              send("route", event.data);
-              break;
-            case "task_start":
-              send("task_start", event.data);
-              break;
-            case "task_complete":
-              send("task_complete", event.data);
-              break;
-            case "integrate":
-              send("integrate", event.data);
-              break;
-            case "chunk":
-              send("chunk", event.data);
-              finalOutput += (event.data.text as string) ?? "";
-              break;
-            case "complete":
-              finalOutput = (event.data.output as string) ?? finalOutput;
-              send("complete", { ...event.data, output: finalOutput, sessionId });
-              break;
-            case "error":
-              hasError = true;
-              errorMsg = (event.data.error as string) ?? "Unknown error";
-              send("error", { ...event.data, sessionId });
-              break;
+          let finalOutput = "";
+          let hasError = false;
+          let errorMsg = "";
+
+          for await (const event of eventStream) {
+            switch (event.type) {
+              case "start":
+                send("start", event.data);
+                break;
+              case "plan":
+                send("plan", event.data);
+                break;
+              case "route":
+                send("route", event.data);
+                break;
+              case "task_start":
+                send("task_start", event.data);
+                break;
+              case "task_complete":
+                send("task_complete", event.data);
+                break;
+              case "integrate":
+                send("integrate", event.data);
+                break;
+              case "chunk":
+                send("chunk", event.data);
+                finalOutput += (event.data.text as string) ?? "";
+                break;
+              case "complete":
+                finalOutput = (event.data.output as string) ?? finalOutput;
+                send("complete", { ...event.data, output: finalOutput, sessionId });
+                break;
+              case "error":
+                hasError = true;
+                errorMsg = (event.data.error as string) ?? "Unknown error";
+                send("error", { ...event.data, sessionId });
+                break;
+            }
           }
-        }
 
-        await sessionManagerInstance?.update(sessionId, {
-          status: hasError ? "failed" : "completed",
-          output: finalOutput || undefined,
-          error: errorMsg || undefined,
+          await sessionManagerInstance?.update(sessionId, {
+            status: hasError ? "failed" : "completed",
+            output: finalOutput || undefined,
+            error: errorMsg || undefined,
+          });
         });
 
         controller.close();
