@@ -30,6 +30,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
         return new ChatAnthropic({
           modelName: config.modelName,
           anthropicApiKey: config.apiKey,
+          anthropicApiUrl: config.baseUrl,
         });
     }
   }
