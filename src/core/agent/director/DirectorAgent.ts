@@ -4,6 +4,7 @@ import { AgentResponse as AR } from "../../../port/agent/AgentResponse.js";
 import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
 import type { ModelResponse } from "../../../port/model/ModelResponse.js";
 import type { AgentFactory } from "../../../port/agent/AgentFactory.js";
+import type { AgentDescriptor } from "../../../port/agent/AgentDescriptor.js";
 import type { ToolRegistry } from "../../../port/tool/ToolRegistry.js";
 import type { SkillRegistry } from "../../../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "./HumanReviewGateway.js";
@@ -262,32 +263,63 @@ export class DirectorAgent {
     }
   }
 
+  private async createQueryAgent() {
+    const queryDescriptor: AgentDescriptor = {
+      name: "QueryAgent",
+      systemPrompt: this.querySystemPrompt,
+      maxIterations: 5,
+      toolNames: [
+        "wiki_lookup", "wiki_read", "wiki_list",
+        "grep_search",
+        "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
+        "tavily_search", "tavily_extract",
+      ],
+      options: {},
+    };
+    const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+    return this.deps.agentFactory.createAgent(
+      queryDescriptor,
+      this.deps.toolRegistry,
+      new InMemoryMemoryPort(),
+      this.deps.hooks
+    );
+  }
+
   private async executeQueryFlow(requirement: string, sessionId: string, traceId?: string): Promise<AgentResponse> {
-    runtimeStatus(sessionId, traceId ?? "unknown", "LLM", 50, "Executing simple query", null, null);
-    const response = await this.deps.model.generate([
-      ChatMessage.text("system", "system", this.querySystemPrompt),
+    runtimeStatus(sessionId, traceId ?? "unknown", "LLM", 50, "Executing query with tools", null, null);
+    const agent = await this.createQueryAgent();
+    const response = await agent.process(sessionId, [
       ChatMessage.text("user", "user", requirement),
     ]);
     return {
       agentName: "Director",
       message: response.message,
       metadata: {},
-      success: true,
-      errorMessage: null,
+      success: response.success,
+      errorMessage: response.errorMessage,
     };
   }
 
   private async *executeQueryStream(requirement: string, sessionId: string): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
     try {
-      const stream = this.deps.model.stream([
-        ChatMessage.text("system", "system", this.querySystemPrompt),
-        ChatMessage.text("user", "user", requirement),
-      ]);
-      for await (const chunk of stream) {
-        const text = ChatMessage.textContent(chunk.message) ?? "";
-        if (text) {
-          yield { type: "chunk", data: { text } };
+      const agent = await this.createQueryAgent();
+      const messages = [ChatMessage.text("user", "user", requirement)];
+
+      if (agent.processStream) {
+        for await (const chunk of agent.processStream(sessionId, messages)) {
+          const text = chunk.message ? ChatMessage.textContent(chunk.message) : "";
+          if (text) {
+            yield { type: "chunk", data: { text } };
+          }
+        }
+      } else {
+        const response = await agent.process(sessionId, messages);
+        const text = response.message ? ChatMessage.textContent(response.message) : "";
+        // Simulate streaming by yielding chunks
+        const chunkSize = 20;
+        for (let i = 0; i < text.length; i += chunkSize) {
+          yield { type: "chunk", data: { text: text.substring(i, i + chunkSize) } };
         }
       }
       yield { type: "complete", data: { success: true } };

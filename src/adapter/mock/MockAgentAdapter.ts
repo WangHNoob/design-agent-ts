@@ -26,6 +26,10 @@ export class MockAgentAdapter implements AgentPort {
     return this.presetResponse;
   }
 
+  async *processStream(_sessionId: string, _messages: ChatMessage[]): AsyncIterable<AgentResponse> {
+    yield this.presetResponse;
+  }
+
   getDescriptor(): AgentDescriptor {
     return this.descriptor;
   }

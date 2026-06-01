@@ -216,6 +216,73 @@ export class LangGraphAgentAdapter implements AgentPort {
     }
   }
 
+  async *processStream(sessionId: string, messages: ChatMessage[]): AsyncIterable<AgentResponse> {
+    const preCtx = await this.runHooks("pre_agent_call", HookContext.create({
+      agentName: this.descriptor.name,
+      sessionId,
+      messages,
+    }));
+    if (preCtx.abort) {
+      yield {
+        agentName: this.descriptor.name,
+        message: null,
+        metadata: { aborted: true },
+        success: false,
+        errorMessage: "Aborted by hook",
+      };
+      return;
+    }
+
+    const lgMessages = this.messageMapper.toLangGraphList(messages);
+    const config = { configurable: { thread_id: sessionId }, streamMode: "updates" as const };
+
+    const compiled = this.compiledGraph as {
+      stream(state: unknown, config: unknown): AsyncIterable<Record<string, { messages?: BaseMessage[] }>>;
+    };
+
+    try {
+      for await (const chunk of compiled.stream(
+        { messages: lgMessages, sessionId, iteration: 0 },
+        config
+      )) {
+        for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
+          if (nodeName === "llmCall" && nodeOutput.messages) {
+            const lastMsg = nodeOutput.messages.at(-1) as AIMessageType | undefined;
+            if (lastMsg && !lastMsg.tool_calls?.length) {
+              const responseMessage = this.messageMapper.fromLangGraph(lastMsg);
+              yield {
+                agentName: this.descriptor.name,
+                message: responseMessage,
+                metadata: {},
+                success: true,
+                errorMessage: null,
+              };
+            }
+          }
+        }
+      }
+
+      await this.runHooks("post_agent_call", HookContext.create({
+        agentName: this.descriptor.name,
+        sessionId,
+        messages: preCtx.messages ?? [],
+      }));
+    } catch (err) {
+      await this.runHooks("on_error", HookContext.create({
+        agentName: this.descriptor.name,
+        sessionId,
+        error: err instanceof Error ? err : new Error(String(err)),
+      }));
+      yield {
+        agentName: this.descriptor.name,
+        message: null,
+        metadata: {},
+        success: false,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   getDescriptor(): AgentDescriptor {
     return this.descriptor;
   }
