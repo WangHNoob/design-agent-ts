@@ -1,0 +1,14 @@
+{
+  "modelProvider": "anthropic",
+  "modelName": "claude-opus",
+  "modelApiKey": "sk-sD6J4pMQVKo8WRqWZoxKc4cAJbOIkobkhWchWWTqC9tjT24Qz73gCnDTaGHkPHDC",
+  "modelBaseUrl": "https://api.nagara.top",
+  "temperature": 0.1,
+  "maxTokens": 32768,
+  "hitlEnabled": false,
+  "maxClarifyRounds": 3,
+  "streamingEnabled": true,
+  "autoSaveSessions": true,
+  "tavilyEnabled": false,
+  "tavilyApiKey": "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"
+}

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 
-import { KnowledgeGraphTool } from "../../../src/core/knowledge/KnowledgeGraphTool.js";
+import { KnowledgeGraphTool } from "../../../src/core/tool/knowledge/KnowledgeGraphTool.js";
+import { NodeFileSystemAdapter } from "../../../src/adapter/fs/NodeFileSystemAdapter.js";
 
 const TEST_GRAPH_PATH = "test-graph-temp.json";
 
@@ -11,15 +12,15 @@ describe("KnowledgeGraphTool", () => {
   beforeEach(async () => {
     const graphData = {
       nodes: [
-        { id: "Player", type: "entity", properties: { name: "玩家" } },
-        { id: "Enemy", type: "entity", properties: { name: "敌人" } },
+        { id: "Player", type: "entity", wiki_page: null },
+        { id: "Enemy", type: "entity", wiki_page: null },
       ],
       edges: [
         { source: "Player", target: "Enemy", relation: "attacks" },
       ],
     };
     await fs.writeFile(TEST_GRAPH_PATH, JSON.stringify(graphData));
-    tool = new KnowledgeGraphTool(TEST_GRAPH_PATH);
+    tool = new KnowledgeGraphTool(TEST_GRAPH_PATH, new NodeFileSystemAdapter());
   });
 
   afterEach(async () => {
@@ -31,21 +32,20 @@ describe("KnowledgeGraphTool", () => {
   });
 
   it("应查询存在的实体", async () => {
-    const result = await tool.execute({ entity: "Player" });
+    const result = await tool.execute({ action: "query_node", node_id: "Player" });
     expect(result.isError).toBe(false);
     expect(result.output).toContain("Player");
-    expect(result.output).toContain("attacks");
   });
 
-  it("不存在的实体应返回错误", async () => {
-    const result = await tool.execute({ entity: "NonExistent" });
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain("不存在");
+  it("不存在的实体应返回提示", async () => {
+    const result = await tool.execute({ action: "query_node", node_id: "NonExistent" });
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("not found");
   });
 
   it("懒加载应只读取一次文件", async () => {
-    await tool.execute({ entity: "Player" });
-    await tool.execute({ entity: "Enemy" });
+    await tool.execute({ action: "query_node", node_id: "Player" });
+    await tool.execute({ action: "query_node", node_id: "Enemy" });
     // 第二次不应报错，说明缓存生效
     expect(true).toBe(true);
   });

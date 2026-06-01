@@ -87,10 +87,11 @@ export async function bootstrap() {
   const skillRegistry = new SkillManager();
 
   // Register knowledge tools
-  const wikiTool = new WikiPageTool(config.knowledge.wikiPath);
-  const grepTool = new GrepSearchTool(config.knowledge.wikiPath);
+  const wikiTool = new WikiPageTool(config.knowledge.wikiPath, fileSystem);
+  const grepTool = new GrepSearchTool(config.knowledge.wikiPath, fileSystem);
   const kgTool = new KnowledgeGraphTool(
-    config.knowledge.graphPath || "./knowledge/wiki/graph.json"
+    config.knowledge.graphPath || "./knowledge/wiki/graph.json",
+    fileSystem
   );
   const tavilyTool = new TavilySearchTool();
 
