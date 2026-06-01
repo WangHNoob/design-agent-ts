@@ -12,6 +12,7 @@ COPY package*.json ./
 RUN npm ci --legacy-peer-deps
 
 COPY . .
+RUN mkdir -p public
 RUN npm run build
 
 # ==========================================
