@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json tsconfig.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # Copy source code
 COPY src/ ./src/
