@@ -6,8 +6,8 @@ export class BatchSpanReporter implements SpanReporter {
 
   constructor(
     private delegate: SpanReporter,
-    private flushIntervalMs: number = 1000,
-    private batchSize: number = 50
+    private flushIntervalMs: number,
+    private batchSize: number
   ) {}
 
   start(): void {

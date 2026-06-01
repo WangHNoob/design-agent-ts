@@ -6,8 +6,8 @@ export class BatchLogReporter implements LogReporter {
 
   constructor(
     private delegate: LogReporter,
-    private flushIntervalMs: number = 1000,
-    private batchSize: number = 100
+    private flushIntervalMs: number,
+    private batchSize: number
   ) {}
 
   start(): void {
