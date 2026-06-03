@@ -2,6 +2,8 @@ import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
 import type { TaskPlan } from "../../schema/TaskPlan.js";
 import type { RouteDecision } from "../../schema/RouteDecision.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
+import { type Role, canAccessDomain } from "../../schema/Role.js";
+import type { Domain } from "../../schema/TaskPlan.js";
 
 const DEFAULT_PROMPT_TEMPLATE = `Route each sub-task to the most suitable agent.
 
@@ -35,7 +37,7 @@ export class Router {
     this.promptTemplate = promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
   }
 
-  async route(plan: TaskPlan, _role: string): Promise<RouteDecision[]> {
+  async route(plan: TaskPlan, role: string): Promise<RouteDecision[]> {
     const prompt = this.promptTemplate.replace(
       /\{taskPlan\}/g,
       JSON.stringify(plan.subTasks, null, 2)
@@ -51,13 +53,17 @@ export class Router {
       const jsonStr = extractJson(rawText ?? "[]");
       const parsed = JSON.parse(jsonStr);
       if (!Array.isArray(parsed)) return [];
-      return parsed.map((item: Record<string, unknown>) => ({
-        fragmentId: (item.fragmentId ?? item.taskId ?? item.id ?? "") as string,
-        domain: ((item.domain as string) ?? "system_design").toLowerCase().replace(/-/g, "_"),
-        agentName: (item.agentName ?? item.agent ?? "SystemDesigner") as string,
-        assignment: (item.assignment ?? item.description ?? item.requirement ?? "") as string,
-        priority: (item.priority ?? 1) as number,
-      })) as RouteDecision[];
+
+      const typedRole = role as Role;
+      const decisions: RouteDecision[] = (parsed as Record<string, unknown>[])
+        .map((item) => ({
+          fragmentId: (item.fragmentId ?? item.taskId ?? item.id ?? "") as string,
+          domain: (((item.domain as string) ?? "system_design").toLowerCase().replace(/-/g, "_")) as Domain,
+          agentName: (item.agentName ?? item.agent ?? "SystemDesigner") as string,
+          assignment: (item.assignment ?? item.description ?? item.requirement ?? "") as string,
+          priority: (item.priority ?? 1) as number,
+        }));
+      return decisions.filter((d) => canAccessDomain(typedRole, d.domain));
     } catch (err) {
       console.error("[Router] Failed to parse routing:", err, "Raw text:", ChatMessage.textContent(response.message));
       return [];
