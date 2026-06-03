@@ -5,6 +5,8 @@ import type { ParameterDescriptor } from "../../port/tool/ToolDescriptor.js";
 import { ToolResult } from "../../port/tool/ToolResult.js";
 
 export class LangGraphToolAdapter {
+  readonly lastToolMetadata = new Map<string, Record<string, unknown>>();
+
   private static zodTypeFromDescriptor(param: ParameterDescriptor): z.ZodTypeAny {
     let schema: z.ZodTypeAny;
     switch (param.type) {
@@ -52,6 +54,7 @@ export class LangGraphToolAdapter {
       func: async (input) => {
         try {
           const result = await toolPort.execute(input as Record<string, unknown>);
+          this.lastToolMetadata.set(descriptor.name, result.metadata);
           return result.output;
         } catch (err) {
           return ToolResult.error(err instanceof Error ? err.message : String(err)).output;

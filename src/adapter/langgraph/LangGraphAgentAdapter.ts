@@ -111,11 +111,13 @@ export class LangGraphAgentAdapter implements AgentPort {
       const result = await toolNode.invoke(state);
 
       for (const tc of toolCalls) {
+        const metadata = this.toolAdapter.lastToolMetadata.get(tc.name) || {};
         const postCtx = HookContext.create({
           agentName: descriptor.name,
           sessionId: state.sessionId,
           toolName: tc.name,
           toolResult: JSON.stringify(result.messages.at(-1)?.content ?? ""),
+          metadata: { toolResultMetadata: metadata },
         });
         await runHooks("post_tool_execution", postCtx);
       }

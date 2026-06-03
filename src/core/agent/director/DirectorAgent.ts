@@ -20,6 +20,8 @@ import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
 import { runInContext } from "../../o11y/O11yContext.js";
 import { startSpan, endSpan, failSpan, createTrace } from "../../o11y/O11yTraceBridge.js";
 import { status as runtimeStatus } from "../../o11y/O11yRuntimeBridge.js";
+import { EventBus } from "./EventBus.js";
+import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -30,8 +32,16 @@ function fallbackUUID(): string {
 }
 
 export interface StreamEvent {
-  type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error";
+  type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error"
+    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used";
   data: Record<string, unknown>;
+}
+
+export interface KnowledgeSource {
+  type: "wiki_page" | "kg_node" | "grep_match" | "web_result";
+  id: string;
+  title?: string;
+  relevance?: string;
 }
 
 export interface DirectorPrompts {
@@ -263,6 +273,44 @@ export class DirectorAgent {
     }
   }
 
+  private async executeSingleTaskWithHooks(
+    task: TaskAssignment,
+    sessionId: string,
+    traceId?: string,
+    additionalHook?: AgentHook
+  ): Promise<TaskResult> {
+    const taskSpan = startSpan(task.agentDescriptor.name, "SUB_AGENT", null, {
+      taskId: task.taskId,
+      domain: task.domain,
+    });
+    try {
+      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+      const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
+      const agent = this.deps.agentFactory.createAgent(
+        task.agentDescriptor,
+        this.deps.toolRegistry,
+        new InMemoryMemoryPort(),
+        hooks
+      );
+
+      const input = ChatMessage.text("user", "director", task.assignment);
+      const response = await agent.process(sessionId, [input]);
+
+      endSpan(taskSpan, { success: response.success });
+      return {
+        taskId: task.taskId,
+        domain: task.domain,
+        status: response.success ? "success" : "error",
+        output: AR.getTextContent(response) ?? "",
+        errorMessage: response.errorMessage,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      failSpan(taskSpan, msg);
+      throw err;
+    }
+  }
+
   private async createQueryAgent() {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
@@ -282,6 +330,28 @@ export class DirectorAgent {
       this.deps.toolRegistry,
       new InMemoryMemoryPort(),
       this.deps.hooks
+    );
+  }
+
+  private async createQueryAgentWithHooks(hooks: AgentHook[]) {
+    const queryDescriptor: AgentDescriptor = {
+      name: "QueryAgent",
+      systemPrompt: this.querySystemPrompt,
+      maxIterations: 5,
+      toolNames: [
+        "wiki_lookup", "wiki_read", "wiki_list",
+        "grep_search",
+        "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
+        "tavily_search", "tavily_extract",
+      ],
+      options: {},
+    };
+    const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+    return this.deps.agentFactory.createAgent(
+      queryDescriptor,
+      this.deps.toolRegistry,
+      new InMemoryMemoryPort(),
+      hooks
     );
   }
 
@@ -306,39 +376,39 @@ export class DirectorAgent {
     const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
     runtimeStatus(sessionId, traceId, "LLM", 10, "Preparing query agent", "QueryAgent", null);
 
+    // Create EventBus and StreamEmitterHook for fine-grained events
+    const eventBus = new EventBus();
+    const streamEmitterHook = new StreamEmitterHook(eventBus);
+    const hooksWithEmitter = [...this.deps.hooks, streamEmitterHook];
+
     try {
-      const agent = await this.createQueryAgent();
+      const agent = await this.createQueryAgentWithHooks(hooksWithEmitter);
       const messages = [ChatMessage.text("user", "user", requirement)];
 
       runtimeStatus(sessionId, traceId, "LLM", 30, "Executing query with tools", "QueryAgent", null);
 
       let finalOutput = "";
 
-      if (agent.processStream) {
-        for await (const chunk of agent.processStream(sessionId, messages)) {
-          if (!chunk.success) {
-            runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query failed", "QueryAgent", null);
-            yield { type: "error", data: { error: chunk.errorMessage ?? "Agent execution failed" } };
-            return;
-          }
-          const text = chunk.message ? ChatMessage.textContent(chunk.message) : "";
-          if (text) {
-            finalOutput = text;
-            yield { type: "chunk", data: { text } };
-          }
-        }
-      } else {
-        const response = await agent.process(sessionId, messages);
-        if (!response.success) {
-          runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query failed", "QueryAgent", null);
-          yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
-          return;
-        }
-        finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
-        const chunkSize = 20;
-        for (let i = 0; i < finalOutput.length; i += chunkSize) {
-          yield { type: "chunk", data: { text: finalOutput.substring(i, i + chunkSize) } };
-        }
+      // Use process() instead of processStream() to collect intermediate events
+      const response = await agent.process(sessionId, messages);
+
+      // Drain all intermediate events accumulated during execution
+      for (const event of eventBus.drain()) {
+        yield event;
+      }
+
+      if (!response.success) {
+        runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query failed", "QueryAgent", null);
+        yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
+        return;
+      }
+
+      finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
+
+      // Simulate streaming by yielding chunks
+      const chunkSize = 20;
+      for (let i = 0; i < finalOutput.length; i += chunkSize) {
+        yield { type: "chunk", data: { text: finalOutput.substring(i, i + chunkSize) } };
       }
 
       runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query completed", "QueryAgent", null);
@@ -351,6 +421,11 @@ export class DirectorAgent {
 
   private async *executeDesignStream(requirement: string, sessionId: string, role: string): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "design", role } };
+
+    // Create EventBus and StreamEmitterHook for fine-grained events
+    const eventBus = new EventBus();
+    const streamEmitterHook = new StreamEmitterHook(eventBus);
+
     try {
       yield { type: "plan", data: { message: "Planning tasks..." } };
       const skill = this.deps.skillRegistry.matchSkill(requirement, role);
@@ -394,15 +469,25 @@ export class DirectorAgent {
       const results: TaskResult[] = [];
       for (const task of mergedPlan.subTasks) {
         yield { type: "task_start", data: { taskId: task.id, domain: task.domain, description: task.description } };
-        const result = await this.executeSingleTask(
+
+        // Pass EventBus to executeSingleTask via hooks
+        const result = await this.executeSingleTaskWithHooks(
           {
             taskId: task.id,
             domain: task.domain,
             assignment: task.description,
             agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor ?? getSubAgentDescriptor("SystemDesigner")!,
           },
-          sessionId
+          sessionId,
+          undefined,
+          streamEmitterHook
         );
+
+        // Drain intermediate events accumulated during task execution
+        for (const event of eventBus.drain()) {
+          yield event;
+        }
+
         results.push(result);
         yield { type: "task_complete", data: { taskId: task.id, status: result.status } };
       }
@@ -412,6 +497,12 @@ export class DirectorAgent {
         sessionId, "hitl-2-agent-output", results
       );
       const finalOutput = this.integrator.integrate(reviewedResults.modifications ?? results);
+
+      // Drain any remaining events
+      for (const event of eventBus.drain()) {
+        yield event;
+      }
+
       const finalReviewed = await this.deps.humanReviewGateway.requestReview(
         sessionId, "hitl-3-final", finalOutput
       );

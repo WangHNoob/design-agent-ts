@@ -174,6 +174,13 @@ consoleRoute.post("/execute/stream", async (c) => {
                 errorMsg = (event.data.error as string) ?? "Unknown error";
                 send("error", { ...event.data, sessionId });
                 break;
+              // Forward new event types
+              case "thinking":
+              case "tool_start":
+              case "tool_complete":
+              case "knowledge_used":
+                send(event.type, event.data);
+                break;
             }
           }
 

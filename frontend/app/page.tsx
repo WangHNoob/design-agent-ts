@@ -5,8 +5,9 @@ import { motion } from 'framer-motion';
 import { Send, Sparkles, Loader2, Zap, User, Bot, Info } from 'lucide-react';
 import Header from '@/components/Console/Header';
 import SessionSidebar from '@/components/Console/SessionSidebar';
-import RightPanel, { type ExecStep, type DebugLog } from '@/components/Console/RightPanel';
-import AgentStatusCards, { type AgentStatus, useAgentStatuses } from '@/components/Console/AgentStatusCards';
+import RightPanel from '@/components/Console/RightPanel';
+import type { TimelineEntry } from '@/components/Console/StepsTimeline';
+import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import ModeSelector from '@/components/Console/ModeSelector';
 import RoleSelector from '@/components/Console/RoleSelector';
 import ResultPanel from '@/components/Console/ResultPanel';
@@ -56,20 +57,22 @@ export default function ConsolePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageCount, setMessageCount] = useState(0);
 
-  // Execution monitoring
-  const [steps, setSteps] = useState<ExecStep[]>([]);
-  const [logs, setLogs] = useState<DebugLog[]>([]);
-  const [rawAgentStatuses, setRawAgentStatuses] = useState<Partial<AgentStatus>[]>([]);
+  // Execution monitoring - New state model with timeline and detailed logs
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [logs, setLogs] = useState<DetailedLog[]>([]);
+  const [knowledgeSources, setKnowledgeSources] = useState<Array<{ type: string; id: string; title?: string }>>([]);
   const [executionTime, setExecutionTime] = useState('0:00');
   const [status, setStatus] = useState<'idle' | 'working' | 'waiting' | 'error'>('idle');
   const [statusText, setStatusText] = useState('就绪');
+
+  // Active task tracking for event correlation
+  const activeTaskRef = useRef<string | null>(null);
+  const taskEntriesRef = useRef<Map<string, TimelineEntry>>(new Map());
 
   // UI state
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [refreshTick, setRefreshTick] = useState(0);
   const [useStream, setUseStream] = useState(true);
-
-  const agents = useAgentStatuses(rawAgentStatuses);
 
   // ── Helpers ──
   const scrollToBottom = () => {
@@ -88,12 +91,68 @@ export default function ConsolePage() {
     setTimeout(scrollToBottom, 50);
   };
 
-  const addStep = (message: string) => {
-    setSteps((prev) => [...prev, { time: getCurrentTime(), message }]);
+  const addTimelineEntry = (entry: Omit<TimelineEntry, 'id'>) => {
+    const id = `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const fullEntry: TimelineEntry = { ...entry, id, children: entry.children || [] };
+    setTimeline((prev) => [...prev, fullEntry]);
+    return id;
   };
 
-  const addLog = (category: DebugLog['category'], message: string, data?: string) => {
-    setLogs((prev) => [...prev, { time: getCurrentTime(), category, message, data }]);
+  const updateTimelineEntry = (id: string, updates: Partial<TimelineEntry>) => {
+    setTimeline((prev) =>
+      prev.map((entry) => {
+        if (entry.id === id) {
+          return { ...entry, ...updates };
+        }
+        // Check children
+        if (entry.children) {
+          const updatedChildren = entry.children.map((child) =>
+            child.id === id ? { ...child, ...updates } : child
+          );
+          if (updatedChildren !== entry.children) {
+            return { ...entry, children: updatedChildren };
+          }
+        }
+        return entry;
+      })
+    );
+  };
+
+  const addToolToTask = (taskId: string, tool: TimelineEntry) => {
+    setTimeline((prev) =>
+      prev.map((entry) => {
+        if (entry.id === taskId) {
+          return {
+            ...entry,
+            children: [...(entry.children || []), tool],
+          };
+        }
+        return entry;
+      })
+    );
+  };
+
+  const addLog = (level: DetailedLog['level'], source: string, message: string, data?: Record<string, unknown>, durationMs?: number) => {
+    const log: DetailedLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      time: getCurrentTime(),
+      level,
+      source,
+      message,
+      data,
+      durationMs,
+    };
+    setLogs((prev) => [...prev, log]);
+  };
+
+  const addStep = (message: string) => {
+    // Legacy helper - convert to timeline phase entry
+    addTimelineEntry({
+      time: getCurrentTime(),
+      type: 'phase',
+      title: message,
+      status: 'completed',
+    });
   };
 
   const startExecutionTimer = () => {
@@ -114,11 +173,13 @@ export default function ConsolePage() {
   };
 
   const resetExecution = () => {
-    setSteps([]);
+    setTimeline([]);
     setLogs([]);
-    setRawAgentStatuses([]);
+    setKnowledgeSources([]);
     setExecutionTime('0:00');
     stopExecutionTimer();
+    activeTaskRef.current = null;
+    taskEntriesRef.current.clear();
   };
 
   // ── Stream handling ──
@@ -127,65 +188,175 @@ export default function ConsolePage() {
     const d = data as Record<string, unknown>;
 
     switch (event) {
-      case 'start':
+      case 'start': {
         setStreaming(true);
         setStatus('working');
         setStatusText('处理中');
         streamingTextRef.current = '';
-        addStep('→ 请求已接收，AI 正在分析需求…');
-        addLog('info', '执行开始', JSON.stringify({ sessionId: d.sessionId, mode, role }));
+        addTimelineEntry({
+          time: getCurrentTime(),
+          type: 'phase',
+          title: '请求已接收，AI 正在分析需求',
+          status: 'running',
+        });
+        addLog('info', 'System', '执行开始', { sessionId: d.sessionId, mode, role });
         startExecutionTimer();
         break;
+      }
 
-      case 'plan':
+      case 'plan': {
         setStatusText('任务规划中');
-        addStep(`规划: ${d.message as string}`);
-        setRawAgentStatuses([{ id: 'director', status: 'running', progress: 30 }]);
+        addTimelineEntry({
+          time: getCurrentTime(),
+          type: 'phase',
+          title: `规划: ${d.message as string}`,
+          status: 'completed',
+        });
+        addLog('info', 'Director', d.message as string);
         break;
+      }
 
-      case 'route':
+      case 'route': {
         setStatusText('路由分配中');
-        addStep(`路由: ${d.message as string}`);
-        setRawAgentStatuses((prev) => [
-          ...prev.filter((a) => a.id !== 'director'),
-          { id: 'director', status: 'completed', progress: 100 },
-        ]);
+        addTimelineEntry({
+          time: getCurrentTime(),
+          type: 'phase',
+          title: `路由: ${d.message as string}`,
+          status: 'completed',
+        });
+        addLog('info', 'Router', d.message as string);
         break;
+      }
 
-      case 'task_start':
-        setStatusText(`执行: ${d.description as string}`);
-        addStep(`开始任务: ${d.description as string}`);
-        // Map domain to agent
-        const domain = (d.domain as string) || '';
-        const agentMap: Record<string, string> = {
-          system: 'system',
-          combat: 'combat',
-          numerical: 'numerical',
-          gameplay: 'gameplay',
-          executive: 'executive',
-          qa: 'qa',
+      case 'task_start': {
+        const taskId = d.taskId as string;
+        const description = d.description as string;
+        const domain = d.domain as string;
+        const agentName = mapDomainToAgentName(domain);
+
+        setStatusText(`执行: ${description}`);
+        const entryId = addTimelineEntry({
+          time: getCurrentTime(),
+          type: 'task',
+          title: description,
+          agentName,
+          status: 'running',
+        });
+
+        activeTaskRef.current = taskId;
+        taskEntriesRef.current.set(taskId, { id: entryId } as TimelineEntry);
+
+        addLog('info', agentName, `开始任务: ${description}`, { taskId, domain });
+        break;
+      }
+
+      case 'thinking': {
+        const agentName = d.agentName as string;
+        const iteration = d.iteration as number;
+        const maxIterations = d.maxIterations as number;
+        const message = d.message as string;
+
+        addLog('debug', agentName, message, { iteration, maxIterations });
+        break;
+      }
+
+      case 'tool_start': {
+        const taskId = d.taskId as string;
+        const toolName = d.toolName as string;
+        const agentName = d.agentName as string;
+        const args = d.args as Record<string, unknown>;
+
+        const toolEntry: TimelineEntry = {
+          id: `tool_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          time: getCurrentTime(),
+          type: 'tool',
+          title: toolName,
+          detail: summarizeToolArgs(args),
+          status: 'running',
         };
-        const agentId = agentMap[domain.toLowerCase()] || '';
-        if (agentId) {
-          setRawAgentStatuses((prev) => [
-            ...prev.filter((a) => a.id !== agentId),
-            { id: agentId, status: 'running', progress: 20 },
-          ]);
+
+        const taskEntry = taskEntriesRef.current.get(taskId);
+        if (taskEntry) {
+          addToolToTask(taskEntry.id, toolEntry);
         }
-        break;
 
-      case 'task_complete':
-        addStep(`任务完成: ${d.taskId as string}`);
+        addLog('info', toolName, '工具调用开始', args);
         break;
+      }
 
-      case 'integrate':
+      case 'tool_complete': {
+        const taskId = d.taskId as string;
+        const toolName = d.toolName as string;
+        const durationMs = d.durationMs as number | undefined;
+        const success = d.success as boolean;
+        const summary = d.summary as string;
+
+        const taskEntry = taskEntriesRef.current.get(taskId);
+        if (taskEntry) {
+          // Find and update the tool entry in children
+          setTimeline((prev) =>
+            prev.map((entry) => {
+              if (entry.id === taskEntry.id && entry.children) {
+                const updatedChildren = entry.children.map((child) => {
+                  if (child.type === 'tool' && child.title === toolName && child.status === 'running') {
+                    return {
+                      ...child,
+                      status: success ? 'completed' as const : 'error' as const,
+                      durationMs,
+                      detail: summary,
+                    };
+                  }
+                  return child;
+                });
+                return { ...entry, children: updatedChildren };
+              }
+              return entry;
+            })
+          );
+        }
+
+        addLog(success ? 'info' : 'error', toolName, `工具调用${success ? '成功' : '失败'}`, { summary }, durationMs);
+        break;
+      }
+
+      case 'knowledge_used': {
+        const sourceType = d.sourceType as string;
+        const sources = d.sources as Array<{ type: string; id: string; title?: string }>;
+
+        setKnowledgeSources((prev) => [...prev, ...sources]);
+        addLog('info', 'Knowledge', `引用 ${sourceType} 来源 ${sources.length} 个`, { sources });
+        break;
+      }
+
+      case 'task_complete': {
+        const taskId = d.taskId as string;
+        const taskEntry = taskEntriesRef.current.get(taskId);
+
+        if (taskEntry) {
+          updateTimelineEntry(taskEntry.id, { status: 'completed' });
+        }
+
+        activeTaskRef.current = null;
+        addLog('info', 'Task', `任务完成: ${taskId}`);
+        break;
+      }
+
+      case 'integrate': {
         setStatusText('整合结果中');
-        addStep('整合: 正在合并子任务结果…');
+        addTimelineEntry({
+          time: getCurrentTime(),
+          type: 'phase',
+          title: '整合: 正在合并子任务结果',
+          status: 'running',
+        });
+        addLog('info', 'Integrator', '开始整合');
         break;
+      }
 
-      case 'chunk':
+      case 'chunk': {
         streamingTextRef.current += (d.text as string) ?? '';
         break;
+      }
 
       case 'complete': {
         setStreaming(false);
@@ -194,11 +365,15 @@ export default function ConsolePage() {
         setStatusText('就绪');
         const output = (d.output as string) || streamingTextRef.current || '';
         if (output) addMessage('ai', output);
-        addStep('✓ 执行完成');
-        addLog('info', '执行完成', JSON.stringify({ outputLength: output.length }));
-        setRawAgentStatuses((prev) =>
-          prev.map((a) => ({ ...a, status: 'completed' as const, progress: 100 }))
-        );
+
+        addTimelineEntry({
+          time: getCurrentTime(),
+          type: 'complete',
+          title: '执行完成',
+          status: 'completed',
+        });
+        addLog('info', 'System', '执行完成', { outputLength: output.length });
+
         stopExecutionTimer();
         setRefreshTick((t) => t + 1);
         streamingTextRef.current = '';
@@ -212,16 +387,52 @@ export default function ConsolePage() {
         setStatusText('错误');
         const errMsg = (d.error as string) || '未知错误';
         addMessage('system', `执行出错: ${errMsg}`);
-        addStep(`✗ 错误: ${errMsg}`);
-        addLog('error', '执行失败', errMsg);
-        setRawAgentStatuses((prev) =>
-          prev.map((a) => ({ ...a, status: a.status === 'running' ? 'error' : a.status, progress: a.progress }))
-        );
+
+        addTimelineEntry({
+          time: getCurrentTime(),
+          type: 'error',
+          title: `错误: ${errMsg}`,
+          status: 'error',
+        });
+        addLog('error', 'System', '执行失败', { error: errMsg });
+
+        // Mark active task as error
+        if (activeTaskRef.current) {
+          const taskEntry = taskEntriesRef.current.get(activeTaskRef.current);
+          if (taskEntry) {
+            updateTimelineEntry(taskEntry.id, { status: 'error' });
+          }
+        }
+
         stopExecutionTimer();
         break;
       }
     }
   }, [mode, role]);
+
+  // Helper functions
+  function mapDomainToAgentName(domain: string): string {
+    const map: Record<string, string> = {
+      system: '系统策划',
+      combat: '战斗策划',
+      numerical: '数值策划',
+      gameplay: '玩法策划',
+      executive: '执行策划',
+      qa: 'QA策划',
+    };
+    return map[domain.toLowerCase()] || domain;
+  }
+
+  function summarizeToolArgs(args: Record<string, unknown>): string {
+    const entries = Object.entries(args);
+    if (entries.length === 0) return '';
+    if (entries.length === 1) {
+      const [key, value] = entries[0];
+      const strValue = typeof value === 'string' ? value : JSON.stringify(value);
+      return strValue.length > 50 ? `${strValue.substring(0, 50)}...` : strValue;
+    }
+    return `${entries.length} 个参数`;
+  }
 
   // ── Submit ──
   const handleSubmit = async () => {
@@ -411,10 +622,7 @@ export default function ConsolePage() {
                         setStatusText('已取消');
                         stopExecutionTimer();
                         addStep('✗ 用户取消');
-                        addLog('warn', '用户取消执行');
-                        setRawAgentStatuses((prev) =>
-                          prev.map((a) => ({ ...a, status: a.status === 'running' ? 'error' : a.status }))
-                        );
+                        addLog('warn', 'User', '用户取消执行');
                       }}
                       className="flex items-center gap-1.5 rounded-lg bg-ink/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-ink/30 transition-colors"
                     >
@@ -440,9 +648,8 @@ export default function ConsolePage() {
         {/* Right: Monitor Panel */}
         {rightPanelOpen && (
           <RightPanel
-            steps={steps}
+            timeline={timeline}
             logs={logs}
-            agents={agents}
             sessionId={sessionId}
             messageCount={messageCount}
             executionTime={executionTime}
