@@ -2,6 +2,7 @@ import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
 import type { SkillPort } from "../../../port/skill/SkillPort.js";
 import type { TaskPlan, SubTask } from "../../schema/TaskPlan.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
+import { type Role, canAccessDomain } from "../../schema/Role.js";
 
 const DEFAULT_PROMPT_TEMPLATE = `Plan the following requirement into sub-tasks (JSON format).
 
@@ -40,6 +41,30 @@ function normalizeSubTasks(raw: unknown[]): SubTask[] {
   });
 }
 
+/**
+ * Remove dependencies that reference tasks no longer in the list (filtered by role).
+ * Appends a note to affected tasks instructing the agent to rely on knowledge base.
+ */
+function cleanupDependencies(tasks: SubTask[]): SubTask[] {
+  const availableIds = new Set(tasks.map((t) => t.id));
+
+  return tasks.map((task) => {
+    if (task.dependencies.length === 0) return task;
+
+    const dangling = task.dependencies.filter((depId) => !availableIds.has(depId));
+    if (dangling.length === 0) return task;
+
+    const kept = task.dependencies.filter((depId) => availableIds.has(depId));
+    const note = `\n\n【角色过滤提示】以下前置任务不在你的角色范围内，已移除依赖：${dangling.join(", ")}。请直接基于知识库进行设计。`;
+
+    return {
+      ...task,
+      dependencies: kept,
+      description: task.description + note,
+    };
+  });
+}
+
 export class TaskPlanner {
   private promptTemplate: string;
 
@@ -67,11 +92,17 @@ export class TaskPlanner {
       const jsonStr = extractJson(rawText ?? "{}");
       const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
       const rawTasks = (parsed.subTasks ?? parsed.sub_tasks ?? []) as unknown[];
+      const allTasks = normalizeSubTasks(rawTasks);
+
+      // Filter by role domain access
+      const typedRole = role as Role;
+      const filtered = allTasks.filter((t) => canAccessDomain(typedRole, t.domain));
+      const cleaned = cleanupDependencies(filtered);
 
       return {
         planId: (parsed.planId as string) ?? "auto",
         requirement,
-        subTasks: normalizeSubTasks(rawTasks),
+        subTasks: cleaned,
       };
     } catch (err) {
       console.error("[TaskPlanner] Failed to parse plan:", err, "Raw text:", ChatMessage.textContent(response.message));
