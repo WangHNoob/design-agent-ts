@@ -15,6 +15,16 @@ Output format (JSON array):
   { "fragmentId": "F1", "domain": "system_design", "agentName": "SystemDesigner", "assignment": "...", "priority": 1 }
 ]`;
 
+function extractJson(text: string): string {
+  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (codeBlockMatch) return codeBlockMatch[1]!.trim();
+  const arrayMatch = text.match(/\[[\s\S]*\]/);
+  if (arrayMatch) return arrayMatch[0];
+  const braceMatch = text.match(/\{[\s\S]*\}/);
+  if (braceMatch) return `[${braceMatch[0]}]`;
+  return text;
+}
+
 export class Router {
   private promptTemplate: string;
 
@@ -37,9 +47,17 @@ export class Router {
     ]);
 
     try {
-      const text = ChatMessage.textContent(response.message);
-      const parsed = JSON.parse(text ?? "[]");
-      return Array.isArray(parsed) ? (parsed as RouteDecision[]) : [];
+      const rawText = ChatMessage.textContent(response.message);
+      const jsonStr = extractJson(rawText ?? "[]");
+      const parsed = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((item: Record<string, unknown>) => ({
+        fragmentId: (item.fragmentId ?? item.taskId ?? item.id ?? "") as string,
+        domain: ((item.domain as string) ?? "system_design").toLowerCase().replace(/-/g, "_"),
+        agentName: (item.agentName ?? item.agent ?? "SystemDesigner") as string,
+        assignment: (item.assignment ?? item.description ?? item.requirement ?? "") as string,
+        priority: (item.priority ?? 1) as number,
+      })) as RouteDecision[];
     } catch (err) {
       console.error("[Router] Failed to parse routing:", err, "Raw text:", ChatMessage.textContent(response.message));
       return [];
