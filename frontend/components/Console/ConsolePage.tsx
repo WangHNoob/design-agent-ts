@@ -86,12 +86,12 @@ export default function ConsolePage({ mode }: Props) {
   };
 
   const onStreamEvent = useCallback(
-    (event: string, data: unknown) => {
-      if (!mountedRef.current || !activeSessionId) return;
+    (sessionId: string, event: string, data: unknown) => {
+      if (!mountedRef.current) return;
       if (process.env.NODE_ENV === 'development') {
         console.debug(`[GDT:${event}]`, data);
       }
-      handleStreamEvent(activeSessionId, event, data, store);
+      handleStreamEvent(sessionId, event, data, store);
 
       // Scroll on chunk
       if (event === 'chunk') {
@@ -107,7 +107,7 @@ export default function ConsolePage({ mode }: Props) {
         setRefreshTick((t) => t + 1);
       }
     },
-    [activeSessionId, store]
+    [store]
   );
 
   const handleSubmit = async () => {
@@ -147,7 +147,7 @@ export default function ConsolePage({ mode }: Props) {
     if (useStream) {
       const stream = executeDesignStream(
         { requirement: reqText, mode, role, sessionId: sid, history },
-        onStreamEvent,
+        (event, data) => onStreamEvent(sid, event, data),
         (err) => {
           if (!mountedRef.current) return;
           store.updateTask(sid, {
