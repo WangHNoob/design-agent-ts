@@ -7,6 +7,7 @@ import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { ToolPort } from "../../port/tool/ToolPort.js";
 import { LangGraphAgentAdapter } from "./LangGraphAgentAdapter.js";
 import { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
+import { SessionToolRegistry } from "../../core/tool/SessionToolRegistry.js";
 import { MemorySaver } from "@langchain/langgraph";
 
 export class LangGraphAgentFactory implements AgentFactory {
@@ -26,24 +27,32 @@ export class LangGraphAgentFactory implements AgentFactory {
     memory: MemoryPort,
     hooks: AgentHook[]
   ): AgentPort {
+    // Skip cache for session-scoped registries (tools differ per session)
+    if (toolRegistry instanceof SessionToolRegistry) {
+      return this.buildAgent(descriptor, toolRegistry, hooks);
+    }
+
     const cacheKey = descriptor.name;
     const cached = this.agentCache.get(cacheKey);
     if (cached) return cached;
 
+    const agent = this.buildAgent(descriptor, toolRegistry, hooks);
+    this.agentCache.set(cacheKey, agent);
+    return agent;
+  }
+
+  private buildAgent(descriptor: AgentDescriptor, toolRegistry: ToolRegistry, hooks: AgentHook[]): AgentPort {
     const tools = descriptor.toolNames
       .map((name) => toolRegistry.getTool(name))
       .filter((t): t is ToolPort => t !== undefined);
 
-    const agent = new LangGraphAgentAdapter(
+    return new LangGraphAgentAdapter(
       descriptor,
       tools,
       this.model.getLangChainModel(),
       hooks,
       this.checkpointer
     );
-
-    this.agentCache.set(cacheKey, agent);
-    return agent;
   }
 
   clearCache(): void {

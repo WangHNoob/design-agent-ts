@@ -43,6 +43,7 @@ import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.
 import { NodeContextStorageAdapter } from "../adapter/infra/NodeContextStorageAdapter.js";
 import { configureIdGenerator } from "../core/o11y/O11ySpan.js";
 import { configureContextStorage } from "../core/o11y/O11yContext.js";
+import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -53,6 +54,7 @@ let bootstrapState: {
   tavilyTool: TavilySearchTool;
   directorPrompts: Record<string, string | undefined>;
   hooks: import("../port/hook/AgentHook.js").AgentHook[];
+  fileSystem: NodeFileSystemAdapter;
 } | null = null;
 
 export function getBootstrapState() {
@@ -65,7 +67,7 @@ export function isDirectorReady(): boolean {
 
 export async function lateBootstrapDirector(): Promise<void> {
   if (!bootstrapState) throw new Error("Bootstrap not yet called");
-  const { config, toolRegistry, skillRegistry, settingsManager, tavilyTool, directorPrompts, hooks } = bootstrapState;
+  const { config, toolRegistry, skillRegistry, settingsManager, tavilyTool, directorPrompts, hooks, fileSystem } = bootstrapState;
 
   const settings = settingsManager.getSettings();
   const apiKey = settings.modelApiKey || config.model.apiKey;
@@ -103,6 +105,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     hooks,
     prompts: directorPrompts,
     idGenerator: new NodeIdGeneratorAdapter(),
+    workspace: new WorkspaceManager("workspace", fileSystem),
     limits: {
       queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
@@ -212,7 +215,7 @@ export async function bootstrap() {
   }
 
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem };
 
   const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
   await sessionManager.initialize();
@@ -261,6 +264,7 @@ export async function bootstrap() {
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),
+      workspace: new WorkspaceManager("workspace", fileSystem),
       limits: {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,

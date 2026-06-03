@@ -6,4 +6,5 @@ export interface TaskAssignment {
   readonly domain: Domain;
   readonly assignment: string;
   readonly agentDescriptor: AgentDescriptor;
+  readonly dependencies?: string[];
 }
