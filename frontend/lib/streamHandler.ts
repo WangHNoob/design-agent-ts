@@ -152,10 +152,21 @@ export function handleStreamEvent(
       const maxIterations = d.maxIterations as number;
       const message = d.message as string;
 
+      const activeTaskId = activeTaskRef.get(sessionId);
+      if (!activeTaskId) {
+        store.appendTimeline(sessionId, {
+          id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          time: getCurrentTime(),
+          type: 'phase',
+          title: message,
+          status: 'completed',
+        });
+      }
+
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
-        level: 'debug',
+        level: 'info',
         source: agentName,
         message,
         data: { iteration, maxIterations },
@@ -182,6 +193,8 @@ export function handleStreamEvent(
       const taskEntry = taskMap?.get(taskId);
       if (taskEntry) {
         store.addToolToTask(sessionId, taskEntry.id, toolEntry);
+      } else {
+        store.appendTimeline(sessionId, toolEntry);
       }
 
       store.appendLog(sessionId, {
@@ -220,6 +233,20 @@ export function handleStreamEvent(
                 return child;
               });
               return { ...entry, children: updatedChildren };
+            }
+            return entry;
+          }) || [],
+        });
+      } else {
+        store.updateTask(sessionId, {
+          timeline: store.getTask(sessionId)?.timeline.map((entry) => {
+            if (entry.type === 'tool' && entry.title === toolName && entry.status === 'running') {
+              return {
+                ...entry,
+                status: success ? ('completed' as const) : ('error' as const),
+                durationMs,
+                detail: summary,
+              };
             }
             return entry;
           }) || [],
