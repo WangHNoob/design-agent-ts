@@ -11,10 +11,10 @@
  *   node start-all.mjs
  *
  * 前置条件：
- *   1. 根目录已执行 `npm run build`（生成 dist/server/main.js）
- *   2. frontend 目录已执行 `npm install`
+ *   1. 根目录已执行 `pnpm run build`（生成 dist/server/main.js）
+ *   2. 若 frontend/node_modules 不存在，脚本会自动执行 `pnpm install`
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import net from "node:net";
@@ -162,13 +162,18 @@ async function waitForHealth(port, maxRetries = 30) {
 // ========== 前置检查 ==========
 
 if (!existsSync("dist/server/main.js")) {
-  console.error("❌ 错误：未找到 dist/server/main.js，请先执行 npm run build");
+  console.error("❌ 错误：未找到 dist/server/main.js，请先执行 pnpm run build");
   process.exit(1);
 }
 
 if (!existsSync("frontend/node_modules")) {
-  console.error("❌ 错误：frontend/node_modules 不存在，请先进入 frontend 目录执行 npm install");
-  process.exit(1);
+  console.log("⚙️  frontend/node_modules 不存在，正在自动安装依赖...");
+  const result = spawnSync("pnpm", ["install"], { shell: true, stdio: "inherit" });
+  if (result.status !== 0) {
+    console.error("❌ 依赖安装失败，请在根目录执行 pnpm install");
+    process.exit(1);
+  }
+  console.log("✅ 依赖安装完成");
 }
 
 const serverPort = getServerPort();
@@ -228,7 +233,7 @@ if (o11yConfig.enabled) {
 run("SERVER", colors.server, "node", ["--env-file=.env", "dist/server/main.js"]);
 
 // 启动前端
-run("FRONTEND", colors.frontend, "npm", ["run", "dev"], "frontend");
+run("FRONTEND", colors.frontend, "pnpm", ["run", "dev"], "frontend");
 
 // 启动 O11y 前端（独立界面）
 if (o11yConfig.enabled) {
@@ -237,7 +242,7 @@ if (o11yConfig.enabled) {
   if (!o11yFrontendAvailable) {
     console.warn(`⚠️  O11y 前端端口 ${o11yFrontendPort} 已被占用，跳过 O11y 前端启动。`);
   } else {
-    run("O11Y-FE", colors.o11y, "npm", ["run", "dev"], "o11y/frontend");
+    run("O11Y-FE", colors.o11y, "pnpm", ["run", "dev"], "o11y/frontend");
   }
 }
 
