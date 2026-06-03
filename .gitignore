@@ -17,6 +17,7 @@ lerna-debug.log*
 # Environment variables
 .env*
 !.env.example
+settings.json
 
 # IDE
 .vscode/
