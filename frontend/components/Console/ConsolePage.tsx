@@ -36,6 +36,20 @@ export default function ConsolePage({ mode }: Props) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingRafRef = useRef<number | null>(null);
 
+  // Cleanup on unmount: cancel active stream and mark unmounted
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (activeSessionId) {
+        const t = store.getTask(activeSessionId);
+        if (t?.streamRef) {
+          t.streamRef.close();
+        }
+      }
+    };
+  }, []);
+
   // Local ephemeral state
   const [role, setRole] = useState('chief_designer');
   const [requirement, setRequirement] = useState('');
