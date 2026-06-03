@@ -84,10 +84,19 @@ export class LangGraphAgentAdapter implements AgentPort {
 
         return { messages: [response], iteration: state.iteration + 1 };
       } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        // Log detailed error for API debugging
+        console.error(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke failed:`, error.message);
+        if ((err as Record<string, unknown>)?.response) {
+          console.error(`[LangGraphAgentAdapter:${descriptor.name}] API response:`, JSON.stringify((err as Record<string, unknown>).response));
+        }
+        if ((err as Record<string, unknown>)?.body) {
+          console.error(`[LangGraphAgentAdapter:${descriptor.name}] API body:`, JSON.stringify((err as Record<string, unknown>).body));
+        }
         await runHooks("on_error", HookContext.create({
           agentName: descriptor.name,
           sessionId: state.sessionId,
-          error: err instanceof Error ? err : new Error(String(err)),
+          error,
         }));
         throw err;
       }

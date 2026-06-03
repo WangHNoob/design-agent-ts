@@ -33,9 +33,9 @@ export class LangGraphToolAdapter {
     if (!param.required) {
       schema = schema.optional();
     }
-    if (param.defaultValue !== undefined) {
-      schema = schema.default(param.defaultValue);
-    }
+    // Note: we intentionally omit .default() here because some API providers
+    // (e.g. Anthropic) reject schemas containing the "default" keyword in
+    // tool input_schema. The default value is handled at the tool level.
     return schema.describe(param.description);
   }
 
