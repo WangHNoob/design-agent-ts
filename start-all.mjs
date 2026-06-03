@@ -205,9 +205,9 @@ const o11yConfig = getO11yConfig();
 let o11yStarted = false;
 
 if (o11yConfig.enabled) {
-  console.log(`🚀 正在启动后端服务 (端口 ${serverPort})、前端 (端口 3001) 与 O11y (端口 ${o11yConfig.port} + 3004)...\n`);
+  console.log(`🚀 正在启动后端服务 (端口 ${serverPort})、前端 (端口 4528) 与 O11y (端口 ${o11yConfig.port} + 3004)...\n`);
 } else {
-  console.log(`🚀 正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器 (端口 3001)...\n`);
+  console.log(`🚀 正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器 (端口 4528)...\n`);
 }
 
 // 启动 O11y 服务（如果启用）
@@ -250,7 +250,7 @@ if (o11yConfig.enabled) {
 waitForHealth(serverPort).then((ok) => {
   if (ok) {
     console.log(`\n✅ 后端已就绪: http://localhost:${serverPort}`);
-    console.log(`🌐 主前端地址: http://localhost:3001`);
+    console.log(`🌐 主前端地址: http://localhost:4528`);
     if (o11yStarted) {
       console.log(`📊 O11y API: http://localhost:${o11yConfig.port}`);
       console.log(`📊 O11y 前端: http://localhost:3004\n`);
