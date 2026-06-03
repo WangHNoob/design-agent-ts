@@ -10,6 +10,8 @@ export const DEFAULT_TOOL_NAMES = [
   "kg_list_nodes",
   "tavily_search",
   "tavily_extract",
+  "workspace_read",
+  "workspace_list",
 ];
 
 const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {

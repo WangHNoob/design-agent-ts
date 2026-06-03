@@ -10,6 +10,7 @@ import type { SkillRegistry } from "../../../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "./HumanReviewGateway.js";
 import type { AgentHook } from "../../../port/hook/AgentHook.js";
 import type { IdGeneratorPort } from "../../../port/infra/IdGeneratorPort.js";
+import type { WorkspaceManager } from "../../workspace/WorkspaceManager.js";
 import { TaskPlanner } from "./TaskPlanner.js";
 import { Router } from "./Router.js";
 import { Integrator } from "./Integrator.js";
@@ -22,6 +23,9 @@ import { startSpan, endSpan, failSpan, createTrace } from "../../o11y/O11yTraceB
 import { status as runtimeStatus } from "../../o11y/O11yRuntimeBridge.js";
 import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
+import { SessionToolRegistry } from "../../tool/SessionToolRegistry.js";
+import { WorkspaceReadTool } from "../../tool/workspace/WorkspaceReadTool.js";
+import { WorkspaceListTool } from "../../tool/workspace/WorkspaceListTool.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -59,6 +63,7 @@ export interface DirectorDeps {
   hooks: AgentHook[];
   prompts?: DirectorPrompts;
   idGenerator?: IdGeneratorPort;
+  workspace?: WorkspaceManager;
   limits?: {
     queryAgentMaxIterations?: number;
     subAgentMaxIterations?: number;
@@ -155,6 +160,10 @@ export class DirectorAgent {
     role: string,
     traceId?: string
   ): Promise<AgentResponse> {
+    if (this.deps.workspace) {
+      await this.deps.workspace.initialize(sessionId);
+    }
+
     const planSpan = startSpan("TaskPlanner.plan", "TASK_PLANNER", null, { requirementPreview: requirement.substring(0, 100) });
     const skill = this.deps.skillRegistry.matchSkill(requirement, role);
     const plan = await this.taskPlanner.plan(requirement, role, skill);
@@ -180,11 +189,13 @@ export class DirectorAgent {
           console.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
           return null;
         }
+        const originalSubTask = plan.subTasks.find((st) => st.id === decision.fragmentId || st.fragmentId === decision.fragmentId);
         return {
           taskId: decision.fragmentId,
           domain: decision.domain,
           assignment: decision.assignment,
           agentDescriptor: descriptor,
+          dependencies: originalSubTask?.dependencies ?? [],
         };
       })
       .filter((a): a is TaskAssignment => a !== null);
@@ -193,14 +204,17 @@ export class DirectorAgent {
     const mergedPlan = {
       planId: plan.planId,
       requirement,
-      subTasks: assignments.map((a) => ({
-        id: a.taskId,
-        fragmentId: a.taskId,
-        domain: a.domain,
-        description: a.assignment,
-        dependencies: [],
-        priority: 1,
-      })),
+      subTasks: assignments.map((a) => {
+        const originalSubTask = plan.subTasks.find((st) => st.id === a.taskId || st.fragmentId === a.taskId);
+        return {
+          id: a.taskId,
+          fragmentId: a.taskId,
+          domain: a.domain,
+          description: a.assignment,
+          dependencies: originalSubTask?.dependencies ?? [],
+          priority: originalSubTask?.priority ?? 1,
+        };
+      }),
     };
 
     const pipelineSpan = startSpan("PlanPipeline.execute", "PIPELINE", null, { taskCount: mergedPlan.subTasks.length });
@@ -212,6 +226,7 @@ export class DirectorAgent {
           domain: task.domain,
           assignment: task.description,
           agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor ?? getSubAgentDescriptor("SystemDesigner")!,
+          dependencies: task.dependencies,
         },
         sessionId,
         traceId
@@ -256,22 +271,34 @@ export class DirectorAgent {
     });
     try {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+
+      // Build session-scoped tool registry with workspace tools
+      const toolRegistry = this.buildSessionToolRegistry(sessionId);
+
       const agent = this.deps.agentFactory.createAgent(
         task.agentDescriptor,
-        this.deps.toolRegistry,
+        toolRegistry,
         new InMemoryMemoryPort(),
         this.deps.hooks
       );
 
-      const input = ChatMessage.text("user", "director", task.assignment);
+      // Inject predecessor context into assignment message
+      const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
+      const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input]);
+
+      // Write output to workspace
+      const output = AR.getTextContent(response) ?? "";
+      if (this.deps.workspace && output) {
+        await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
+      }
 
       endSpan(taskSpan, { success: response.success });
       return {
         taskId: task.taskId,
         domain: task.domain,
         status: response.success ? "success" : "error",
-        output: AR.getTextContent(response) ?? "",
+        output,
         errorMessage: response.errorMessage,
       };
     } catch (err) {
@@ -294,22 +321,30 @@ export class DirectorAgent {
     try {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
+
+      const toolRegistry = this.buildSessionToolRegistry(sessionId);
       const agent = this.deps.agentFactory.createAgent(
         task.agentDescriptor,
-        this.deps.toolRegistry,
+        toolRegistry,
         new InMemoryMemoryPort(),
         hooks
       );
 
-      const input = ChatMessage.text("user", "director", task.assignment);
+      const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
+      const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input]);
+
+      const output = AR.getTextContent(response) ?? "";
+      if (this.deps.workspace && output) {
+        await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
+      }
 
       endSpan(taskSpan, { success: response.success });
       return {
         taskId: task.taskId,
         domain: task.domain,
         status: response.success ? "success" : "error",
-        output: AR.getTextContent(response) ?? "",
+        output,
         errorMessage: response.errorMessage,
       };
     } catch (err) {
@@ -317,6 +352,42 @@ export class DirectorAgent {
       failSpan(taskSpan, msg);
       throw err;
     }
+  }
+
+  private buildSessionToolRegistry(sessionId: string): ToolRegistry {
+    if (!this.deps.workspace) {
+      return this.deps.toolRegistry;
+    }
+    const wsReadTool = new WorkspaceReadTool(this.deps.workspace, sessionId);
+    const wsListTool = new WorkspaceListTool(this.deps.workspace, sessionId);
+    return new SessionToolRegistry(this.deps.toolRegistry, [wsReadTool, wsListTool]);
+  }
+
+  private async injectPredecessorContext(task: TaskAssignment, sessionId: string): Promise<string> {
+    if (!this.deps.workspace || !task.dependencies || task.dependencies.length === 0) {
+      return task.assignment;
+    }
+
+    const sections: string[] = [];
+    for (const depId of task.dependencies) {
+      const files = await this.deps.workspace.listTaskFiles(sessionId, depId);
+      if (files.length === 0) continue;
+
+      for (const fileName of files) {
+        const content = await this.deps.workspace.readTaskOutput(sessionId, depId, fileName);
+        if (!content) continue;
+        const truncated = content.length > 2000
+          ? content.substring(0, 2000) + "\n...(已截断，使用 workspace_read 读取完整内容)"
+          : content;
+        sections.push(`### ${depId} / ${fileName}\n${truncated}`);
+      }
+    }
+
+    if (sections.length === 0) {
+      return task.assignment;
+    }
+
+    return `${task.assignment}\n\n---\n## 前驱任务产出（摘要）\n\n${sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
   }
 
   private async createQueryAgent() {
