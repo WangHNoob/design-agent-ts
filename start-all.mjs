@@ -124,27 +124,24 @@ function syncFrontendApiBase(port) {
   if (existsSync(envLocalPath)) {
     content = readFileSync(envLocalPath, "utf-8");
   }
-  const lines = content.split(/\r?\n/);
+  const lines = content.split(/\r?\n/).filter((line) => !line.startsWith("NEXT_PUBLIC_O11Y_BASE="));
   let foundApi = false;
-  let foundO11y = false;
   const newLines = lines.map((line) => {
     if (line.startsWith("NEXT_PUBLIC_API_BASE=")) {
       foundApi = true;
       return `NEXT_PUBLIC_API_BASE=http://localhost:${port}`;
-    }
-    if (line.startsWith("NEXT_PUBLIC_O11Y_BASE=")) {
-      foundO11y = true;
-      return `NEXT_PUBLIC_O11Y_BASE=http://localhost:${getO11yConfig().port}`;
     }
     return line;
   });
   if (!foundApi) {
     newLines.push(`NEXT_PUBLIC_API_BASE=http://localhost:${port}`);
   }
-  if (!foundO11y) {
-    newLines.push(`NEXT_PUBLIC_O11Y_BASE=http://localhost:${getO11yConfig().port}`);
+  // Only add O11y base if enabled
+  const o11y = getO11yConfig();
+  if (o11y.enabled) {
+    newLines.push(`NEXT_PUBLIC_O11Y_BASE=http://localhost:${o11y.port}`);
   }
-  writeFileSync(envLocalPath, newLines.join("\n") + "\n");
+  writeFileSync(envLocalPath, newLines.filter((l) => l !== "").join("\n") + "\n");
 }
 
 // 等待后端健康检查
@@ -171,11 +168,6 @@ if (!existsSync("dist/server/main.js")) {
 
 if (!existsSync("frontend/node_modules")) {
   console.error("❌ 错误：frontend/node_modules 不存在，请先进入 frontend 目录执行 npm install");
-  process.exit(1);
-}
-
-if (!existsSync("o11y/frontend/node_modules")) {
-  console.error("❌ 错误：o11y/frontend/node_modules 不存在，请先进入 o11y/frontend 目录执行 npm install");
   process.exit(1);
 }
 
@@ -207,7 +199,11 @@ syncFrontendApiBase(serverPort);
 const o11yConfig = getO11yConfig();
 let o11yStarted = false;
 
-console.log(`🚀 正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器 (端口 3001 + 3004)...\n`);
+if (o11yConfig.enabled) {
+  console.log(`🚀 正在启动后端服务 (端口 ${serverPort})、前端 (端口 3001) 与 O11y (端口 ${o11yConfig.port} + 3004)...\n`);
+} else {
+  console.log(`🚀 正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器 (端口 3001)...\n`);
+}
 
 // 启动 O11y 服务（如果启用）
 if (o11yConfig.enabled) {
