@@ -3,10 +3,14 @@ import type { HumanReviewGateway, ReviewResult, ReviewPointConfig } from "../../
 
 export class LangGraphHumanReviewGateway implements HumanReviewGateway {
   private reviewPoints = new Map<string, ReviewPointConfig>();
+  private maxRevisionRounds = 3;
 
-  configure(points: Record<string, ReviewPointConfig>): void {
+  configure(points: Record<string, ReviewPointConfig>, maxRevisionRounds?: number): void {
     for (const [key, config] of Object.entries(points)) {
       this.reviewPoints.set(key, config);
+    }
+    if (maxRevisionRounds !== undefined) {
+      this.maxRevisionRounds = maxRevisionRounds;
     }
   }
 
@@ -49,6 +53,6 @@ export class LangGraphHumanReviewGateway implements HumanReviewGateway {
   }
 
   getMaxRevisionRounds(): number {
-    return 3;
+    return this.maxRevisionRounds;
   }
 }

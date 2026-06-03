@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Gamepad2, Settings, Plus, PanelRight } from 'lucide-react';
 
 interface Props {
@@ -66,8 +67,9 @@ export default function Header({
       {/* Mode tabs */}
       <div className="flex items-center bg-paper/50 border border-ink/6 rounded-lg p-0.5 gap-0.5 shrink-0">
         {MODES.map((m) => (
-          <button
+          <Link
             key={m.id}
+            href={`/${m.id}`}
             onClick={() => onModeChange(m.id)}
             className={`px-3 py-1.5 text-[11px] font-semibold rounded-md transition-all ${
               mode === m.id
@@ -76,7 +78,7 @@ export default function Header({
             }`}
           >
             {m.label}
-          </button>
+          </Link>
         ))}
       </div>
 

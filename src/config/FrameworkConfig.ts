@@ -29,4 +29,17 @@ export interface FrameworkConfig {
     flushIntervalMs: number;
     batchSize: number;
   };
+  limits: {
+    subAgentMaxIterations: number;
+    queryAgentMaxIterations: number;
+    iterationBudgetDefault: number;
+    contextMaxTokens: number;
+    contextCompressionThreshold: number;
+    tavilyMaxResults: number;
+    grepSearchResultLimit: number;
+    webSourceResultLimit: number;
+    sessionListLimit: number;
+    hitlMaxRevisionRounds: number;
+    modelMaxTokens: number;
+  };
 }

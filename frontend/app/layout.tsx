@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import TaskDock from '@/components/TaskDock';
 
 export const metadata: Metadata = {
   title: '游戏策划工坊 | Game Designer',
@@ -15,6 +16,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className="min-h-screen dot-grid">
         {children}
+        <TaskDock />
       </body>
     </html>
   );

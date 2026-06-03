@@ -89,7 +89,8 @@ export async function lateBootstrapDirector(): Promise<void> {
           k,
           { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
         ])
-      )
+      ),
+      config.limits.hitlMaxRevisionRounds
     );
   }
 
@@ -102,6 +103,10 @@ export async function lateBootstrapDirector(): Promise<void> {
     hooks,
     prompts: directorPrompts,
     idGenerator: new NodeIdGeneratorAdapter(),
+    limits: {
+      queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
+      subAgentMaxIterations: config.limits.subAgentMaxIterations,
+    },
   });
 
   setDirector(director);
@@ -149,7 +154,7 @@ export async function bootstrap() {
     config.knowledge.graphPath || "./knowledge/wiki/graph.json",
     fileSystem
   );
-  const tavilyTool = new TavilySearchTool();
+  const tavilyTool = new TavilySearchTool(config.limits.tavilyMaxResults);
 
   // Apply Tavily config: settings.json takes priority over env
   const tavilyEnabled = settingsManager.isTavilyEnabled() || (config.webSearch.tavilyEnabled && !!config.webSearch.tavilyApiKey);
@@ -176,15 +181,15 @@ export async function bootstrap() {
     "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
     "tavily_search", "tavily_extract",
   ];
-  configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames);
+  configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations);
 
   // Initialize O11y reporters
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
     new LoggingHook(),
     new ValidationHook(),
-    new IterationBudgetHook(10),
+    new IterationBudgetHook(config.limits.iterationBudgetDefault),
     new OutputEnforcementHook(),
-    new ContextManagementHook(0.7, 128000),
+    new ContextManagementHook(config.limits.contextCompressionThreshold, config.limits.contextMaxTokens),
   ];
 
   if (config.o11y.enabled) {
@@ -209,7 +214,7 @@ export async function bootstrap() {
   // Store bootstrap state for potential late director initialization
   bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks };
 
-  const sessionManager = new SessionManager(fileSystem);
+  const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
   await sessionManager.initialize();
 
   const hitlManager = new HITLManager(fileSystem);
@@ -242,7 +247,8 @@ export async function bootstrap() {
             k,
             { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
           ])
-        )
+        ),
+        config.limits.hitlMaxRevisionRounds
       );
     }
 
@@ -255,6 +261,12 @@ export async function bootstrap() {
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),
+      limits: {
+        queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
+        subAgentMaxIterations: config.limits.subAgentMaxIterations,
+        grepSearchResultLimit: config.limits.grepSearchResultLimit,
+        webSourceResultLimit: config.limits.webSourceResultLimit,
+      },
     });
 
     setDirector(director);

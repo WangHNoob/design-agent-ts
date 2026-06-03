@@ -23,8 +23,8 @@ export default function StepsTimeline({ entries }: Props) {
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
-        <GitBranch size={20} className="text-ink/20 mb-2" />
-        <p className="text-[12px] text-ink/40">等待执行…</p>
+        <GitBranch size={20} className="text-ink/40 mb-2" />
+        <p className="text-[12px] text-ink/60">等待执行…</p>
       </div>
     );
   }
@@ -46,7 +46,7 @@ function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number })
     running: <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />,
     completed: <span className="text-emerald-500 text-[10px]">✓</span>,
     error: <span className="text-red-500 text-[10px]">✗</span>,
-    pending: <span className="w-2 h-2 rounded-full bg-ink/10" />,
+    pending: <span className="w-2 h-2 rounded-full bg-ink/20" />,
   }[entry.status];
 
   const indentClass = level === 0 ? '' : 'ml-4';
@@ -55,10 +55,10 @@ function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number })
   return (
     <div>
       <div
-        className={`flex items-start gap-2 text-[11px] py-1 px-1 rounded hover:bg-ink/5 transition-colors ${indentClass}`}
+        className={`flex items-start gap-2 text-[11px] py-1 px-1 rounded hover:bg-ink/10 transition-colors ${indentClass}`}
       >
         {/* Time */}
-        <span className="shrink-0 text-ink/25 font-mono mt-0.5 w-12 text-[10px]">
+        <span className="shrink-0 text-ink/50 font-mono mt-0.5 w-12 text-[10px]">
           {entry.time}
         </span>
 
@@ -66,7 +66,7 @@ function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number })
         {hasChildren ? (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="shrink-0 text-ink/30 hover:text-ink/60 transition-colors mt-0.5"
+            className="shrink-0 text-ink/60 hover:text-ink/80 transition-colors mt-0.5"
           >
             {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           </button>
@@ -82,26 +82,26 @@ function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number })
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-ink/70">
+            <span className="text-ink/90">
               {connector}
               {entry.agentName && <span className="font-medium text-coral">{entry.agentName}: </span>}
               {entry.title}
             </span>
             {entry.durationMs !== undefined && (
-              <span className="text-[9px] text-ink/25 font-mono">
+              <span className="text-[9px] text-ink/50 font-mono">
                 {formatDuration(entry.durationMs)}
               </span>
             )}
           </div>
           {entry.detail && (
-            <div className="text-[10px] text-ink/40 mt-0.5">{entry.detail}</div>
+            <div className="text-[10px] text-ink/60 mt-0.5">{entry.detail}</div>
           )}
         </div>
       </div>
 
       {/* Render children */}
       {hasChildren && expanded && (
-        <div className="ml-2 border-l border-ink/10">
+        <div className="ml-2 border-l border-ink/20">
           {entry.children!.map((child) => (
             <TimelineNode key={child.id} entry={child} level={level + 1} />
           ))}
