@@ -33,6 +33,7 @@ export class Router {
 
     const response = await this.model.generate([
       ChatMessage.text("system", "system", prompt),
+      ChatMessage.text("user", "user", "请根据以上规则进行路由分配。"),
     ]);
 
     try {

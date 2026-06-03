@@ -35,6 +35,7 @@ export class TaskPlanner {
 
     const response = await this.model.generate([
       ChatMessage.text("system", "system", prompt),
+      ChatMessage.text("user", "user", requirement),
     ]);
 
     try {
