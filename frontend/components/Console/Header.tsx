@@ -12,6 +12,7 @@ interface Props {
   onNewChat: () => void;
   onToggleRightPanel: () => void;
   rightPanelOpen: boolean;
+  onOpenSettings?: () => void;
 }
 
 const MODES: { id: 'design' | 'query' | 'table'; label: string }[] = [
@@ -40,6 +41,7 @@ export default function Header({
   onNewChat,
   onToggleRightPanel,
   rightPanelOpen,
+  onOpenSettings,
 }: Props) {
   const statusDot = {
     idle: 'bg-ink/30',
@@ -102,6 +104,13 @@ export default function Header({
 
       {/* Actions */}
       <div className="flex items-center gap-1 shrink-0">
+        <button
+          onClick={onOpenSettings}
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink/50 hover:bg-ink/5 hover:text-ink transition-colors"
+          title="API 设置"
+        >
+          <Settings size={14} />
+        </button>
         <button
           onClick={onNewChat}
           className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink/50 hover:bg-ink/5 hover:text-ink transition-colors"

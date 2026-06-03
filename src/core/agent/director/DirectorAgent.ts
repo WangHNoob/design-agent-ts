@@ -78,7 +78,8 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     mode: "design" | "query" | "table",
-    role: string
+    role: string,
+    history?: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<AgentResponse> {
     const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
     const trace = await createTrace({
@@ -106,7 +107,7 @@ export class DirectorAgent {
             result = await this.executeDesignFlow(requirement, sessionId, role, traceId);
             break;
           case "query":
-            result = await this.executeQueryFlow(requirement, sessionId, traceId);
+            result = await this.executeQueryFlow(requirement, sessionId, traceId, history);
             break;
           case "table":
             result = await this.executeTableFlow(requirement, sessionId, role, traceId);
@@ -128,11 +129,12 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     mode: "design" | "query" | "table",
-    role: string
+    role: string,
+    history?: Array<{ role: "user" | "assistant"; content: string }>
   ): AsyncIterable<StreamEvent> {
     switch (mode) {
       case "query":
-        yield* this.executeQueryStream(requirement, sessionId);
+        yield* this.executeQueryStream(requirement, sessionId, history);
         break;
       case "design":
       case "table":
@@ -355,12 +357,24 @@ export class DirectorAgent {
     );
   }
 
-  private async executeQueryFlow(requirement: string, sessionId: string, traceId?: string): Promise<AgentResponse> {
+  private async executeQueryFlow(
+    requirement: string,
+    sessionId: string,
+    traceId?: string,
+    history?: Array<{ role: "user" | "assistant"; content: string }>
+  ): Promise<AgentResponse> {
     runtimeStatus(sessionId, traceId ?? "unknown", "LLM", 50, "Executing query with tools", null, null);
     const agent = await this.createQueryAgent();
-    const response = await agent.process(sessionId, [
-      ChatMessage.text("user", "user", requirement),
-    ]);
+
+    const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
+    if (history?.length) {
+      for (const h of history) {
+        messages.push(ChatMessage.text(h.role === "user" ? "user" : "assistant", h.role, h.content));
+      }
+    }
+    messages.push(ChatMessage.text("user", "user", requirement));
+
+    const response = await agent.process(sessionId, messages);
     return {
       agentName: "Director",
       message: response.message,
@@ -370,7 +384,11 @@ export class DirectorAgent {
     };
   }
 
-  private async *executeQueryStream(requirement: string, sessionId: string): AsyncIterable<StreamEvent> {
+  private async *executeQueryStream(
+    requirement: string,
+    sessionId: string,
+    history?: Array<{ role: "user" | "assistant"; content: string }>
+  ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
 
     const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
@@ -383,7 +401,14 @@ export class DirectorAgent {
 
     try {
       const agent = await this.createQueryAgentWithHooks(hooksWithEmitter);
-      const messages = [ChatMessage.text("user", "user", requirement)];
+
+      const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
+      if (history?.length) {
+        for (const h of history) {
+          messages.push(ChatMessage.text(h.role === "user" ? "user" : "assistant", h.role, h.content));
+        }
+      }
+      messages.push(ChatMessage.text("user", "user", requirement));
 
       runtimeStatus(sessionId, traceId, "LLM", 30, "Executing query with tools", "QueryAgent", null);
 

@@ -44,28 +44,33 @@ import { NodeContextStorageAdapter } from "../adapter/infra/NodeContextStorageAd
 import { configureIdGenerator } from "../core/o11y/O11ySpan.js";
 import { configureContextStorage } from "../core/o11y/O11yContext.js";
 
-export async function bootstrap() {
-  const config = loadConfig();
-  const fileSystem = new NodeFileSystemAdapter();
-  configureIdGenerator(new NodeIdGeneratorAdapter());
-  configureContextStorage(new NodeContextStorageAdapter());
+let bootstrapState: {
+  config: ReturnType<typeof loadConfig>;
+  toolRegistry: ToolManager;
+  skillRegistry: SkillManager;
+  settingsManager: SettingsManager;
+  container: Container | null;
+  tavilyTool: TavilySearchTool;
+  directorPrompts: Record<string, string | undefined>;
+  hooks: import("../port/hook/AgentHook.js").AgentHook[];
+} | null = null;
 
-  // API key can come from env or settings.json; don't throw here, check after loading settings
-  let apiKey = config.model.apiKey;
+export function getBootstrapState() {
+  return bootstrapState;
+}
 
-  // Load user settings from settings.json (overrides env defaults)
-  const settingsManager = new SettingsManager(fileSystem);
-  await settingsManager.initialize();
+export function isDirectorReady(): boolean {
+  return !!bootstrapState?.container;
+}
 
-  // Apply model settings from settings.json if available
+export async function lateBootstrapDirector(): Promise<void> {
+  if (!bootstrapState) throw new Error("Bootstrap not yet called");
+  const { config, toolRegistry, skillRegistry, settingsManager, tavilyTool, directorPrompts, hooks } = bootstrapState;
+
   const settings = settingsManager.getSettings();
-  if (settings.modelApiKey) {
-    apiKey = settings.modelApiKey;
-  }
-  if (!apiKey) {
-    throw new Error("LLM_API_KEY is not set. Please configure it in settings or environment variables.");
-  }
-  // Override config.model with settings.json values
+  const apiKey = settings.modelApiKey || config.model.apiKey;
+  if (!apiKey) throw new Error("API key still not configured");
+
   const mergedModelConfig = {
     ...config.model,
     apiKey,
@@ -73,6 +78,51 @@ export async function bootstrap() {
     modelName: settings.modelName || config.model.modelName,
     baseUrl: settings.modelBaseUrl || config.model.baseUrl,
   };
+
+  const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
+  bootstrapState.container = container;
+
+  if (container.humanReviewGateway.configure && config.hitl.enabled) {
+    container.humanReviewGateway.configure(
+      Object.fromEntries(
+        Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
+          k,
+          { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
+        ])
+      )
+    );
+  }
+
+  const director = new DirectorAgent({
+    model: container.model,
+    agentFactory: container.agentFactory,
+    toolRegistry,
+    skillRegistry,
+    humanReviewGateway: container.humanReviewGateway,
+    hooks,
+    prompts: directorPrompts,
+    idGenerator: new NodeIdGeneratorAdapter(),
+  });
+
+  setDirector(director);
+  setSettingsContainer(container);
+}
+
+export async function bootstrap() {
+  const config = loadConfig();
+  const fileSystem = new NodeFileSystemAdapter();
+  configureIdGenerator(new NodeIdGeneratorAdapter());
+  configureContextStorage(new NodeContextStorageAdapter());
+
+  let apiKey = config.model.apiKey;
+
+  const settingsManager = new SettingsManager(fileSystem);
+  await settingsManager.initialize();
+
+  const settings = settingsManager.getSettings();
+  if (settings.modelApiKey) {
+    apiKey = settings.modelApiKey;
+  }
 
   // Load prompts from filesystem (composition root responsibility)
   const subAgentPrompts = {
@@ -128,20 +178,6 @@ export async function bootstrap() {
   ];
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames);
 
-  const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
-
-  // Configure HITL review points
-  if (container.humanReviewGateway.configure && config.hitl.enabled) {
-    container.humanReviewGateway.configure(
-      Object.fromEntries(
-        Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
-          k,
-          { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
-        ])
-      )
-    );
-  }
-
   // Initialize O11y reporters
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
     new LoggingHook(),
@@ -170,16 +206,8 @@ export async function bootstrap() {
     setRuntimeBridgeReporter(new NoOpRuntimeStatusReporter());
   }
 
-  const director = new DirectorAgent({
-    model: container.model,
-    agentFactory: container.agentFactory,
-    toolRegistry,
-    skillRegistry,
-    humanReviewGateway: container.humanReviewGateway,
-    hooks,
-    prompts: directorPrompts,
-    idGenerator: new NodeIdGeneratorAdapter(),
-  });
+  // Store bootstrap state for potential late director initialization
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks };
 
   const sessionManager = new SessionManager(fileSystem);
   await sessionManager.initialize();
@@ -187,15 +215,54 @@ export async function bootstrap() {
   const hitlManager = new HITLManager(fileSystem);
   await hitlManager.initialize();
 
-  setDirector(director);
   setConsoleSessionManager(sessionManager);
   setConsoleHITLManager(hitlManager);
   setSessionManager(sessionManager);
   setHITLManager(hitlManager);
   setSettingsManager(settingsManager);
-  setSettingsContainer(container);
   setTavilyTool(tavilyTool);
 
+  // If API key is available, initialize director immediately
+  if (apiKey) {
+    const mergedModelConfig = {
+      ...config.model,
+      apiKey,
+      provider: (settings.modelProvider as typeof config.model.provider) || config.model.provider,
+      modelName: settings.modelName || config.model.modelName,
+      baseUrl: settings.modelBaseUrl || config.model.baseUrl,
+    };
+
+    const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
+    bootstrapState.container = container;
+
+    if (container.humanReviewGateway.configure && config.hitl.enabled) {
+      container.humanReviewGateway.configure(
+        Object.fromEntries(
+          Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
+            k,
+            { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
+          ])
+        )
+      );
+    }
+
+    const director = new DirectorAgent({
+      model: container.model,
+      agentFactory: container.agentFactory,
+      toolRegistry,
+      skillRegistry,
+      humanReviewGateway: container.humanReviewGateway,
+      hooks,
+      prompts: directorPrompts,
+      idGenerator: new NodeIdGeneratorAdapter(),
+    });
+
+    setDirector(director);
+    setSettingsContainer(container);
+  } else {
+    console.warn("[Bootstrap] No API key configured. Director not initialized. Configure via /api/settings.");
+  }
+
   const app = createApp();
-  return { app, config, container, director, sessionManager, hitlManager, settingsManager };
+  return { app, config, container: bootstrapState.container, director: null, sessionManager, hitlManager, settingsManager };
 }

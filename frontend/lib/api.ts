@@ -5,6 +5,7 @@ export interface ExecuteRequest {
   sessionId?: string;
   mode: 'design' | 'query' | 'table';
   role?: string;
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 export interface ExecuteResponse {
@@ -190,6 +191,17 @@ export async function saveSettings(settings: Partial<AppSettingsResponse> & { ta
 
 export async function getTavilyStatus(): Promise<TavilyStatus> {
   const res = await fetch(`${API_BASE}/api/settings/mcp/status`);
+  return res.json();
+}
+
+export interface ConfigStatus {
+  configured: boolean;
+  needsApiKey: boolean;
+  needsTavilyKey: boolean;
+}
+
+export async function getConfigStatus(): Promise<ConfigStatus> {
+  const res = await fetch(`${API_BASE}/api/settings/status`);
   return res.json();
 }
 

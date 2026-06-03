@@ -1,15 +1,15 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { LayoutDashboard, Gamepad2, Settings, ClipboardCheck, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, Gamepad2, Settings, ClipboardCheck, BarChart3, ScrollText } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 const navItems = [
   { href: '/', label: '控制台', icon: Gamepad2 },
   { href: '/dashboard', label: '监控台', icon: LayoutDashboard },
+  { href: '/logs', label: '日志', icon: ScrollText },
   { href: '/review', label: '审阅中心', icon: ClipboardCheck },
-  { href: '/observability', label: '观测', icon: BarChart3 },
   { href: '/settings', label: '设置', icon: Settings },
 ];
 

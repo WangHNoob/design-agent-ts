@@ -3,6 +3,8 @@
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Sparkles, Loader2, Zap, User, Bot, Info } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import Header from '@/components/Console/Header';
 import SessionSidebar from '@/components/Console/SessionSidebar';
 import RightPanel from '@/components/Console/RightPanel';
@@ -11,7 +13,9 @@ import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import ModeSelector from '@/components/Console/ModeSelector';
 import RoleSelector from '@/components/Console/RoleSelector';
 import ResultPanel from '@/components/Console/ResultPanel';
-import { executeDesignStream, listSessions, type SessionMeta } from '@/lib/api';
+import SetupModal from '@/components/Console/SetupModal';
+import { executeDesignStream, listSessions, getConfigStatus, type SessionMeta } from '@/lib/api';
+import { logStore } from '@/lib/logStore';
 
 interface ChatMessage {
   id: string;
@@ -73,6 +77,26 @@ export default function ConsolePage() {
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [refreshTick, setRefreshTick] = useState(0);
   const [useStream, setUseStream] = useState(true);
+
+  // Setup modal state
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(false);
+
+  // Streaming text for live display
+  const [streamingText, setStreamingText] = useState('');
+  const streamingRafRef = useRef<number | null>(null);
+
+  // Check config status on mount
+  useEffect(() => {
+    getConfigStatus()
+      .then((status) => {
+        if (status.needsApiKey) {
+          setShowSetupModal(true);
+          setIsFirstTimeSetup(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // ── Helpers ──
   const scrollToBottom = () => {
@@ -185,6 +209,9 @@ export default function ConsolePage() {
   // ── Stream handling ──
   const handleStreamEvent = useCallback((event: string, data: unknown) => {
     if (!mountedRef.current) return;
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`[GDT:${event}]`, data);
+    }
     const d = data as Record<string, unknown>;
 
     switch (event) {
@@ -355,6 +382,12 @@ export default function ConsolePage() {
 
       case 'chunk': {
         streamingTextRef.current += (d.text as string) ?? '';
+        if (!streamingRafRef.current) {
+          streamingRafRef.current = requestAnimationFrame(() => {
+            setStreamingText(streamingTextRef.current);
+            streamingRafRef.current = null;
+          });
+        }
         break;
       }
 
@@ -377,6 +410,19 @@ export default function ConsolePage() {
         stopExecutionTimer();
         setRefreshTick((t) => t + 1);
         streamingTextRef.current = '';
+        setStreamingText('');
+
+        // Persist logs to localStorage
+        setTimeout(() => {
+          setLogs((currentLogs) => {
+            setTimeline((currentTimeline) => {
+              const sid = (d.sessionId as string) || 'unknown';
+              logStore.saveSession(sid, currentLogs, currentTimeline);
+              return currentTimeline;
+            });
+            return currentLogs;
+          });
+        }, 100);
         break;
       }
 
@@ -385,6 +431,8 @@ export default function ConsolePage() {
         setLoading(false);
         setStatus('error');
         setStatusText('错误');
+        setStreamingText('');
+        streamingTextRef.current = '';
         const errMsg = (d.error as string) || '未知错误';
         addMessage('system', `执行出错: ${errMsg}`);
 
@@ -438,17 +486,34 @@ export default function ConsolePage() {
   const handleSubmit = async () => {
     if (!requirement.trim() || loading) return;
 
-    const sid = sessionId ?? generateSessionId();
+    // In design/table mode, each submit is independent — use a fresh session
+    let sid: string;
+    if (mode === 'query') {
+      sid = sessionId ?? generateSessionId();
+    } else {
+      sid = generateSessionId();
+    }
     setSessionId(sid);
     setLoading(true);
     resetExecution();
 
     addMessage('user', requirement.trim());
+
+    // Build history for query mode (multi-turn conversation)
+    let history: Array<{ role: 'user' | 'assistant'; content: string }> | undefined;
+    if (mode === 'query') {
+      history = messages
+        .filter((m) => m.type === 'user' || m.type === 'ai')
+        .slice(-10)
+        .map((m) => ({ role: m.type === 'user' ? 'user' as const : 'assistant' as const, content: m.content }));
+    }
+
+    const reqText = requirement.trim();
     setRequirement('');
 
     if (useStream) {
       streamRef.current = executeDesignStream(
-        { requirement: requirement.trim(), mode, role, sessionId: sid },
+        { requirement: reqText, mode, role, sessionId: sid, history },
         handleStreamEvent,
         (err) => {
           if (!mountedRef.current) return;
@@ -456,6 +521,8 @@ export default function ConsolePage() {
           setStreaming(false);
           setStatus('error');
           setStatusText('错误');
+          setStreamingText('');
+          streamingTextRef.current = '';
           addMessage('system', `网络错误: ${err.message}`);
           addLog('error', '请求异常', err.message);
           stopExecutionTimer();
@@ -464,7 +531,7 @@ export default function ConsolePage() {
     } else {
       try {
         const { executeDesign } = await import('@/lib/api');
-        const res = await executeDesign({ requirement: requirement.trim(), mode, role, sessionId: sid });
+        const res = await executeDesign({ requirement: reqText, mode, role, sessionId: sid, history });
         if (mountedRef.current) {
           if (res.success && res.output) {
             addMessage('ai', res.output);
@@ -543,6 +610,7 @@ export default function ConsolePage() {
         onNewChat={handleNewChat}
         onToggleRightPanel={() => setRightPanelOpen((v) => !v)}
         rightPanelOpen={rightPanelOpen}
+        onOpenSettings={() => { setIsFirstTimeSetup(false); setShowSetupModal(true); }}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -566,10 +634,28 @@ export default function ConsolePage() {
                   <ChatBubble key={msg.id} msg={msg} />
                 ))}
                 {streaming && (
-                  <div className="flex items-center gap-2 text-xs text-ink/40">
-                    <div className="w-1.5 h-1.5 rounded-full bg-coral animate-pulse" />
-                    AI 正在思考…
-                  </div>
+                  streamingText ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex gap-3"
+                    >
+                      <div className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg bg-coral text-white">
+                        <Bot size={14} />
+                      </div>
+                      <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed bg-white border border-ink/6 text-ink overflow-x-auto">
+                        <div className="markdown-content">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+                        </div>
+                        <span className="inline-block w-1.5 h-4 bg-coral/60 animate-pulse ml-0.5 align-text-bottom" />
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-ink/40">
+                      <div className="w-1.5 h-1.5 rounded-full bg-coral animate-pulse" />
+                      AI 正在思考…
+                    </div>
+                  )
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -618,6 +704,8 @@ export default function ConsolePage() {
                         streamRef.current = null;
                         setLoading(false);
                         setStreaming(false);
+                        setStreamingText('');
+                        streamingTextRef.current = '';
                         setStatus('idle');
                         setStatusText('已取消');
                         stopExecutionTimer();
@@ -657,6 +745,14 @@ export default function ConsolePage() {
           />
         )}
       </div>
+
+      {/* Setup Modal */}
+      <SetupModal
+        open={showSetupModal}
+        onClose={() => setShowSetupModal(false)}
+        onConfigured={() => { setShowSetupModal(false); setIsFirstTimeSetup(false); }}
+        isFirstTime={isFirstTimeSetup}
+      />
     </div>
   );
 }
@@ -688,10 +784,16 @@ const ChatBubble = React.memo(function ChatBubble({ msg }: { msg: ChatMessage })
       }`}>
         {isUser ? <User size={14} /> : <Bot size={14} />}
       </div>
-      <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
+      <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed overflow-x-auto ${
         isUser ? 'bg-coral text-white' : 'bg-white border border-ink/6 text-ink'
       }`}>
-        <div className="whitespace-pre-wrap">{msg.content}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap">{msg.content}</div>
+        ) : (
+          <div className="markdown-content">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          </div>
+        )}
         <div className={`text-[10px] mt-1 ${isUser ? 'text-white/60' : 'text-ink/30'}`}>
           {msg.timestamp}
         </div>

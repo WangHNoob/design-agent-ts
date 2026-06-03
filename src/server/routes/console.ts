@@ -11,6 +11,7 @@ interface ExecuteRequest {
   sessionId?: string;
   mode: "design" | "query" | "table";
   role?: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
 interface ExecuteResponse {
@@ -47,9 +48,9 @@ consoleRoute.post("/execute", async (c) => {
     return c.json<ExecuteResponse>({
       success: false,
       output: null,
-      error: "DirectorAgent not initialized",
+      error: "not_configured",
       sessionId,
-    }, 503);
+    }, 409);
   }
 
   // track session
@@ -62,7 +63,7 @@ consoleRoute.post("/execute", async (c) => {
   });
 
   try {
-    const response = await directorInstance.execute(body.requirement, sessionId, body.mode, role);
+    const response = await directorInstance.execute(body.requirement, sessionId, body.mode, role, body.history);
     const output = AR.getTextContent(response);
 
     await sessionManagerInstance?.update(sessionId, {
@@ -99,7 +100,7 @@ consoleRoute.post("/execute/stream", async (c) => {
   const role = body.role ?? "chief_designer";
 
   if (!directorInstance) {
-    return c.json({ error: "DirectorAgent not initialized" }, 503);
+    return c.json({ error: "not_configured", message: "API key not configured. Please configure via settings." }, 409);
   }
 
   await sessionManagerInstance?.create({
@@ -134,7 +135,8 @@ consoleRoute.post("/execute/stream", async (c) => {
             body.requirement,
             sessionId,
             body.mode,
-            role
+            role,
+            body.history
           );
 
           let finalOutput = "";

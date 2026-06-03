@@ -3,6 +3,7 @@ import type { SettingsManager } from "../../core/settings/SettingsManager.js";
 import type { Container } from "../Container.js";
 import type { TavilySearchTool } from "../../adapter/tavily/TavilySearchTool.js";
 import { syncEnvFromSettings } from "../envSync.js";
+import { isDirectorReady, lateBootstrapDirector } from "../bootstrap.js";
 
 let settingsManagerInstance: SettingsManager | null = null;
 let containerInstance: Container | null = null;
@@ -29,6 +30,20 @@ settingsRoute.get("/", async (c) => {
   return c.json(settingsManagerInstance.getPublicSettings());
 });
 
+settingsRoute.get("/status", async (c) => {
+  if (!settingsManagerInstance) {
+    return c.json({ error: "SettingsManager not initialized" }, 503);
+  }
+  const settings = settingsManagerInstance.getSettings();
+  const hasApiKey = !!(settings.modelApiKey);
+  const hasTavilyKey = !!(settings.tavilyApiKey);
+  return c.json({
+    configured: hasApiKey && isDirectorReady(),
+    needsApiKey: !hasApiKey,
+    needsTavilyKey: !hasTavilyKey,
+  });
+});
+
 settingsRoute.post("/", async (c) => {
   if (!settingsManagerInstance) {
     return c.json({ error: "SettingsManager not initialized" }, 503);
@@ -41,8 +56,19 @@ settingsRoute.post("/", async (c) => {
   // Sync .env file so changes survive restarts
   syncEnvFromSettings(body);
 
-  // Reconfigure LLM in real-time if model config changed
+  // If director is not yet initialized and we now have an API key, late-bootstrap it
+  if (!isDirectorReady() && body.modelApiKey) {
+    try {
+      await lateBootstrapDirector();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: `Failed to initialize: ${msg}` }, 500);
+    }
+  }
+
+  // Reconfigure LLM in real-time if model config changed and director is ready
   if (
+    isDirectorReady() &&
     containerInstance &&
     (body.modelProvider !== undefined ||
       body.modelName !== undefined ||
@@ -66,7 +92,7 @@ settingsRoute.post("/", async (c) => {
     tavilyToolInstance.setApiKey(enabled ? apiKey ?? null : null);
   }
 
-  return c.json({ success: true, settings: settingsManagerInstance.getPublicSettings() });
+  return c.json({ success: true, configured: isDirectorReady(), settings: settingsManagerInstance.getPublicSettings() });
 });
 
 settingsRoute.get("/mcp/status", async (c) => {
