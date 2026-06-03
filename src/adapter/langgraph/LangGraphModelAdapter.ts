@@ -86,11 +86,19 @@ export class LangGraphModelAdapter implements ChatModelPort {
 
   private mapOptions(options?: ModelOptions): Record<string, unknown> {
     if (!options) return {};
-    return {
+    const mapped: Record<string, unknown> = {
       maxTokens: options.maxTokens,
+      maxCompletionTokens: options.maxCompletionTokens,
       temperature: options.temperature,
       topP: options.topP,
       stop: options.stopSequences,
     };
+    // Remove undefined keys to avoid sending empty params to API
+    for (const key of Object.keys(mapped)) {
+      if (mapped[key] === undefined) {
+        delete mapped[key];
+      }
+    }
+    return mapped;
   }
 }

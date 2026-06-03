@@ -72,6 +72,11 @@ export function executeDesignStream(
     body: JSON.stringify(body),
     signal: controller.signal,
   }).then(async (res) => {
+    if (!res.ok) {
+      const text = await res.text().catch(() => `HTTP ${res.status}`);
+      onError?.(new Error(`后端错误 (${res.status}): ${text}`));
+      return;
+    }
     if (!res.body) return;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();

@@ -48,6 +48,7 @@ export function handleStreamEvent(
   switch (event) {
     case 'start': {
       store.updateTask(sessionId, {
+        loading: true,
         streaming: true,
         status: 'working',
         statusText: '处理中',
