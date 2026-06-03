@@ -9,6 +9,8 @@ const NO_KEY_MSG = "⚠️ 未配置 Tavily API Key，请在设置页面配置�
 export class TavilySearchTool implements ToolPort {
   private apiKey: string | null = null;
 
+  constructor(private maxResultsCap = 20) {}
+
   setApiKey(apiKey: string | null): void {
     this.apiKey = apiKey && apiKey.trim() ? apiKey.trim() : null;
   }
@@ -88,7 +90,7 @@ export class TavilySearchTool implements ToolPort {
     const body = {
       api_key: this.apiKey,
       query,
-      max_results: Math.min(Math.max(maxResults, 1), 20),
+      max_results: Math.min(Math.max(maxResults, 1), this.maxResultsCap),
       search_depth: searchDepth === "advanced" ? "advanced" : "basic",
       include_answer: true,
     };

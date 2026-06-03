@@ -59,6 +59,12 @@ export interface DirectorDeps {
   hooks: AgentHook[];
   prompts?: DirectorPrompts;
   idGenerator?: IdGeneratorPort;
+  limits?: {
+    queryAgentMaxIterations?: number;
+    subAgentMaxIterations?: number;
+    grepSearchResultLimit?: number;
+    webSourceResultLimit?: number;
+  };
 }
 
 export class DirectorAgent {
@@ -317,7 +323,7 @@ export class DirectorAgent {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
       systemPrompt: this.querySystemPrompt,
-      maxIterations: 5,
+      maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
       toolNames: [
         "wiki_lookup", "wiki_read", "wiki_list",
         "grep_search",
@@ -339,7 +345,7 @@ export class DirectorAgent {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
       systemPrompt: this.querySystemPrompt,
-      maxIterations: 5,
+      maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
       toolNames: [
         "wiki_lookup", "wiki_read", "wiki_list",
         "grep_search",
@@ -396,7 +402,10 @@ export class DirectorAgent {
 
     // Create EventBus and StreamEmitterHook for fine-grained events
     const eventBus = new EventBus();
-    const streamEmitterHook = new StreamEmitterHook(eventBus);
+    const streamEmitterHook = new StreamEmitterHook(eventBus, {
+      grepLimit: this.deps.limits?.grepSearchResultLimit,
+      webSourceLimit: this.deps.limits?.webSourceResultLimit,
+    });
     const hooksWithEmitter = [...this.deps.hooks, streamEmitterHook];
 
     try {
@@ -449,7 +458,10 @@ export class DirectorAgent {
 
     // Create EventBus and StreamEmitterHook for fine-grained events
     const eventBus = new EventBus();
-    const streamEmitterHook = new StreamEmitterHook(eventBus);
+    const streamEmitterHook = new StreamEmitterHook(eventBus, {
+      grepLimit: this.deps.limits?.grepSearchResultLimit,
+      webSourceLimit: this.deps.limits?.webSourceResultLimit,
+    });
 
     try {
       yield { type: "plan", data: { message: "Planning tasks..." } };

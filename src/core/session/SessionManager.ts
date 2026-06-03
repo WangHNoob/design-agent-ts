@@ -21,7 +21,8 @@ export class SessionManager {
 
   constructor(
     private fs: FileSystemPort,
-    baseDir = "sessions"
+    baseDir = "sessions",
+    private defaultListLimit = 100
   ) {
     this.sessionsDir = baseDir;
     this.sessionsFile = this.fs.join(baseDir, "sessions.jsonl");
@@ -70,7 +71,7 @@ export class SessionManager {
     return this.sessions.get(id) ?? null;
   }
 
-  async list(limit = 50, offset = 0): Promise<SessionMeta[]> {
+  async list(limit = this.defaultListLimit, offset = 0): Promise<SessionMeta[]> {
     await this.initialize();
     const all = Array.from(this.sessions.values()).sort(
       (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()

@@ -12,7 +12,10 @@ export class StreamEmitterHook implements AgentHook {
   readonly priority = 200;
   private spanStartTimes = new Map<string, number>();
 
-  constructor(private eventBus: EventBus) {}
+  constructor(
+    private eventBus: EventBus,
+    private limits: { grepLimit?: number; webSourceLimit?: number } = {}
+  ) {}
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     const agentName = context.agentName ?? "unknown";
@@ -193,7 +196,7 @@ export class StreamEmitterHook implements AgentHook {
       // Grep: extract file paths from result
       const fileMatches = result.match(/File: ([^\n]+)/g);
       if (fileMatches) {
-        for (const match of fileMatches.slice(0, 5)) { // Limit to 5
+        for (const match of fileMatches.slice(0, this.limits.grepLimit ?? 5)) {
           const path = match.replace("File: ", "").trim();
           sources.push({
             type: "grep_match",
@@ -206,7 +209,7 @@ export class StreamEmitterHook implements AgentHook {
       // Web search: extract URLs from result
       const urlMatches = result.match(/https?:\/\/[^\s\)]+/g);
       if (urlMatches) {
-        for (const url of urlMatches.slice(0, 3)) { // Limit to 3
+        for (const url of urlMatches.slice(0, this.limits.webSourceLimit ?? 3)) {
           sources.push({
             type: "web_result",
             id: url,

@@ -8,7 +8,7 @@ export interface ModelOptions {
 
 export namespace ModelOptions {
   export const defaults: ModelOptions = {
-    maxTokens: 32768,
-    maxCompletionTokens: 32768,
+    maxTokens: 65536,
+    maxCompletionTokens: 65536,
   };
 }

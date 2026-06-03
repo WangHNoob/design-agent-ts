@@ -37,8 +37,8 @@ export default function DetailedLogs({ logs, onClear }: Props) {
   if (logs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
-        <Terminal size={20} className="text-ink/20 mb-2" />
-        <p className="text-[12px] text-ink/40">暂无日志</p>
+        <Terminal size={20} className="text-ink/40 mb-2" />
+        <p className="text-[12px] text-ink/60">暂无日志</p>
       </div>
     );
   }
@@ -86,7 +86,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
               className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
                 levelFilter.has(level)
                   ? getLevelStyle(level as DetailedLog['level']).active
-                  : 'bg-ink/5 text-ink/30'
+                  : 'bg-ink/5 text-ink/50'
               }`}
             >
               {level.toUpperCase()}
@@ -113,7 +113,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
         {/* Export button */}
         <button
           onClick={handleExport}
-          className="flex items-center gap-1 text-[10px] text-ink/30 hover:text-coral transition-colors"
+          className="flex items-center gap-1 text-[10px] text-ink/50 hover:text-coral transition-colors"
         >
           <Download size={10} />
           导出
@@ -122,14 +122,14 @@ export default function DetailedLogs({ logs, onClear }: Props) {
         {/* Clear button */}
         <button
           onClick={onClear}
-          className="text-[10px] text-ink/30 hover:text-coral transition-colors"
+          className="text-[10px] text-ink/50 hover:text-coral transition-colors"
         >
           清空
         </button>
       </div>
 
       {/* Log count */}
-      <div className="text-[10px] text-ink/30 px-1">
+      <div className="text-[10px] text-ink/50 px-1">
         {filteredLogs.length} / {logs.length} 条日志
       </div>
 
@@ -147,7 +147,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
             >
               <div className="flex items-start gap-1.5 px-1.5 py-1">
                 {/* Time */}
-                <span className="shrink-0 text-[9px] text-ink/25 font-mono mt-0.5 w-12">
+                <span className="shrink-0 text-[9px] text-ink/50 font-mono mt-0.5 w-12">
                   {log.time}
                 </span>
 
@@ -159,18 +159,18 @@ export default function DetailedLogs({ logs, onClear }: Props) {
                 </span>
 
                 {/* Source */}
-                <span className="shrink-0 text-[9px] text-ink/40 font-mono mt-0.5">
+                <span className="shrink-0 text-[9px] text-ink/60 font-mono mt-0.5">
                   [{log.source}]
                 </span>
 
                 {/* Message */}
-                <span className="text-[11px] text-ink/70 break-all flex-1">
+                <span className="text-[11px] text-ink/90 break-all flex-1">
                   {log.message}
                 </span>
 
                 {/* Duration */}
                 {log.durationMs !== undefined && (
-                  <span className="shrink-0 text-[9px] text-ink/25 font-mono mt-0.5">
+                  <span className="shrink-0 text-[9px] text-ink/50 font-mono mt-0.5">
                     {formatDuration(log.durationMs)}
                   </span>
                 )}
@@ -179,7 +179,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
                 {hasData && (
                   <button
                     onClick={() => toggleExpanded(log.id)}
-                    className="shrink-0 text-ink/30 hover:text-ink/60 transition-colors mt-0.5"
+                    className="shrink-0 text-ink/60 hover:text-ink/80 transition-colors mt-0.5"
                   >
                     {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   </button>
@@ -188,7 +188,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
 
               {/* Expanded data */}
               {hasData && isExpanded && (
-                <pre className="mx-1.5 mb-1 px-2 py-1 bg-ink/5 rounded text-[10px] text-ink/50 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+                <pre className="mx-1.5 mb-1 px-2 py-1 bg-ink/10 rounded text-[10px] text-ink/70 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
                   {JSON.stringify(log.data, null, 2)}
                 </pre>
               )}

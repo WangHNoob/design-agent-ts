@@ -13,7 +13,7 @@ export interface ReviewPointConfig {
 }
 
 export interface HumanReviewGateway {
-  configure?(points: Record<string, ReviewPointConfig>): void;
+  configure?(points: Record<string, ReviewPointConfig>, maxRevisionRounds?: number): void;
   isEnabled(): boolean;
   isReviewPointEnabled(point: string): boolean;
   requestReview<T>(sessionId: string, reviewPoint: string, content: T): Promise<ReviewResult<T>>;

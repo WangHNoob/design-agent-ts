@@ -16,42 +16,42 @@ const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
   SystemDesigner: {
     name: "SystemDesigner",
     systemPrompt: "",
-    maxIterations: 5,
+    maxIterations: 10,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
   CombatDesigner: {
     name: "CombatDesigner",
     systemPrompt: "",
-    maxIterations: 5,
+    maxIterations: 10,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
   NumericalPlanner: {
     name: "NumericalPlanner",
     systemPrompt: "",
-    maxIterations: 5,
+    maxIterations: 10,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
   GameplayDesigner: {
     name: "GameplayDesigner",
     systemPrompt: "",
-    maxIterations: 5,
+    maxIterations: 10,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
   ExecutivePlanner: {
     name: "ExecutivePlanner",
     systemPrompt: "",
-    maxIterations: 5,
+    maxIterations: 10,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
   QAPlanner: {
     name: "QAPlanner",
     systemPrompt: "",
-    maxIterations: 5,
+    maxIterations: 10,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
@@ -65,7 +65,8 @@ export function getSubAgentDescriptor(name: string): AgentDescriptor | undefined
 
 export function configureSubAgentDescriptors(
   prompts: Partial<Record<string, string>>,
-  toolNames?: string[]
+  toolNames?: string[],
+  defaultMaxIterations?: number
 ): void {
   for (const [name, systemPrompt] of Object.entries(prompts)) {
     const existing = SubAgentDescriptors[name];
@@ -74,6 +75,7 @@ export function configureSubAgentDescriptors(
         ...existing,
         systemPrompt: systemPrompt || existing.systemPrompt,
         toolNames: toolNames ?? existing.toolNames,
+        maxIterations: defaultMaxIterations ?? existing.maxIterations,
       };
     }
   }

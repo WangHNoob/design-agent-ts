@@ -37,5 +37,18 @@ export function loadConfig(): FrameworkConfig {
       flushIntervalMs: Number(process.env.O11Y_FLUSH_INTERVAL ?? 1000),
       batchSize: Number(process.env.O11Y_BATCH_SIZE ?? 50),
     },
+    limits: {
+      subAgentMaxIterations: Number(process.env.SUB_AGENT_MAX_ITERATIONS ?? 10),
+      queryAgentMaxIterations: Number(process.env.QUERY_AGENT_MAX_ITERATIONS ?? 10),
+      iterationBudgetDefault: Number(process.env.ITERATION_BUDGET_DEFAULT ?? 15),
+      contextMaxTokens: Number(process.env.CONTEXT_MAX_TOKENS ?? 200000),
+      contextCompressionThreshold: Number(process.env.CONTEXT_COMPRESSION_THRESHOLD ?? 0.8),
+      tavilyMaxResults: Number(process.env.TAVILY_MAX_RESULTS ?? 20),
+      grepSearchResultLimit: Number(process.env.GREP_SEARCH_RESULT_LIMIT ?? 10),
+      webSourceResultLimit: Number(process.env.WEB_SOURCE_RESULT_LIMIT ?? 5),
+      sessionListLimit: Number(process.env.SESSION_LIST_LIMIT ?? 100),
+      hitlMaxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS ?? 5),
+      modelMaxTokens: Number(process.env.MODEL_MAX_TOKENS ?? 65536),
+    },
   };
 }
