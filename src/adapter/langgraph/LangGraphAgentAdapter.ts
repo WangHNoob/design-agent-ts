@@ -179,7 +179,8 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
 
       const lgMessages = this.messageMapper.toLangGraphList(messages);
-      const config = { configurable: { thread_id: sessionId } };
+      const recursionLimit = this.descriptor.maxIterations * 2 + 2;
+      const config = { configurable: { thread_id: sessionId }, recursionLimit };
 
       const compiled = this.compiledGraph as { invoke(state: unknown, config: unknown): Promise<{ messages: BaseMessage[] }> };
       const result = await compiled.invoke(
@@ -245,7 +246,8 @@ export class LangGraphAgentAdapter implements AgentPort {
     }
 
     const lgMessages = this.messageMapper.toLangGraphList(messages);
-    const config = { configurable: { thread_id: sessionId }, streamMode: "updates" as const };
+    const recursionLimit = this.descriptor.maxIterations * 2 + 2;
+    const config = { configurable: { thread_id: sessionId }, streamMode: "updates" as const, recursionLimit };
 
     const compiled = this.compiledGraph as {
       stream(state: unknown, config: unknown): Promise<AsyncIterable<Record<string, { messages?: BaseMessage[] }>>>;

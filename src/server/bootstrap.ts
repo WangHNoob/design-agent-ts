@@ -183,6 +183,7 @@ export async function bootstrap() {
     "grep_search",
     "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
     "tavily_search", "tavily_extract",
+    "workspace_read", "workspace_list",
   ];
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations);
 
