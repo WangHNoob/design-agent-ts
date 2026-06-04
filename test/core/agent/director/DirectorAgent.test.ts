@@ -1,7 +1,4 @@
 import { describe, it, expect, vi } from "vitest";
-import { configureContextStorage } from "../../../../src/core/o11y/O11yContext.js";
-import { NodeContextStorageAdapter } from "../../../../src/adapter/infra/NodeContextStorageAdapter.js";
-configureContextStorage(new NodeContextStorageAdapter());
 import { DirectorAgent } from "../../../../src/core/agent/director/DirectorAgent.js";
 import type { ChatModelPort } from "../../../../src/port/model/ChatModelPort.js";
 import type { AgentFactory } from "../../../../src/port/agent/AgentFactory.js";

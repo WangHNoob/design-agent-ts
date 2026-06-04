@@ -19,12 +19,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import net from "node:net";
-import path from "node:path";
 
 const colors = {
   server: "\x1b[36m",   // 青色 (Cyan)
   frontend: "\x1b[35m", // 洋红 (Magenta)
-  o11y: "\x1b[32m",     // 绿色 (Green)
   reset: "\x1b[0m",
 };
 
@@ -94,18 +92,6 @@ function getServerPort() {
   return match ? Number(match[1]) : 3000;
 }
 
-// 从 .env 读取 O11y 配置
-function getO11yConfig() {
-  if (!existsSync(".env")) return { enabled: false, port: 3003 };
-  const content = readFileSync(".env", "utf-8");
-  const enabledMatch = content.match(/^O11Y_ENABLED\s*=\s*(true|false)/m);
-  const portMatch = content.match(/^O11Y_BASE_URL\s*=\s*https?:\/\/[^:]+:(\d+)/m);
-  return {
-    enabled: enabledMatch ? enabledMatch[1] === "true" : false,
-    port: portMatch ? Number(portMatch[1]) : 3003,
-  };
-}
-
 // 检测端口是否可用
 function isPortAvailable(port, host = "127.0.0.1") {
   return new Promise((resolve) => {
@@ -125,7 +111,7 @@ function syncFrontendApiBase(port) {
   if (existsSync(envLocalPath)) {
     content = readFileSync(envLocalPath, "utf-8");
   }
-  const lines = content.split(/\r?\n/).filter((line) => !line.startsWith("NEXT_PUBLIC_O11Y_BASE="));
+  const lines = content.split(/\r?\n/);
   let foundApi = false;
   const newLines = lines.map((line) => {
     if (line.startsWith("NEXT_PUBLIC_API_BASE=")) {
@@ -136,11 +122,6 @@ function syncFrontendApiBase(port) {
   });
   if (!foundApi) {
     newLines.push(`NEXT_PUBLIC_API_BASE=http://localhost:${port}`);
-  }
-  // Only add O11y base if enabled
-  const o11y = getO11yConfig();
-  if (o11y.enabled) {
-    newLines.push(`NEXT_PUBLIC_O11Y_BASE=http://localhost:${o11y.port}`);
   }
   writeFileSync(envLocalPath, newLines.filter((l) => l !== "").join("\n") + "\n");
 }
@@ -219,33 +200,7 @@ if (serverPort !== 3000) {
 // 同步前端 API 地址
 syncFrontendApiBase(serverPort);
 
-const o11yConfig = getO11yConfig();
-let o11yStarted = false;
-
-if (o11yConfig.enabled) {
-  console.log(`🚀 正在启动后端服务 (端口 ${serverPort})、前端 (端口 4528) 与 O11y (端口 ${o11yConfig.port} + 3004)...\n`);
-} else {
-  console.log(`🚀 正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器 (端口 4528)...\n`);
-}
-
-// 启动 O11y 服务（如果启用）
-if (o11yConfig.enabled) {
-  const o11yPortAvailable = await isPortAvailable(o11yConfig.port);
-  if (!o11yPortAvailable) {
-    console.warn(`⚠️  O11y 端口 ${o11yConfig.port} 已被占用，跳过 O11y 启动。`);
-  } else if (!existsSync("o11y/backend/.venv")) {
-    console.warn(`⚠️  O11y 依赖未安装，跳过 O11y 启动。请在 o11y/backend 目录执行依赖安装。`);
-  } else {
-    const isWin = process.platform === "win32";
-    const pythonPath = path.resolve(
-      isWin
-        ? "o11y/backend/.venv/Scripts/python.exe"
-        : "o11y/backend/.venv/bin/python"
-    );
-    run("O11Y", colors.o11y, pythonPath, ["-m", "uvicorn", "app.main:app", "--port", String(o11yConfig.port), "--host", "0.0.0.0"], "o11y/backend", false);
-    o11yStarted = true;
-  }
-}
+console.log(`🚀 正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器 (端口 4528)...\n`);
 
 // 启动后端
 run("SERVER", colors.server, "node", ["--env-file=.env", "dist/server/main.js"]);
@@ -253,28 +208,11 @@ run("SERVER", colors.server, "node", ["--env-file=.env", "dist/server/main.js"])
 // 启动前端
 run("FRONTEND", colors.frontend, "pnpm", ["run", "dev"], "frontend");
 
-// 启动 O11y 前端（独立界面）
-if (o11yConfig.enabled) {
-  const o11yFrontendPort = 3004;
-  const o11yFrontendAvailable = await isPortAvailable(o11yFrontendPort);
-  if (!o11yFrontendAvailable) {
-    console.warn(`⚠️  O11y 前端端口 ${o11yFrontendPort} 已被占用，跳过 O11y 前端启动。`);
-  } else {
-    run("O11Y-FE", colors.o11y, "pnpm", ["run", "dev"], "o11y/frontend");
-  }
-}
-
 // 等待后端就绪
 waitForHealth(serverPort).then((ok) => {
   if (ok) {
     console.log(`\n✅ 后端已就绪: http://localhost:${serverPort}`);
-    console.log(`🌐 主前端地址: http://localhost:4528`);
-    if (o11yStarted) {
-      console.log(`📊 O11y API: http://localhost:${o11yConfig.port}`);
-      console.log(`📊 O11y 前端: http://localhost:3004\n`);
-    } else {
-      console.log("");
-    }
+    console.log(`🌐 主前端地址: http://localhost:4528\n`);
   } else {
     console.error(`\n⚠️  后端在 ${serverPort} 端口未通过健康检查，请查看上方日志排查问题。`);
   }

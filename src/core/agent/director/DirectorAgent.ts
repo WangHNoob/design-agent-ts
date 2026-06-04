@@ -18,9 +18,6 @@ import { PlanPipeline } from "../../pipeline/PlanPipeline.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
 import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
-import { runInContext } from "../../o11y/O11yContext.js";
-import { startSpan, endSpan, failSpan, createTrace } from "../../o11y/O11yTraceBridge.js";
-import { status as runtimeStatus } from "../../o11y/O11yRuntimeBridge.js";
 import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
 import { SessionToolRegistry } from "../../tool/SessionToolRegistry.js";
@@ -108,48 +105,23 @@ export class DirectorAgent {
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     options?: DirectorStreamOptions
   ): Promise<AgentResponse> {
-    const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
-    const trace = await createTrace({
-      id: traceId,
-      session_id: sessionId,
-      name: `DirectorAgent.${mode}`,
-      status: "running",
-    });
-
-    const rootCtx = { traceId, spanId: traceId, sessionId };
-
-    return runInContext(rootCtx, async () => {
-      const rootSpan = startSpan("DirectorAgent.execute", "DIRECTOR", rootCtx, {
-        mode,
-        role,
-        requirementPreview: requirement.substring(0, 100),
-      });
-
-      runtimeStatus(sessionId, traceId, "PLANNING", 0, `Starting ${mode} execution`, role, null);
-
-      try {
-        let result: AgentResponse;
-        switch (mode) {
-          case "design":
-            result = await this.executeDesignFlow(requirement, sessionId, role, traceId, options?.signal);
-            break;
-          case "query":
-            result = await this.executeQueryFlow(requirement, sessionId, traceId, history, options?.signal);
-            break;
-          case "table":
-            result = await this.executeTableFlow(requirement, sessionId, role, traceId, options?.signal);
-            break;
-        }
-        endSpan(rootSpan, { resultLength: result.message?.content?.length ?? 0 });
-        runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Execution completed", null, null);
-        return result;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        failSpan(rootSpan, msg);
-        runtimeStatus(sessionId, traceId, "COMPLETE", 100, `Execution failed: ${msg}`, null, null);
-        throw err;
+    try {
+      let result: AgentResponse;
+      switch (mode) {
+        case "design":
+          result = await this.executeDesignFlow(requirement, sessionId, role, undefined, options?.signal);
+          break;
+        case "query":
+          result = await this.executeQueryFlow(requirement, sessionId, undefined, history, options?.signal);
+          break;
+        case "table":
+          result = await this.executeTableFlow(requirement, sessionId, role, undefined, options?.signal);
+          break;
       }
-    });
+      return result;
+    } catch (err) {
+      throw err;
+    }
   }
 
   async *executeStream(
@@ -189,21 +161,13 @@ export class DirectorAgent {
 
     const skill = this.deps.skillRegistry.matchSkill(requirement, role);
     console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
-    const planSpan = startSpan("TaskPlanner.plan", "TASK_PLANNER", null, { requirementPreview: requirement.substring(0, 100), matchedSkill: skill?.getName() ?? null });
     const plan = await this.taskPlanner.plan(requirement, role, skill);
-    endSpan(planSpan, { subTaskCount: plan.subTasks.length, matchedSkill: skill?.getName() ?? null });
-
-    runtimeStatus(sessionId, traceId ?? "unknown", "PIPELINE", 20, `${plan.subTasks.length} sub-tasks planned`, null, null);
 
     const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
       sessionId, "hitl-1-task-plan", plan
     );
 
-    const routeSpan = startSpan("Router.route", "ROUTER", null);
     const routing = await this.router.route(reviewedPlan.modifications ?? plan, role);
-    endSpan(routeSpan, { decisionCount: routing.length });
-
-    runtimeStatus(sessionId, traceId ?? "unknown", "PIPELINE", 40, `Routed to ${routing.length} agents`, null, null);
 
     // Map RouteDecision[] to TaskAssignment[]
     const assignments: TaskAssignment[] = routing
@@ -247,7 +211,6 @@ export class DirectorAgent {
       }),
     };
 
-    const pipelineSpan = startSpan("PlanPipeline.execute", "PIPELINE", null, { taskCount: mergedPlan.subTasks.length });
     const pipeline = new PlanPipeline(
       mergedPlan,
       (task) => this.executeSingleTask(
@@ -265,9 +228,6 @@ export class DirectorAgent {
       signal
     );
     const results = await pipeline.execute();
-    endSpan(pipelineSpan, { resultCount: results.length });
-
-    runtimeStatus(sessionId, traceId ?? "unknown", "AGENT", 60, `Executed ${results.length} sub-tasks`, null, null);
 
     const completedCount = results.filter((r) => r.status === "success").length;
 
@@ -333,10 +293,6 @@ export class DirectorAgent {
       };
     }
 
-    const taskSpan = startSpan(task.agentDescriptor.name, "SUB_AGENT", null, {
-      taskId: task.taskId,
-      domain: task.domain,
-    });
     try {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
 
@@ -367,7 +323,6 @@ export class DirectorAgent {
         await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
       }
 
-      endSpan(taskSpan, { success: response.success });
       return {
         taskId: task.taskId,
         domain: task.domain,
@@ -376,8 +331,6 @@ export class DirectorAgent {
         errorMessage: response.errorMessage,
       };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      failSpan(taskSpan, msg);
       throw err;
     }
   }
@@ -400,10 +353,6 @@ export class DirectorAgent {
       };
     }
 
-    const taskSpan = startSpan(task.agentDescriptor.name, "SUB_AGENT", null, {
-      taskId: task.taskId,
-      domain: task.domain,
-    });
     try {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
@@ -432,7 +381,6 @@ export class DirectorAgent {
         await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
       }
 
-      endSpan(taskSpan, { success: response.success });
       return {
         taskId: task.taskId,
         domain: task.domain,
@@ -441,8 +389,6 @@ export class DirectorAgent {
         errorMessage: response.errorMessage,
       };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      failSpan(taskSpan, msg);
       throw err;
     }
   }
@@ -553,7 +499,6 @@ export class DirectorAgent {
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     signal?: AbortSignal
   ): Promise<AgentResponse> {
-    runtimeStatus(sessionId, traceId ?? "unknown", "LLM", 50, "Executing query with tools", null, null);
     const agent = await this.createQueryAgent();
 
     const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
@@ -582,9 +527,6 @@ export class DirectorAgent {
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
 
-    const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
-    runtimeStatus(sessionId, traceId, "LLM", 10, "Preparing query agent", "QueryAgent", null);
-
     // Create EventBus and StreamEmitterHook for fine-grained events
     const eventBus = new EventBus();
     const streamEmitterHook = new StreamEmitterHook(eventBus, {
@@ -604,8 +546,6 @@ export class DirectorAgent {
       }
       messages.push(ChatMessage.text("user", "user", requirement));
 
-      runtimeStatus(sessionId, traceId, "LLM", 30, "Executing query with tools", "QueryAgent", null);
-
       let finalOutput = "";
 
       // Run agent.process() with concurrent event drain so SSE clients
@@ -624,7 +564,6 @@ export class DirectorAgent {
       }
 
       if (!response.success) {
-        runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query failed", "QueryAgent", null);
         yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
         return;
       }
@@ -637,10 +576,8 @@ export class DirectorAgent {
         yield { type: "chunk", data: { text: finalOutput.substring(i, i + chunkSize) } };
       }
 
-      runtimeStatus(sessionId, traceId, "COMPLETE", 100, "Query completed", "QueryAgent", null);
       yield { type: "complete", data: { success: true, output: finalOutput } };
     } catch (err) {
-      runtimeStatus(sessionId, traceId, "COMPLETE", 100, `Query error: ${err instanceof Error ? err.message : String(err)}`, "QueryAgent", null);
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
   }

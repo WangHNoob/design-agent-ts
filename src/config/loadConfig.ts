@@ -31,12 +31,6 @@ export function loadConfig(): FrameworkConfig {
       tavilyApiKey: process.env.TAVILY_API_KEY,
       tavilyEnabled: process.env.TAVILY_ENABLED === "true",
     },
-    o11y: {
-      enabled: process.env.O11Y_ENABLED === "true",
-      baseUrl: process.env.O11Y_BASE_URL ?? "http://localhost:3003",
-      flushIntervalMs: Number(process.env.O11Y_FLUSH_INTERVAL ?? 1000),
-      batchSize: Number(process.env.O11Y_BATCH_SIZE ?? 50),
-    },
     limits: {
       subAgentMaxIterations: Number(process.env.SUB_AGENT_MAX_ITERATIONS) || 20,
       queryAgentMaxIterations: Number(process.env.QUERY_AGENT_MAX_ITERATIONS) || 20,

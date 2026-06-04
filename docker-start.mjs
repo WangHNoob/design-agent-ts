@@ -13,7 +13,7 @@
  *   2. .env 文件已配置（可从 .env.example 复制）
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import net from "node:net";
 
@@ -130,8 +130,6 @@ function printAccessInfo() {
   console.log("╠══════════════════════════════════════════════════════════════╣");
   console.log("║  主前端:        http://localhost:3001                        ║");
   console.log("║  主后端 API:    http://localhost:13000                       ║");
-  console.log("║  O11y 前端:     http://localhost:3004                        ║");
-  console.log("║  O11y API:      http://localhost:3003                        ║");
   console.log("║  PostgreSQL:    localhost:15432                              ║");
   console.log("║  Redis:         localhost:16379                              ║");
   console.log("╚══════════════════════════════════════════════════════════════╝");
@@ -153,8 +151,6 @@ function printInfraInfo() {
   console.log("接下来可以运行本地开发服务:");
   console.log("  主后端:   node --env-file=.env dist/server/main.js");
   console.log("  主前端:   cd frontend && npm run dev");
-  console.log("  O11y后端: cd o11y/backend && .venv\\Scripts\\python -m uvicorn app.main:app --port 3003");
-  console.log("  O11y前端: cd o11y/frontend && npm run dev");
   console.log("");
   console.log("或使用: node start-all.mjs");
   console.log("");
@@ -213,21 +209,10 @@ if (!existsSync(".env")) {
   }
 }
 
-// 检查 o11y/backend/.env
-if (!existsSync("o11y/backend/.env")) {
-  log("warn", "o11y/backend/.env 不存在，已从模板复制");
-  try {
-    await run("cp", ["o11y/backend/.env.example", "o11y/backend/.env"]);
-  } catch {
-    log("error", "复制 O11y .env 失败，请手动创建");
-    process.exit(1);
-  }
-}
-
 // 检查关键端口是否被占用（使用非标准端口避免与其他应用冲突）
 const portsToCheck = infraOnly
   ? [15432, 16379]
-  : [13000, 3001, 3003, 3004, 15432, 16379];
+  : [13000, 3001, 15432, 16379];
 
 const occupiedPorts = [];
 for (const port of portsToCheck) {
@@ -296,13 +281,6 @@ if (infraOnly) {
     log("success", "主后端已就绪");
   } else {
     log("warn", "主后端健康检查超时，请查看日志排查");
-  }
-
-  const o11yReady = await waitForService("http://localhost:3003/health", 60, 2000);
-  if (o11yReady) {
-    log("success", "O11y 后端已就绪");
-  } else {
-    log("warn", "O11y 后端健康检查超时，请查看日志排查");
   }
 
   printAccessInfo();

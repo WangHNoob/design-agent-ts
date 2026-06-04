@@ -1,6 +1,5 @@
 packages:
   - 'frontend'
-  - 'o11y/frontend'
 allowBuilds:
   esbuild: true
   sharp: true

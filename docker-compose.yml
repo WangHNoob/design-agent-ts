@@ -1,34 +1,6 @@
 version: "3.8"
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: gdt-postgres
-    environment:
-      POSTGRES_USER: o11y
-      POSTGRES_PASSWORD: o11y
-      POSTGRES_DB: o11y
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "15432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U o11y -d o11y"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: gdt-redis
-    ports:
-      - "16379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: .
@@ -38,10 +10,6 @@ services:
       - "13000:3000"
     environment:
       - PORT=3000
-      - O11Y_ENABLED=true
-      - O11Y_BASE_URL=http://o11y-backend:3003
-      - O11Y_FLUSH_INTERVAL=1000
-      - O11Y_BATCH_SIZE=50
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o}
       - LLM_API_KEY=${LLM_API_KEY}
@@ -52,12 +20,9 @@ services:
       - KNOWLEDGE_GRAPH_PATH=./knowledge/processed
       - TAVILY_ENABLED=${TAVILY_ENABLED:-false}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
-      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./sessions:/app/sessions
       - ./settings.json:/app/settings.json
-    depends_on:
-      - o11y-backend
     restart: unless-stopped
 
   frontend:
@@ -66,45 +31,9 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_BASE: http://localhost:13000
-        NEXT_PUBLIC_O11Y_BASE: http://localhost:3003
     container_name: gdt-frontend
     ports:
       - "3001:3001"
     depends_on:
       - backend
     restart: unless-stopped
-
-  o11y-backend:
-    build:
-      context: ./o11y/backend
-      dockerfile: Dockerfile
-    container_name: gdt-o11y-backend
-    ports:
-      - "3003:3003"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://o11y:o11y@postgres:5432/o11y
-      - REDIS_URL=redis://redis:6379/0
-      - CORS_ORIGINS=["http://localhost:3000","http://localhost:3001","http://localhost:3004"]
-      - DEBUG=false
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
-  o11y-frontend:
-    build:
-      context: ./o11y/frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_O11Y_API_BASE: http://localhost:3003
-    container_name: gdt-o11y-frontend
-    ports:
-      - "3004:3004"
-    depends_on:
-      - o11y-backend
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
