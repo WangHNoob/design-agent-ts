@@ -1,7 +1,7 @@
 import { StateGraph, Annotation, START, END, type MemorySaver } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { BaseMessage, AIMessage as AIMessageType } from "@langchain/core/messages";
-import { SystemMessage, AIMessage, AIMessageChunk } from "@langchain/core/messages";
+import { SystemMessage, HumanMessage, AIMessage, AIMessageChunk } from "@langchain/core/messages";
 import type { AgentPort } from "../../port/agent/AgentPort.js";
 import type { AgentDescriptor } from "../../port/agent/AgentDescriptor.js";
 import type { AgentResponse } from "../../port/agent/AgentResponse.js";
@@ -80,18 +80,22 @@ export class LangGraphAgentAdapter implements AgentPort {
         }
       }
 
-      // Aggregate partial tool call chunks
+      // Aggregate partial tool call chunks.
+      // Use `index` as the grouping key because only the first chunk carries
+      // the real id/name — subsequent chunks have empty strings for those
+      // fields but share the same index. Using `id` directly would create
+      // separate entries ("" is not nullish for `??`), losing the args.
       const tcChunks = (chunk as unknown as { tool_call_chunks?: Array<{ id?: string; name?: string; args?: string; index?: number }> }).tool_call_chunks;
       if (tcChunks) {
         for (const tc of tcChunks) {
-          const id = tc.id ?? `_tc_${tc.index ?? toolCallMap.size}`;
-          if (toolCallMap.has(id)) {
-            const existing = toolCallMap.get(id)!;
+          const key = `tc_${tc.index ?? toolCallMap.size}`;
+          if (toolCallMap.has(key)) {
+            const existing = toolCallMap.get(key)!;
             if (tc.args) existing.args += tc.args;
             if (tc.name && !existing.name) existing.name = tc.name;
             if (tc.id && !existing.id) existing.id = tc.id;
           } else {
-            toolCallMap.set(id, { id: tc.id ?? "", name: tc.name ?? "", args: tc.args ?? "" });
+            toolCallMap.set(key, { id: tc.id ?? "", name: tc.name ?? "", args: tc.args ?? "" });
           }
         }
       }
@@ -170,16 +174,18 @@ export class LangGraphAgentAdapter implements AgentPort {
 
         const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
 
-        // Inline iteration-budget injection (remaining iterations <= 3)
+        // Inline iteration-budget injection (remaining iterations <= 3).
+        // Use HumanMessage instead of SystemMessage because Anthropic only
+        // allows system messages as the first message in the conversation.
         const remaining = descriptor.maxIterations - state.iteration;
         const injectedMessages = [...effectiveMessages];
         if (remaining === 1) {
           injectedMessages.push(
-            new SystemMessage({ content: "【系统提示】这是最后一次推理机会。你必须立即输出完整的文本结果，禁止发起任何工具调用。" })
+            new HumanMessage({ content: "【系统提示】这是最后一次推理机会。你必须立即输出完整的文本结果，禁止发起任何工具调用。" })
           );
         } else if (remaining <= 3 && remaining > 0) {
           injectedMessages.push(
-            new SystemMessage({ content: `【系统提示】剩余推理次数: ${remaining}。请尽快总结并输出最终设计内容，不要再调用工具。` })
+            new HumanMessage({ content: `【系统提示】剩余推理次数: ${remaining}。请尽快总结并输出最终设计内容，不要再调用工具。` })
           );
         }
 
@@ -259,7 +265,9 @@ export class LangGraphAgentAdapter implements AgentPort {
       console.warn(`[LangGraphAgentAdapter:${descriptor.name}] Iteration budget exhausted with pending tool calls. Forcing final text output.`);
       const rawModel = this.model as { stream(msgs: BaseMessage[]): AsyncIterable<AIMessageChunk> };
       const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
-      const finalInstruction = new SystemMessage({
+      // Use HumanMessage for the final instruction because Anthropic only
+      // allows system messages as the first message in the conversation.
+      const finalInstruction = new HumanMessage({
         content: "【系统提示】迭代预算已耗尽，之前规划但尚未执行的工具调用已被取消。请基于你当前已掌握的所有信息，直接输出完整、连贯的最终设计文档。禁止再发起任何工具调用。",
       });
       const response = await this.aggregateStream(
