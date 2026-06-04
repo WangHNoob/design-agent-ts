@@ -75,4 +75,23 @@ describe("WorkspaceManager", () => {
     const files = await ws.listTaskFiles("sid-1", "TASK-002");
     expect(files).toEqual(["output.md"]);
   });
+
+  it("listTaskFilesByPath lists files under a task directory path", async () => {
+    const fs = new FakeFS();
+    const ws = new WorkspaceManager("workspace", fs as any);
+    await ws.initialize("sid-1");
+    ws.registerTaskDir("sid-1", "TASK-001", "玩法设计");
+    await ws.writeTaskOutput("sid-1", "TASK-001", "output.md", "# 玩法设计\n");
+    const files = await ws.listTaskFilesByPath("sid-1", "TASK-001_玩法设计");
+    expect(files).toEqual(["output.md"]);
+  });
+
+  it("resolveTaskDirName returns the mapped directory name for a task", async () => {
+    const fs = new FakeFS();
+    const ws = new WorkspaceManager("workspace", fs as any);
+    await ws.initialize("sid-1");
+    ws.registerTaskDir("sid-1", "TASK-001", "玩法设计");
+    const dirName = ws.resolveTaskDirName("sid-1", "TASK-001");
+    expect(dirName).toBe("TASK-001_玩法设计");
+  });
 });
