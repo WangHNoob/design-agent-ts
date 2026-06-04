@@ -14,4 +14,6 @@ export interface SkillPort {
   getWorkflowTasks(): readonly WorkflowTask[];
   /** Keywords used for matching user requirements (workflow skills only). */
   getKeywords(): readonly string[];
+  /** Full content of the skill file (SKILL.md markdown body). */
+  getContent(): string;
 }

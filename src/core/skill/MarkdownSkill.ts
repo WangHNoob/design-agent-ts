@@ -107,4 +107,8 @@ export class MarkdownSkill implements SkillPort {
   getKeywords(): readonly string[] {
     return [];
   }
+
+  getContent(): string {
+    return this.content;
+  }
 }
