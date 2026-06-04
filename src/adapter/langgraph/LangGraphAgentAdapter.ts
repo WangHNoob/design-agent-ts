@@ -159,7 +159,19 @@ export class LangGraphAgentAdapter implements AgentPort {
       return result;
     };
 
+    const forceFinalOutput = async (state: typeof AgentState.State) => {
+      console.warn(`[LangGraphAgentAdapter:${descriptor.name}] Iteration budget exhausted with pending tool calls. Forcing final text output.`);
+      const rawModel = this.model as { invoke(msgs: BaseMessage[]): Promise<BaseMessage> };
+      const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
+      const finalInstruction = new SystemMessage({
+        content: "【系统提示】迭代预算已耗尽，之前规划但尚未执行的工具调用已被取消。请基于你当前已掌握的所有信息，直接输出完整、连贯的最终设计文档。禁止再发起任何工具调用。",
+      });
+      const response = await rawModel.invoke([systemMsg, ...state.messages, finalInstruction]);
+      return { messages: [response], iteration: state.iteration };
+    };
+
     const shouldContinue = (state: typeof AgentState.State) => {
+      const lastMessage = state.messages.at(-1) as AIMessageType | undefined;
       if (state.iteration >= descriptor.maxIterations) {
         runHooks("on_iteration_budget", HookContext.create({
           agentName: descriptor.name,
@@ -167,9 +179,11 @@ export class LangGraphAgentAdapter implements AgentPort {
           iteration: state.iteration,
           maxIterations: descriptor.maxIterations,
         })).catch(() => {});
+        if (lastMessage?.tool_calls?.length) {
+          return "forceFinalOutput";
+        }
         return END;
       }
-      const lastMessage = state.messages.at(-1) as AIMessageType | undefined;
       if (lastMessage?.tool_calls?.length) {
         return "tools";
       }
@@ -179,9 +193,11 @@ export class LangGraphAgentAdapter implements AgentPort {
     const builder = new StateGraph(AgentState)
       .addNode("llmCall", llmCall)
       .addNode("tools", wrappedToolNode)
+      .addNode("forceFinalOutput", forceFinalOutput)
       .addEdge(START, "llmCall")
-      .addConditionalEdges("llmCall", shouldContinue, ["tools", END])
-      .addEdge("tools", "llmCall");
+      .addConditionalEdges("llmCall", shouldContinue, ["tools", "forceFinalOutput", END])
+      .addEdge("tools", "llmCall")
+      .addEdge("forceFinalOutput", END);
 
     return builder.compile({ checkpointer: this.checkpointer });
   }
@@ -204,7 +220,7 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
 
       const lgMessages = this.messageMapper.toLangGraphList(messages);
-      const recursionLimit = this.descriptor.maxIterations * 2 + 2;
+      const recursionLimit = this.descriptor.maxIterations * 2 + 4;
       const config = { configurable: { thread_id: sessionId }, recursionLimit };
 
       const compiled = this.compiledGraph as { invoke(state: unknown, config: unknown): Promise<{ messages: BaseMessage[] }> };
@@ -300,7 +316,7 @@ export class LangGraphAgentAdapter implements AgentPort {
     }
 
     const lgMessages = this.messageMapper.toLangGraphList(messages);
-    const recursionLimit = this.descriptor.maxIterations * 2 + 2;
+    const recursionLimit = this.descriptor.maxIterations * 2 + 4;
     const config = { configurable: { thread_id: sessionId }, streamMode: "updates" as const, recursionLimit };
 
     const compiled = this.compiledGraph as {
