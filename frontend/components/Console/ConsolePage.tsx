@@ -323,13 +323,13 @@ export default function ConsolePage({ mode }: Props) {
         />
 
         {/* Center: Chat Area */}
-        <div className="flex-1 flex flex-col min-w-0 bg-paper">
+        <div className="w-[576px] flex flex-col min-w-0 bg-paper border-r border-ink/8">
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex-1 overflow-y-auto px-4 py-4">
             {messages.length === 0 ? (
               <WelcomeScreen mode={mode} role={effectiveRole} onExampleClick={(text) => setRequirement(text)} />
             ) : (
-              <div className="space-y-4 max-w-3xl mx-auto">
+              <div className="space-y-4">
                 {messages.map((msg) => (
                   <ChatBubble key={msg.id} msg={msg} />
                 ))}
@@ -363,8 +363,8 @@ export default function ConsolePage({ mode }: Props) {
           </div>
 
           {/* Input */}
-          <div className="shrink-0 border-t border-ink/6 px-6 py-3">
-            <div className="max-w-3xl mx-auto">
+          <div className="shrink-0 border-t border-ink/6 px-4 py-3">
+            <div className="max-w-none mx-0">
               <div className="rounded-xl border border-ink/8 bg-white shadow-sm">
                 <textarea
                   value={requirement}

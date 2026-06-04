@@ -54,28 +54,28 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
   }, [search, sessions]);
 
   return (
-    <aside className="h-full flex flex-col bg-white border-r border-ink/8 shadow-sm w-72 shrink-0">
+    <aside className="h-full flex flex-col bg-white border-r border-ink/8 shadow-sm w-64 shrink-0">
       {/* Header */}
       <div className="px-3 py-3 border-b border-ink/8 shrink-0">
         <div className="flex items-center gap-2 mb-2">
           <MessageSquare size={14} className="text-coral" />
-          <span className="text-[11px] font-semibold tracking-widest uppercase text-ink/50">
+          <span className="text-xs font-semibold tracking-widest uppercase text-ink/80">
             会话列表
           </span>
-          <span className="ml-auto text-[10px] text-ink/30">{sessions.length} 个</span>
+          <span className="ml-auto text-xs text-ink/60">{sessions.length} 个</span>
         </div>
         <div className="relative mb-2">
-          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink/30" />
+          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-ink/60" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索会话…"
-            className="w-full bg-paper/50 border border-ink/8 rounded-lg pl-7 pr-2 py-1.5 text-[12px] text-ink placeholder:text-ink/25 focus:outline-none focus:border-coral/40 focus:ring-1 focus:ring-coral/10 transition-all"
+            className="w-full bg-paper/50 border border-ink/8 rounded-lg pl-7 pr-2 py-1.5 text-sm text-ink placeholder:text-ink/50 focus:outline-none focus:border-coral/40 focus:ring-1 focus:ring-coral/10 transition-all"
           />
         </div>
         <button
           onClick={onNew}
-          className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-coral/10 text-coral py-1.5 text-[11px] font-medium hover:bg-coral/20 transition-colors"
+          className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-coral/10 text-coral py-1.5 text-xs font-medium hover:bg-coral/20 transition-colors"
         >
           <Plus size={12} />
           新建对话
@@ -85,11 +85,11 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
       {/* List */}
       <nav ref={scrollRef} className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="px-3 py-6 text-center text-[12px] text-ink/40 animate-pulse">
+          <div className="px-3 py-6 text-center text-sm text-ink/70 animate-pulse">
             加载中…
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-3 py-6 text-center text-[12px] text-ink/40">
+          <div className="px-3 py-6 text-center text-sm text-ink/70">
             {search ? '无匹配会话' : '暂无会话'}
           </div>
         ) : (
@@ -103,11 +103,11 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
                   className={`w-full text-left rounded-xl border px-3 py-2.5 transition-all duration-150 group/item ${
                     active
                       ? 'border-coral/30 bg-coral/5 shadow-sm'
-                      : 'border-transparent hover:bg-paper/50 text-ink/60 hover:text-ink'
+                      : 'border-transparent hover:bg-paper/50 text-ink/80 hover:text-ink'
                   }`}
                 >
                   <div className="flex items-center gap-1">
-                    <div className="text-[12px] leading-tight truncate flex-1 font-medium">
+                    <div className="text-sm leading-tight truncate flex-1 font-medium">
                       {s.requirement.slice(0, 36)}
                       {s.requirement.length > 36 ? '…' : ''}
                     </div>
@@ -116,7 +116,7 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
                       tabIndex={0}
                       onClick={(e) => handleDelete(e, s.id)}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleDelete(e as any, s.id); }}
-                      className="shrink-0 opacity-0 group-hover/item:opacity-100 text-ink/20 hover:text-coral transition-all cursor-pointer"
+                      className="shrink-0 opacity-0 group-hover/item:opacity-100 text-ink/40 hover:text-coral transition-all cursor-pointer"
                       title="删除会话"
                     >
                       {deleting === s.id ? (
@@ -126,14 +126,14 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
                       )}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-ink/30 mt-1">
+                  <div className="flex items-center gap-2 text-xs text-ink/60 mt-1">
                     <Clock size={10} />
                     <span>{formatTime(s.updatedAt)}</span>
-                    <span className={`px-1.5 py-0 rounded-full text-[9px] font-medium ${
+                    <span className={`px-1.5 py-0 rounded-full text-xs font-medium ${
                       s.status === 'completed' ? 'bg-emerald-100 text-emerald-600' :
                       s.status === 'failed' ? 'bg-red-100 text-red-600' :
                       s.status === 'running' ? 'bg-amber-100 text-amber-600' :
-                      'bg-ink/5 text-ink/40'
+                      'bg-ink/5 text-ink/70'
                     }`}>
                       {s.status === 'completed' ? '完成' :
                        s.status === 'failed' ? '失败' :
