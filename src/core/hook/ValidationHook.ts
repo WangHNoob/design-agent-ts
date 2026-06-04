@@ -11,7 +11,11 @@ export class ValidationHook implements AgentHook {
       const issues: string[] = [];
 
       // 1. Detect empty or blank agent output
-      const result = context.toolResult ?? "";
+      // For post_reasoning, the LLM response is in the last message, not in toolResult.
+      const lastMsg = context.messages?.at(-1);
+      const result = context.toolResult
+        ?? (lastMsg ? ChatMessage.textContent(lastMsg) : "")
+        ?? "";
       if (!result || result.trim().length === 0) {
         issues.push("Output content is empty");
       }

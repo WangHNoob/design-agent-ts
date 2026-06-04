@@ -1,25 +1,33 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@langchain/openai", () => ({
-  ChatOpenAI: vi.fn().mockImplementation(() => ({
-    modelName: "gpt-4o",
-    invoke: vi.fn().mockResolvedValue({
-      content: "Hello",
+  ChatOpenAI: vi.fn().mockImplementation(() => {
+    const mockResponse = {
+      content: "Response",
       _getType: () => "ai",
       additional_kwargs: {},
-      usage_metadata: { input_tokens: 10, output_tokens: 5 },
-      response_metadata: { finish_reason: "stop" },
-    }),
-    stream: vi.fn(),
-    bindTools: vi.fn().mockReturnValue({
+      tool_calls: undefined,
+      concat(other: unknown) { return this; },
+    };
+    const mockStream = async function* () {
+      yield mockResponse;
+    };
+    return {
+      modelName: "gpt-4o",
       invoke: vi.fn().mockResolvedValue({
-        content: "Response",
+        content: "Hello",
         _getType: () => "ai",
         additional_kwargs: {},
-        tool_calls: undefined,
+        usage_metadata: { input_tokens: 10, output_tokens: 5 },
+        response_metadata: { finish_reason: "stop" },
       }),
-    }),
-  })),
+      stream: vi.fn().mockReturnValue(mockStream()),
+      bindTools: vi.fn().mockReturnValue({
+        invoke: vi.fn().mockResolvedValue(mockResponse),
+        stream: vi.fn().mockReturnValue(mockStream()),
+      }),
+    };
+  }),
 }));
 
 import { ChatOpenAI } from "@langchain/openai";

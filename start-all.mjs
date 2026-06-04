@@ -8,7 +8,8 @@
  * - 彩色前缀区分前后端日志，Ctrl+C 一次性优雅退出
  *
  * 用法：
- *   node start-all.mjs
+ *   node start-all.mjs            # 直接启动（需先手动 pnpm run build）
+ *   node start-all.mjs --build    # 自动编译后再启动
  *
  * 前置条件：
  *   1. 根目录已执行 `pnpm run build`（生成 dist/server/main.js）
@@ -157,6 +158,23 @@ async function waitForHealth(port, maxRetries = 30) {
     await new Promise((r) => setTimeout(r, 500));
   }
   return false;
+}
+
+// ========== --build 参数支持 ==========
+
+const shouldBuild = process.argv.includes("--build");
+if (shouldBuild) {
+  console.log("⚙️  检测到 --build 参数，正在重新编译 TypeScript...\n");
+  const buildResult = spawnSync("pnpm", ["run", "build"], {
+    shell: true,
+    stdio: "inherit",
+    cwd: process.cwd(),
+  });
+  if (buildResult.status !== 0) {
+    console.error("\n❌ 编译失败，请修复上方错误后重试。");
+    process.exit(1);
+  }
+  console.log("\n✅ 编译完成\n");
 }
 
 // ========== 前置检查 ==========

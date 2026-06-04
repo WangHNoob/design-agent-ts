@@ -57,7 +57,20 @@ export class LangGraphMessageMapper {
   fromLangGraph(msg: BaseMessage): ChatMessage {
     const content: ContentBlock[] = [];
 
-    const text = typeof msg.content === "string" ? msg.content : "";
+    // Handle both string content (OpenAI-style) and array content (Anthropic-style)
+    let text = "";
+    if (typeof msg.content === "string") {
+      text = msg.content;
+    } else if (Array.isArray(msg.content)) {
+      // Anthropic Claude may return content as an array of blocks,
+      // e.g. [{ type: "text", text: "..." }, { type: "thinking", thinking: "..." }]
+      text = msg.content
+        .filter((block: unknown): block is { type: string; text?: string } =>
+          typeof block === "object" && block !== null && (block as Record<string, unknown>).type === "text"
+        )
+        .map((block) => block.text ?? "")
+        .join("");
+    }
     if (text) {
       content.push({ type: "text", text });
     }
