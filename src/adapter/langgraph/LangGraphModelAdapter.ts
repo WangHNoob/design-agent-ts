@@ -20,18 +20,21 @@ export class LangGraphModelAdapter implements ChatModelPort {
   }
 
   private buildModel(config: ModelConfig): ChatOpenAI | ChatAnthropic {
+    const maxTokens = config.maxTokens;
     switch (config.provider) {
       case "openai":
       case "openai-compatible":
         return new ChatOpenAI({
           model: config.modelName,
           apiKey: config.apiKey,
+          maxTokens,
           configuration: config.baseUrl ? { baseURL: config.baseUrl } : undefined,
         });
       case "anthropic":
         return new ChatAnthropic({
           model: config.modelName,
           apiKey: config.apiKey,
+          maxTokens,
           anthropicApiUrl: config.baseUrl,
         });
     }

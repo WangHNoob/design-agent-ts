@@ -92,9 +92,13 @@ export class LangGraphAgentAdapter implements AgentPort {
           );
         }
 
+        console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke with maxTokens=${descriptor.maxTokens ?? "undefined"}`);
         const response = await (modelWithTools as {
           invoke(msgs: BaseMessage[], options?: Record<string, unknown>): Promise<BaseMessage>;
         }).invoke([systemMsg, ...injectedMessages], descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : undefined);
+
+        const finishReason = (response as { response_metadata?: { finish_reason?: string } }).response_metadata?.finish_reason;
+        console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM response finish_reason=${finishReason ?? "unknown"}, contentLength=${typeof response.content === "string" ? response.content.length : JSON.stringify(response.content).length}`);
 
         const postCtx = await runHooks("post_reasoning", HookContext.create({
           agentName: descriptor.name,
@@ -220,6 +224,9 @@ export class LangGraphAgentAdapter implements AgentPort {
       if (!lastMessage && result.messages.length > 0) {
         lastMessage = result.messages.at(-1);
       }
+
+      const finalFinishReason = (lastMessage as { response_metadata?: { finish_reason?: string } }).response_metadata?.finish_reason;
+      console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] Final finish_reason=${finalFinishReason ?? "unknown"}`);
 
       let responseMessage = lastMessage
         ? this.messageMapper.fromLangGraph(lastMessage)

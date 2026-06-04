@@ -48,7 +48,7 @@ export function loadConfig(): FrameworkConfig {
       webSourceResultLimit: Number(process.env.WEB_SOURCE_RESULT_LIMIT ?? 5),
       sessionListLimit: Number(process.env.SESSION_LIST_LIMIT ?? 100),
       hitlMaxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS ?? 5),
-      modelMaxTokens: Number(process.env.MODEL_MAX_TOKENS ?? 65536),
+      modelMaxTokens: Number(process.env.MODEL_MAX_TOKENS) || 65536,
     },
   };
 }
