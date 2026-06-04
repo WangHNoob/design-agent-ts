@@ -451,6 +451,25 @@ export class DirectorAgent {
     );
   }
 
+  /**
+   * Background event drain generator: yields accumulated EventBus events
+   * every 200ms until the `done` flag is set. Designed to run concurrently
+   * with blocking agent execution via Promise.all, so the SSE client
+   * receives real-time progress events instead of a post-execution dump.
+   */
+  private async *concurrentDrain(eventBus: EventBus, done: { value: boolean }): AsyncGenerator<StreamEvent> {
+    while (!done.value) {
+      await new Promise((r) => setTimeout(r, 200));
+      for (const event of eventBus.drain()) {
+        yield event;
+      }
+    }
+    // Final drain to catch any events emitted in the last interval
+    for (const event of eventBus.drain()) {
+      yield event;
+    }
+  }
+
   private async executeQueryFlow(
     requirement: string,
     sessionId: string,
@@ -511,10 +530,17 @@ export class DirectorAgent {
 
       let finalOutput = "";
 
-      // Use process() instead of processStream() to collect intermediate events
-      const response = await agent.process(sessionId, messages);
+      // Run agent.process() with concurrent event drain so SSE clients
+      // receive thinking/tool events in real-time instead of after completion.
+      const done = { value: false };
+      const processPromise = agent.process(sessionId, messages).finally(() => { done.value = true; });
 
-      // Drain all intermediate events accumulated during execution
+      for await (const event of this.concurrentDrain(eventBus, done)) {
+        yield event;
+      }
+      const response = await processPromise;
+
+      // Final drain for any events emitted between the last check and completion
       for (const event of eventBus.drain()) {
         yield event;
       }
@@ -616,7 +642,9 @@ export class DirectorAgent {
       for (const task of mergedPlan.subTasks) {
         yield { type: "task_start", data: { taskId: task.id, domain: task.domain, description: task.description } };
 
-        const result = await this.executeSingleTaskWithHooks(
+        // Run task with concurrent event drain for real-time SSE progress
+        const done = { value: false };
+        const taskPromise = this.executeSingleTaskWithHooks(
           {
             taskId: task.id,
             domain: task.domain,
@@ -627,9 +655,14 @@ export class DirectorAgent {
           sessionId,
           undefined,
           streamEmitterHook
-        );
+        ).finally(() => { done.value = true; });
 
-        // Drain intermediate events accumulated during task execution
+        for await (const event of this.concurrentDrain(eventBus, done)) {
+          yield event;
+        }
+        const result = await taskPromise;
+
+        // Final drain for events emitted between the last check and completion
         for (const event of eventBus.drain()) {
           yield event;
         }
@@ -764,7 +797,8 @@ export class DirectorAgent {
         data: { taskId: "single", domain: role, description: assignment },
       };
 
-      const result = await this.executeSingleTaskWithHooks(
+      const done = { value: false };
+      const taskPromise = this.executeSingleTaskWithHooks(
         {
           taskId: "single",
           domain: singleDomain,
@@ -775,8 +809,14 @@ export class DirectorAgent {
         sessionId,
         undefined,
         streamEmitterHook
-      );
+      ).finally(() => { done.value = true; });
 
+      for await (const event of this.concurrentDrain(eventBus, done)) {
+        yield event;
+      }
+      const result = await taskPromise;
+
+      // Final drain for events emitted between the last check and completion
       for (const event of eventBus.drain()) {
         yield event;
       }
