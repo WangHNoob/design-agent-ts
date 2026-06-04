@@ -590,6 +590,12 @@ export class DirectorAgent {
         })
         .filter((a): a is TaskAssignment => a !== null);
 
+      if (this.deps.workspace) {
+        for (const assignment of assignments) {
+          this.deps.workspace.registerTaskDir(sessionId, assignment.taskId, assignment.domain);
+        }
+      }
+
       const mergedPlan = {
         planId: plan.planId,
         requirement,
