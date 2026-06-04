@@ -1,5 +1,5 @@
 ---
-name: "executive_planning"
+name: "executive-planning"
 description: "执行策划技能 - 指导 ExecutivePlannerAgent 完成开发计划、资源排期与交付管理"
 ---
 

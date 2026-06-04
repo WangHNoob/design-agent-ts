@@ -92,7 +92,9 @@ export class LangGraphAgentAdapter implements AgentPort {
           );
         }
 
-        const response = await (modelWithTools as { invoke(msgs: BaseMessage[]): Promise<BaseMessage> }).invoke([systemMsg, ...injectedMessages]);
+        const response = await (modelWithTools as {
+          invoke(msgs: BaseMessage[], options?: Record<string, unknown>): Promise<BaseMessage>;
+        }).invoke([systemMsg, ...injectedMessages], descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : undefined);
 
         const postCtx = await runHooks("post_reasoning", HookContext.create({
           agentName: descriptor.name,

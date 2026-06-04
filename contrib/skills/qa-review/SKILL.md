@@ -1,5 +1,5 @@
 ---
-name: "qa_review"
+name: "qa-review"
 description: "QA 审阅技能 - 指导 QAPlannerAgent 完成策划方案的质量审阅"
 ---
 

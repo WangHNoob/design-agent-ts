@@ -1,5 +1,5 @@
 ---
-name: "numerical_planning"
+name: "numerical-planning"
 description: "数值规划技能 - 指导 NumericalPlannerAgent 完成游戏数值体系设计"
 ---
 
