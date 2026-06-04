@@ -160,6 +160,10 @@ export class DirectorAgent {
     role: string,
     traceId?: string
   ): Promise<AgentResponse> {
+    if (role !== "chief_designer") {
+      return this.executeSingleRoleFlow(requirement, sessionId, role, traceId);
+    }
+
     if (this.deps.workspace) {
       await this.deps.workspace.initialize(sessionId);
     }
@@ -525,6 +529,11 @@ export class DirectorAgent {
   }
 
   private async *executeDesignStream(requirement: string, sessionId: string, role: string): AsyncIterable<StreamEvent> {
+    if (role !== "chief_designer") {
+      yield* this.executeSingleRoleStream(requirement, sessionId, role);
+      return;
+    }
+
     yield { type: "start", data: { sessionId, mode: "design", role } };
 
     // Create EventBus and StreamEmitterHook for fine-grained events
@@ -627,6 +636,142 @@ export class DirectorAgent {
       const output = finalReviewed.modifications ?? finalOutput;
       yield { type: "complete", data: { success: true, output } };
     } catch (err) {
+      yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  private async executeSingleRoleFlow(
+    requirement: string,
+    sessionId: string,
+    role: string,
+    traceId?: string
+  ): Promise<AgentResponse> {
+    const { RoleAgentMap, parseRole } = await import("../../schema/Role.js");
+    const typedRole = parseRole(role);
+    const agentName = RoleAgentMap[typedRole];
+    const descriptor = getSubAgentDescriptor(agentName);
+
+    if (!descriptor) {
+      return {
+        agentName: "Director",
+        message: ChatMessage.text("assistant", "Director", `未找到角色 ${role} 对应的 Agent`),
+        metadata: {},
+        success: false,
+        errorMessage: `No agent descriptor found for role: ${role}`,
+      };
+    }
+
+    if (this.deps.workspace) {
+      await this.deps.workspace.initialize(sessionId);
+    }
+
+    const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+    const assignment = skill
+      ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
+      : requirement;
+
+    const result = await this.executeSingleTask(
+      {
+        taskId: "single",
+        domain: "system_design",
+        assignment,
+        agentDescriptor: descriptor,
+        dependencies: [],
+      },
+      sessionId,
+      traceId
+    );
+
+    return {
+      agentName: descriptor.name,
+      message: ChatMessage.text("assistant", descriptor.name, result.output),
+      metadata: {},
+      success: result.status === "success",
+      errorMessage: result.errorMessage,
+    };
+  }
+
+  private async *executeSingleRoleStream(
+    requirement: string,
+    sessionId: string,
+    role: string
+  ): AsyncIterable<StreamEvent> {
+    yield { type: "start", data: { sessionId, mode: "design", role } };
+
+    const eventBus = new EventBus();
+    const streamEmitterHook = new StreamEmitterHook(eventBus, {
+      grepLimit: this.deps.limits?.grepSearchResultLimit,
+      webSourceLimit: this.deps.limits?.webSourceResultLimit,
+    });
+
+    try {
+      if (this.deps.workspace) {
+        await this.deps.workspace.initialize(sessionId);
+      }
+
+      const { RoleAgentMap, parseRole } = await import("../../schema/Role.js");
+      const typedRole = parseRole(role);
+      const agentName = RoleAgentMap[typedRole];
+      const descriptor = getSubAgentDescriptor(agentName);
+
+      if (!descriptor) {
+        yield { type: "error", data: { error: `未找到角色 ${role} 对应的 Agent` } };
+        return;
+      }
+
+      yield { type: "plan", data: { message: `直接执行 ${descriptor.name} 任务` } };
+      yield { type: "route", data: { message: `分配给 ${descriptor.name}` } };
+
+      const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+      const assignment = skill
+        ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
+        : requirement;
+
+      const domainMap: Record<string, import("../../schema/TaskPlan.js").Domain> = {
+        system_designer: "system_design",
+        combat_designer: "combat_design",
+        numerical_planner: "numerical_planning",
+        gameplay_designer: "gameplay_design",
+        executive_planner: "executive_planning",
+        qa_planner: "qa",
+        chief_designer: "system_design",
+      };
+      const singleDomain = domainMap[role] ?? "system_design";
+
+      yield {
+        type: "task_start",
+        data: { taskId: "single", domain: role, description: assignment },
+      };
+
+      const result = await this.executeSingleTaskWithHooks(
+        {
+          taskId: "single",
+          domain: singleDomain,
+          assignment,
+          agentDescriptor: descriptor,
+          dependencies: [],
+        },
+        sessionId,
+        undefined,
+        streamEmitterHook
+      );
+
+      for (const event of eventBus.drain()) {
+        yield event;
+      }
+
+      yield { type: "task_complete", data: { taskId: "single", status: result.status } };
+
+      if (result.status !== "success") {
+        yield { type: "error", data: { error: result.errorMessage ?? "执行失败" } };
+        return;
+      }
+
+      yield { type: "complete", data: { success: true, output: result.output } };
+    } catch (err) {
+      for (const event of eventBus.drain()) {
+        yield event;
+      }
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
   }

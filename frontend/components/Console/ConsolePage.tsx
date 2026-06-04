@@ -51,7 +51,9 @@ export default function ConsolePage({ mode }: Props) {
   }, []);
 
   // Local ephemeral state
-  const [role, setRole] = useState('chief_designer');
+  const [pendingRole, setPendingRole] = useState('chief_designer');
+  const effectiveRole = task?.role ?? pendingRole;
+  const roleLocked = !!task && (task.messages.length > 0);
   const [requirement, setRequirement] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [useStream, setUseStream] = useState(true);
@@ -128,7 +130,7 @@ export default function ConsolePage({ mode }: Props) {
     if (!requirement.trim()) return;
     if (task?.loading) return;
 
-    const sid = store.createTask(mode, role, requirement.trim());
+    const sid = store.createTask(mode, effectiveRole, requirement.trim());
     store.setActiveSession(mode, sid);
     resetTaskTracking(sid);
 
@@ -160,7 +162,7 @@ export default function ConsolePage({ mode }: Props) {
 
     if (useStream) {
       const stream = executeDesignStream(
-        { requirement: reqText, mode, role, sessionId: sid, history },
+        { requirement: reqText, mode, role: effectiveRole, sessionId: sid, history },
         (event, data) => onStreamEvent(sid, event, data),
         (err) => {
           if (!mountedRef.current) return;
@@ -190,7 +192,7 @@ export default function ConsolePage({ mode }: Props) {
     } else {
       try {
         const { executeDesign } = await import('@/lib/api');
-        const res = await executeDesign({ requirement: reqText, mode, role, sessionId: sid, history });
+        const res = await executeDesign({ requirement: reqText, mode, role: effectiveRole, sessionId: sid, history });
         if (mountedRef.current) {
           if (res.success && res.output) {
             store.appendMessage(sid, {
@@ -300,8 +302,9 @@ export default function ConsolePage({ mode }: Props) {
       <Header
         mode={mode}
         onModeChange={(newMode) => router.push(`/${newMode}`)}
-        role={role}
-        onRoleChange={setRole}
+        role={effectiveRole}
+        onRoleChange={setPendingRole}
+        roleLocked={roleLocked}
         status={status}
         statusText={statusText}
         onNewChat={handleNewChat}
@@ -324,7 +327,7 @@ export default function ConsolePage({ mode }: Props) {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             {messages.length === 0 ? (
-              <WelcomeScreen mode={mode} role={role} onExampleClick={(text) => setRequirement(text)} />
+              <WelcomeScreen mode={mode} role={effectiveRole} onExampleClick={(text) => setRequirement(text)} />
             ) : (
               <div className="space-y-4 max-w-3xl mx-auto">
                 {messages.map((msg) => (

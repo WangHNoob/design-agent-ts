@@ -8,6 +8,7 @@ interface Props {
   onModeChange: (mode: 'design' | 'query' | 'table') => void;
   role: string;
   onRoleChange: (role: string) => void;
+  roleLocked?: boolean;
   status: 'idle' | 'working' | 'waiting' | 'error';
   statusText: string;
   onNewChat: () => void;
@@ -37,6 +38,7 @@ export default function Header({
   onModeChange,
   role,
   onRoleChange,
+  roleLocked,
   status,
   statusText,
   onNewChat,
@@ -88,7 +90,11 @@ export default function Header({
         <select
           value={role}
           onChange={(e) => onRoleChange(e.target.value)}
-          className="bg-paper/50 border border-ink/6 rounded-md px-2 py-1 text-[11px] text-ink focus:outline-none focus:border-coral/40 cursor-pointer"
+          disabled={roleLocked}
+          className={`bg-paper/50 border border-ink/6 rounded-md px-2 py-1 text-[11px] text-ink focus:outline-none focus:border-coral/40 ${
+            roleLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+          }`}
+          title={roleLocked ? '会话已锁定角色' : '选择策划角色'}
         >
           {ROLES.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
