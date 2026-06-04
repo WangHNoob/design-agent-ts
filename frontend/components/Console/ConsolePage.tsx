@@ -323,7 +323,7 @@ export default function ConsolePage({ mode }: Props) {
         />
 
         {/* Center: Chat Area */}
-        <div className="w-[576px] flex flex-col min-w-0 bg-paper border-r border-ink/8">
+        <div className="w-[576px] shrink-0 flex flex-col min-w-0 bg-paper border-r border-ink/8">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-4">
             {messages.length === 0 ? (
