@@ -35,6 +35,42 @@ export default function ConsolePage({ mode }: Props) {
   const execTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingRafRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+
+  // Resizable panel ratio: dialog : monitor = 3 : 2
+  const [dialogFlex, setDialogFlex] = useState(3);
+  const [monitorFlex, setMonitorFlex] = useState(2);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const sidebarWidth = 256; // w-64
+      const availableWidth = rect.width - sidebarWidth;
+      const offsetX = e.clientX - rect.left - sidebarWidth;
+      const ratio = Math.min(Math.max(offsetX / availableWidth, 0.3), 0.7);
+      const total = 5;
+      const newDialogFlex = ratio * total;
+      setDialogFlex(newDialogFlex);
+      setMonitorFlex(total - newDialogFlex);
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   // Cleanup on unmount: cancel active stream and mark unmounted
   useEffect(() => {
@@ -313,7 +349,7 @@ export default function ConsolePage({ mode }: Props) {
         onOpenSettings={() => { setIsFirstTimeSetup(false); setShowSetupModal(true); }}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div ref={containerRef} className="flex-1 flex overflow-hidden">
         {/* Left: Session Sidebar */}
         <SessionSidebar
           selectedId={sessionId}
@@ -323,7 +359,7 @@ export default function ConsolePage({ mode }: Props) {
         />
 
         {/* Center: Chat Area */}
-        <div className="w-[576px] shrink-0 flex flex-col min-w-0 bg-paper border-r border-ink/8">
+        <div className="flex flex-col min-w-0 bg-paper border-r border-ink/8" style={{ flex: dialogFlex, minWidth: 380 }}>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-4">
             {messages.length === 0 ? (
@@ -421,18 +457,35 @@ export default function ConsolePage({ mode }: Props) {
           </div>
         </div>
 
+        {/* Resizable splitter */}
+        {rightPanelOpen && (
+          <div
+            className="w-2 shrink-0 cursor-col-resize bg-ink/5 hover:bg-coral/30 active:bg-coral/40 transition-colors flex items-center justify-center group"
+            onMouseDown={() => {
+              isDraggingRef.current = true;
+              document.body.style.cursor = 'col-resize';
+              document.body.style.userSelect = 'none';
+            }}
+            title="拖动调整宽度"
+          >
+            <div className="w-0.5 h-8 rounded-full bg-ink/20 group-hover:bg-coral/60 transition-colors" />
+          </div>
+        )}
+
         {/* Right: Monitor Panel */}
         {rightPanelOpen && (
-          <RightPanel
-            timeline={timeline}
-            logs={logs}
-            sessionId={sessionId}
-            messageCount={messageCount}
-            executionTime={executionTime}
-            onClearLogs={() => {
-              if (activeSessionId) store.updateTask(activeSessionId, { logs: [] });
-            }}
-          />
+          <div className="flex flex-col min-w-0" style={{ flex: monitorFlex, minWidth: 320 }}>
+            <RightPanel
+              timeline={timeline}
+              logs={logs}
+              sessionId={sessionId}
+              messageCount={messageCount}
+              executionTime={executionTime}
+              onClearLogs={() => {
+                if (activeSessionId) store.updateTask(activeSessionId, { logs: [] });
+              }}
+            />
+          </div>
         )}
       </div>
 
