@@ -24,7 +24,10 @@ export class Container {
   ) {
     switch (config.framework) {
       case "langgraph":
-        this.model = new LangGraphModelAdapter(config.model);
+        this.model = new LangGraphModelAdapter({
+          ...config.model,
+          maxTokens: config.limits.modelMaxTokens,
+        });
         this.agentFactory = new LangGraphAgentFactory(
           this.model as LangGraphModelAdapter
         );
