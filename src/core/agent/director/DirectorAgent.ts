@@ -682,16 +682,6 @@ export class DirectorAgent {
       traceId
     );
 
-    if (result.status === "success" && !result.output?.trim()) {
-      return {
-        agentName: descriptor.name,
-        message: ChatMessage.text("assistant", descriptor.name, "Agent 未返回任何输出内容。可能原因：迭代预算耗尽、工具调用未完成，或模型未产生文本。"),
-        metadata: {},
-        success: false,
-        errorMessage: "Empty agent output (iteration budget exhausted or no text produced)",
-      };
-    }
-
     return {
       agentName: descriptor.name,
       message: ChatMessage.text("assistant", descriptor.name, result.output),
@@ -774,11 +764,6 @@ export class DirectorAgent {
 
       if (result.status !== "success") {
         yield { type: "error", data: { error: result.errorMessage ?? "执行失败" } };
-        return;
-      }
-
-      if (!result.output?.trim()) {
-        yield { type: "error", data: { error: "Agent 未返回任何输出内容。可能原因：迭代预算耗尽、工具调用未完成，或模型未产生文本。" } };
         return;
       }
 
