@@ -56,6 +56,21 @@ const createMockHITL = (): HumanReviewGateway => ({
   getMaxRevisionRounds: vi.fn().mockReturnValue(3),
 });
 
+const createMockWorkspace = () => ({
+  initialize: vi.fn(),
+  registerTaskDir: vi.fn(),
+  writeTaskOutput: vi.fn(),
+  readTaskOutput: vi.fn(),
+  listTaskFiles: vi.fn(),
+  listTasks: vi.fn(),
+  listTaskFilesByPath: vi.fn(),
+  resolveTaskDirName: vi.fn((sid: string, taskId: string) => taskId),
+  writeFile: vi.fn(),
+  readFile: vi.fn(),
+  listFiles: vi.fn(),
+  readWorkspaceFile: vi.fn(),
+});
+
 describe("DirectorAgent", () => {
   it("query 模式应直接返回模型响应", async () => {
     const model = createMockModel();
@@ -82,6 +97,7 @@ describe("DirectorAgent", () => {
       skillRegistry: createMockSkillRegistry(),
       humanReviewGateway: createMockHITL(),
       hooks: [],
+      workspace: createMockWorkspace(),
     });
 
     const response = await director.execute("设计战斗系统", "sid-1", "design", "chief_designer");
@@ -98,6 +114,7 @@ describe("DirectorAgent", () => {
       skillRegistry: createMockSkillRegistry(),
       humanReviewGateway: createMockHITL(),
       hooks: [],
+      workspace: createMockWorkspace(),
     });
 
     const response = await director.execute("生成配表", "sid-1", "table", "chief_designer");
