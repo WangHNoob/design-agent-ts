@@ -181,10 +181,16 @@ sessionsRoute.get("/:id/files/zip", async (c) => {
 
 function sanitizeFilePath(input: string): string {
   return input
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .replace(/\.{2,}/g, "_")
-    .replace(/^\.+/, "")
-    .trim();
+    .split("/")
+    .map((segment) =>
+      segment
+        .replace(/[\\:*?"<>|]/g, "_")
+        .replace(/\.{2,}/g, "_")
+        .replace(/^\.+/, "")
+        .trim()
+    )
+    .filter((s) => s.length > 0)
+    .join("/");
 }
 
 function isWithinWorkspace(fullPath: string, workspaceRoot: string): boolean {
