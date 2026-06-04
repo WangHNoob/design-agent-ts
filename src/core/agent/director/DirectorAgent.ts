@@ -205,6 +205,12 @@ export class DirectorAgent {
       })
       .filter((a): a is TaskAssignment => a !== null);
 
+    if (this.deps.workspace) {
+      for (const assignment of assignments) {
+        this.deps.workspace.registerTaskDir(sessionId, assignment.taskId, assignment.domain);
+      }
+    }
+
     // Merge assignments back into plan subTasks so PlanPipeline can execute them
     const mergedPlan = {
       planId: plan.planId,
@@ -242,24 +248,24 @@ export class DirectorAgent {
 
     runtimeStatus(sessionId, traceId ?? "unknown", "AGENT", 60, `Executed ${results.length} sub-tasks`, null, null);
 
-    const reviewedResults = await this.deps.humanReviewGateway.requestReview(
-      sessionId, "hitl-2-agent-output", results
-    );
+    const completedCount = results.filter((r) => r.status === "success").length;
 
-    const integrateSpan = startSpan("Integrator.integrate", "INTEGRATOR", null);
-    const finalOutput = this.integrator.integrate(reviewedResults.modifications ?? results);
-    endSpan(integrateSpan, { outputLength: finalOutput.length });
+    const fileList = results
+      .filter((r) => r.status === "success")
+      .map((r) => {
+        const dirName = this.deps.workspace
+          ? this.deps.workspace.resolveTaskDirName(sessionId, r.taskId)
+          : r.taskId;
+        return `- ${dirName}/output.md`;
+      })
+      .join("\n");
 
-    runtimeStatus(sessionId, traceId ?? "unknown", "INTEGRATING", 80, "Integrating results", null, null);
-
-    const finalReviewed = await this.deps.humanReviewGateway.requestReview(
-      sessionId, "hitl-3-final", finalOutput
-    );
+    const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
 
     return {
       agentName: "Director",
-      message: ChatMessage.text("assistant", "Director", finalReviewed.modifications ?? finalOutput),
-      metadata: {},
+      message: ChatMessage.text("assistant", "Director", summary),
+      metadata: { fileCount: completedCount },
       success: true,
       errorMessage: null,
     };
@@ -626,23 +632,21 @@ export class DirectorAgent {
         yield { type: "task_complete", data: { taskId: task.id, status: result.status } };
       }
 
-      yield { type: "integrate", data: { message: "Integrating results..." } };
-      const reviewedResults = await this.deps.humanReviewGateway.requestReview(
-        sessionId, "hitl-2-agent-output", results
-      );
-      const finalOutput = this.integrator.integrate(reviewedResults.modifications ?? results);
+      const completedCount = results.filter((r) => r.status === "success").length;
+      const fileList = results
+        .filter((r) => r.status === "success")
+        .map((r) => {
+          const dirName = this.deps.workspace
+            ? this.deps.workspace.resolveTaskDirName(sessionId, r.taskId)
+            : r.taskId;
+          return `- ${dirName}/output.md`;
+        })
+        .join("\n");
 
-      // Drain any remaining events
-      for (const event of eventBus.drain()) {
-        yield event;
-      }
+      const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
 
-      const finalReviewed = await this.deps.humanReviewGateway.requestReview(
-        sessionId, "hitl-3-final", finalOutput
-      );
-
-      const output = finalReviewed.modifications ?? finalOutput;
-      yield { type: "complete", data: { success: true, output } };
+      yield { type: "integrate", data: { message: "汇总完成，产出已保存到工作空间" } };
+      yield { type: "complete", data: { success: true, output: summary } };
     } catch (err) {
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
