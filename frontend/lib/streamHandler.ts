@@ -24,9 +24,15 @@ function summarizeToolArgs(args: Record<string, unknown>): string {
   if (entries.length === 1) {
     const [key, value] = entries[0];
     const strValue = typeof value === 'string' ? value : JSON.stringify(value);
-    return strValue.length > 50 ? `${strValue.substring(0, 50)}...` : strValue;
+    return strValue.length > 120 ? `${strValue.substring(0, 120)}...` : strValue;
   }
-  return `${entries.length} 个参数`;
+  // Show key=value pairs for multi-param tools
+  const parts = entries.map(([key, value]) => {
+    const strValue = typeof value === 'string' ? value : JSON.stringify(value);
+    const truncated = strValue.length > 60 ? `${strValue.substring(0, 60)}...` : strValue;
+    return `${key}: ${truncated}`;
+  });
+  return parts.join(', ');
 }
 
 let activeTaskRef = new Map<string, string | null>();
@@ -76,12 +82,17 @@ export function handleStreamEvent(
 
     case 'plan': {
       store.updateTask(sessionId, { statusText: '任务规划中' });
+      const plan = d.plan as { subTasks?: Array<{ id: string; domain: string; description: string; dependencies: string[] }> } | undefined;
+      const planDetail = plan?.subTasks
+        ? `${d.message as string}\n${plan.subTasks.map(t => `  ${t.id} [${t.domain}] ${t.description.substring(0, 60)}${t.dependencies.length ? ` ← ${t.dependencies.join(',')}` : ''}`).join('\n')}`
+        : (d.message as string);
       store.appendTimeline(sessionId, {
         id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
         type: 'phase',
         title: `规划: ${d.message as string}`,
         status: 'completed',
+        detail: plan?.subTasks ? plan.subTasks.map(t => `${t.id} [${t.domain}]`).join(' → ') : undefined,
       });
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -89,18 +100,21 @@ export function handleStreamEvent(
         level: 'info',
         source: 'Director',
         message: d.message as string,
+        data: plan ? { plan } : undefined,
       });
       break;
     }
 
     case 'route': {
       store.updateTask(sessionId, { statusText: '路由分配中' });
+      const routing = d.routing as Array<{ fragmentId: string; domain: string; agentName: string }> | undefined;
       store.appendTimeline(sessionId, {
         id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
         type: 'phase',
         title: `路由: ${d.message as string}`,
         status: 'completed',
+        detail: routing ? routing.map(r => `${r.fragmentId}→${r.agentName}`).join(', ') : undefined,
       });
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -108,6 +122,7 @@ export function handleStreamEvent(
         level: 'info',
         source: 'Router',
         message: d.message as string,
+        data: routing ? { routing } : undefined,
       });
       break;
     }
@@ -258,8 +273,8 @@ export function handleStreamEvent(
         time: getCurrentTime(),
         level: success ? 'info' : 'error',
         source: toolName,
-        message: `工具调用${success ? '成功' : '失败'}`,
-        data: { summary },
+        message: `工具调用${success ? '成功' : '失败'}${durationMs ? ` (${durationMs}ms)` : ''}`,
+        data: { summary, result: d.result as string | undefined },
         durationMs,
       });
       break;
@@ -282,6 +297,27 @@ export function handleStreamEvent(
         source: 'Knowledge',
         message: `引用 ${sourceType} 来源 ${sources.length} 个`,
         data: { sources },
+      });
+      break;
+    }
+
+    case 'skill_matched': {
+      const skillName = d.skillName as string | null;
+      const role = d.role as string;
+      store.appendTimeline(sessionId, {
+        id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        type: 'phase',
+        title: skillName ? `技能匹配: ${skillName}` : `技能匹配: 无 (role=${role})`,
+        status: 'completed',
+      });
+      store.appendLog(sessionId, {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        level: skillName ? 'info' : 'warn',
+        source: 'SkillManager',
+        message: skillName ? `匹配到技能: ${skillName} (role=${role})` : `未匹配到技能 (role=${role})`,
+        data: { skillName, role },
       });
       break;
     }

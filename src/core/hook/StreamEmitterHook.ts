@@ -49,7 +49,7 @@ export class StreamEmitterHook implements AgentHook {
             agentName,
             taskId,
             toolName: context.toolName ?? "unknown",
-            args: this.summarizeArgs(context.toolArguments),
+            args: context.toolArguments ?? {},
           },
         });
         break;
@@ -63,7 +63,8 @@ export class StreamEmitterHook implements AgentHook {
         this.spanStartTimes.delete(key);
 
         const metadata = context.metadata?.toolResultMetadata as Record<string, unknown> | undefined;
-        const summary = this.summarizeToolResult(context.toolResult ?? "", metadata);
+        const rawResult = context.toolResult ?? "";
+        const summary = this.summarizeToolResult(rawResult, metadata);
 
         this.eventBus.emit({
           type: "tool_complete",
@@ -72,8 +73,9 @@ export class StreamEmitterHook implements AgentHook {
             taskId,
             toolName,
             durationMs,
-            success: !this.isErrorResult(context.toolResult ?? ""),
+            success: !this.isErrorResult(rawResult),
             summary,
+            result: rawResult.length > 2000 ? rawResult.substring(0, 2000) + "...(truncated)" : rawResult,
           },
         });
 
@@ -130,9 +132,9 @@ export class StreamEmitterHook implements AgentHook {
       return metadata.summary;
     }
 
-    // Truncate long results
-    if (result.length > 200) {
-      return result.substring(0, 200) + "...";
+    // Truncate long results (keep enough for meaningful debugging)
+    if (result.length > 1000) {
+      return result.substring(0, 1000) + "...";
     }
     return result;
   }

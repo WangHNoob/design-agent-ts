@@ -79,4 +79,8 @@ export class WorkflowSkill implements SkillPort {
 
     return score;
   }
+
+  getContent(): string {
+    return this.content;
+  }
 }

@@ -35,6 +35,16 @@ function fallbackUUID(): string {
   });
 }
 
+/** Map agent descriptor names to role strings for skill matching. */
+const AGENT_NAME_TO_ROLE: Record<string, string> = {
+  SystemDesigner: "system_designer",
+  CombatDesigner: "combat_designer",
+  NumericalPlanner: "numerical_planner",
+  GameplayDesigner: "gameplay_designer",
+  ExecutivePlanner: "executive_planner",
+  QAPlanner: "qa_planner",
+};
+
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error"
     | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched";
@@ -271,6 +281,30 @@ export class DirectorAgent {
     };
   }
 
+  /**
+   * Match the best agent skill for a task's sub-agent and inject the full
+   * skill content into the descriptor's systemPrompt.
+   */
+  private augmentDescriptorWithSkill(
+    descriptor: AgentDescriptor,
+    assignment: string,
+  ): AgentDescriptor {
+    const role = AGENT_NAME_TO_ROLE[descriptor.name];
+    if (!role) return descriptor;
+
+    const skill = this.deps.skillRegistry.matchSkill(assignment, role);
+    if (!skill) return descriptor;
+
+    const skillContent = skill.getContent();
+    if (!skillContent) return descriptor;
+
+    console.log(`[DirectorAgent] Injecting skill "${skill.getName()}" (${skillContent.length} chars) into ${descriptor.name}`);
+    return {
+      ...descriptor,
+      systemPrompt: `${descriptor.systemPrompt}\n\n---\n\n${skillContent}`,
+    };
+  }
+
   private async executeSingleTask(
     task: TaskAssignment,
     sessionId: string,
@@ -286,8 +320,11 @@ export class DirectorAgent {
       // Build session-scoped tool registry with workspace tools
       const toolRegistry = this.buildSessionToolRegistry(sessionId);
 
+      // Inject matched skill content into the sub-agent's system prompt
+      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment);
+
       const agent = this.deps.agentFactory.createAgent(
-        task.agentDescriptor,
+        descriptor,
         toolRegistry,
         new InMemoryMemoryPort(),
         this.deps.hooks
@@ -337,8 +374,12 @@ export class DirectorAgent {
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
 
       const toolRegistry = this.buildSessionToolRegistry(sessionId);
+
+      // Inject matched skill content into the sub-agent's system prompt
+      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment);
+
       const agent = this.deps.agentFactory.createAgent(
-        task.agentDescriptor,
+        descriptor,
         toolRegistry,
         new InMemoryMemoryPort(),
         hooks
@@ -718,6 +759,11 @@ export class DirectorAgent {
 
     const skill = this.deps.skillRegistry.matchSkill(requirement, role);
     console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+
+    // Inject full skill content into descriptor, not just the name in assignment
+    const enrichedDescriptor = skill
+      ? this.augmentDescriptorWithSkill(descriptor, requirement)
+      : descriptor;
     const assignment = skill
       ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
       : requirement;
@@ -727,7 +773,7 @@ export class DirectorAgent {
         taskId: "single",
         domain: "system_design",
         assignment,
-        agentDescriptor: descriptor,
+        agentDescriptor: enrichedDescriptor,
         dependencies: [],
       },
       sessionId,
@@ -777,6 +823,11 @@ export class DirectorAgent {
       const skill = this.deps.skillRegistry.matchSkill(requirement, role);
       console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       yield { type: "skill_matched", data: { skillName: skill?.getName() ?? null, role } };
+
+      // Inject full skill content into descriptor
+      const enrichedDescriptor = skill
+        ? this.augmentDescriptorWithSkill(descriptor, requirement)
+        : descriptor;
       const assignment = skill
         ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
         : requirement;
@@ -803,7 +854,7 @@ export class DirectorAgent {
           taskId: "single",
           domain: singleDomain,
           assignment,
-          agentDescriptor: descriptor,
+          agentDescriptor: enrichedDescriptor,
           dependencies: [],
         },
         sessionId,
