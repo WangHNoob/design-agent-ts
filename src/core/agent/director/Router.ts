@@ -1,9 +1,25 @@
 import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
-import type { TaskPlan } from "../../schema/TaskPlan.js";
+import type { TaskPlan, Domain } from "../../schema/TaskPlan.js";
 import type { RouteDecision } from "../../schema/RouteDecision.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
 import { type Role, canAccessDomain } from "../../schema/Role.js";
-import type { Domain } from "../../schema/TaskPlan.js";
+
+// ---------------------------------------------------------------------------
+// Deterministic domain → agent mapping (used when plan comes from a workflow)
+// ---------------------------------------------------------------------------
+
+const DOMAIN_TO_AGENT: Record<Domain, string> = {
+  system_design: "SystemDesigner",
+  combat_design: "CombatDesigner",
+  numerical_planning: "NumericalPlanner",
+  gameplay_design: "GameplayDesigner",
+  executive_planning: "ExecutivePlanner",
+  qa: "QAPlanner",
+};
+
+// ---------------------------------------------------------------------------
+// LLM-based routing (fallback when no workflow)
+// ---------------------------------------------------------------------------
 
 const DEFAULT_PROMPT_TEMPLATE = `Route each sub-task to the most suitable agent.
 
@@ -27,20 +43,61 @@ function extractJson(text: string): string {
   return text;
 }
 
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
 export class Router {
   private promptTemplate: string;
 
   constructor(
     private model: ChatModelPort,
-    promptTemplate?: string
+    promptTemplate?: string,
   ) {
     this.promptTemplate = promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
   }
 
   async route(plan: TaskPlan, role: string): Promise<RouteDecision[]> {
+    if (plan.skillId) {
+      // Workflow-defined routing: domain is already assigned by the workflow.
+      return this.routeDeterministic(plan, role);
+    }
+
+    // No workflow: fall back to LLM-based routing.
+    return this.routeWithLLM(plan, role);
+  }
+
+  // ---- Deterministic routing (workflow-based) ----
+
+  private routeDeterministic(plan: TaskPlan, role: string): RouteDecision[] {
+    const typedRole = role as Role;
+    console.log(`[Router] Deterministic routing from workflow: ${plan.skillId}`);
+
+    const decisions: RouteDecision[] = [];
+    let priority = 1;
+
+    for (const task of plan.subTasks) {
+      if (!canAccessDomain(typedRole, task.domain)) continue;
+
+      const agentName = DOMAIN_TO_AGENT[task.domain] ?? "SystemDesigner";
+      decisions.push({
+        fragmentId: task.fragmentId || task.id,
+        domain: task.domain,
+        agentName,
+        assignment: task.description,
+        priority: priority++,
+      });
+    }
+
+    return decisions;
+  }
+
+  // ---- LLM-based routing (fallback) ----
+
+  private async routeWithLLM(plan: TaskPlan, role: string): Promise<RouteDecision[]> {
     const prompt = this.promptTemplate.replace(
       /\{taskPlan\}/g,
-      JSON.stringify(plan.subTasks, null, 2)
+      JSON.stringify(plan.subTasks, null, 2),
     );
 
     const response = await this.model.generate([
@@ -56,7 +113,7 @@ export class Router {
 
       const typedRole = role as Role;
       const decisions: RouteDecision[] = (parsed as Record<string, unknown>[])
-        .map((item) => ({
+        .map((item): RouteDecision => ({
           fragmentId: (item.fragmentId ?? item.taskId ?? item.id ?? "") as string,
           domain: (((item.domain as string) ?? "system_design").toLowerCase().replace(/-/g, "_")) as Domain,
           agentName: (item.agentName ?? item.agent ?? "SystemDesigner") as string,

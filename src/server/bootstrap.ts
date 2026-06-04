@@ -4,6 +4,7 @@ import { Container } from "./Container.js";
 import { ToolManager } from "../core/tool/ToolManager.js";
 import { SkillManager } from "../core/skill/SkillManager.js";
 import { loadSkills } from "./SkillLoader.js";
+import { loadWorkflows } from "./WorkflowLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
 import { configureSubAgentDescriptors } from "../core/agent/subagents/SubAgentFactory.js";
 import { setDirector, setConsoleSessionManager, setConsoleHITLManager } from "./routes/console.js";
@@ -152,6 +153,7 @@ export async function bootstrap() {
   const toolRegistry = new ToolManager();
   const skillRegistry = new SkillManager();
   loadSkills(skillRegistry);
+  loadWorkflows(skillRegistry);
 
   // Register knowledge tools
   const wikiTool = new WikiPageTool(config.knowledge.wikiPath, fileSystem);
