@@ -292,7 +292,10 @@ export class DirectorAgent {
       const response = await agent.process(sessionId, [input]);
 
       // Write output to workspace
-      const output = AR.getTextContent(response) ?? "";
+      let output = AR.getTextContent(response) ?? "";
+      if (!output.trim()) {
+        output = "(子 Agent 返回空内容)";
+      }
       if (this.deps.workspace && output) {
         await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
       }
@@ -338,7 +341,10 @@ export class DirectorAgent {
       const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input]);
 
-      const output = AR.getTextContent(response) ?? "";
+      let output = AR.getTextContent(response) ?? "";
+      if (!output.trim()) {
+        output = "(子 Agent 返回空内容)";
+      }
       if (this.deps.workspace && output) {
         await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
       }

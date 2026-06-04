@@ -51,7 +51,13 @@ export class LangGraphModelAdapter implements ChatModelPort {
     const lgMessages = this.messageMapper.toLangGraphList(messages);
     const lcOptions = this.mapOptions(options);
 
-    const response = await this.langchainModel.invoke(lgMessages, lcOptions);
+    const LLM_TIMEOUT_MS = 300_000; // 5 minutes
+    const response = await Promise.race([
+      this.langchainModel.invoke(lgMessages, lcOptions),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`LLM call timed out after ${LLM_TIMEOUT_MS}ms`)), LLM_TIMEOUT_MS)
+      ),
+    ]);
     const chatMessage = this.messageMapper.fromLangGraph(response);
 
     return {
@@ -67,6 +73,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
     const lcOptions = this.mapOptions(options);
 
     const stream = await this.langchainModel.stream(lgMessages, lcOptions);
+    const CHUNK_TIMEOUT_MS = 120_000; // 2 minutes per chunk
 
     for await (const chunk of stream) {
       const chatMessage = this.messageMapper.fromLangGraph(chunk);
