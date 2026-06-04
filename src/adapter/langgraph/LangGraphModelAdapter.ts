@@ -11,9 +11,11 @@ export class LangGraphModelAdapter implements ChatModelPort {
   private messageMapper = new LangGraphMessageMapper();
   private langchainModel: ChatOpenAI | ChatAnthropic;
   private provider: string;
+  private modelName: string;
 
   constructor(config: ModelConfig) {
     this.provider = config.provider === "openai-compatible" ? "openai" : config.provider;
+    this.modelName = config.modelName;
     this.langchainModel = this.buildModel(config);
   }
 
@@ -22,14 +24,14 @@ export class LangGraphModelAdapter implements ChatModelPort {
       case "openai":
       case "openai-compatible":
         return new ChatOpenAI({
-          modelName: config.modelName,
-          openAIApiKey: config.apiKey,
+          model: config.modelName,
+          apiKey: config.apiKey,
           configuration: config.baseUrl ? { baseURL: config.baseUrl } : undefined,
         });
       case "anthropic":
         return new ChatAnthropic({
-          modelName: config.modelName,
-          anthropicApiKey: config.apiKey,
+          model: config.modelName,
+          apiKey: config.apiKey,
           anthropicApiUrl: config.baseUrl,
         });
     }
@@ -37,6 +39,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
 
   reconfigure(config: ModelConfig): void {
     this.provider = config.provider === "openai-compatible" ? "openai" : config.provider;
+    this.modelName = config.modelName;
     this.langchainModel = this.buildModel(config);
   }
 
@@ -55,7 +58,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
       message: chatMessage,
       inputTokenCount: response.usage_metadata?.input_tokens ?? 0,
       outputTokenCount: response.usage_metadata?.output_tokens ?? 0,
-      finishReason: response.response_metadata?.finish_reason ?? null,
+      finishReason: (response.response_metadata?.finish_reason as string | null | undefined) ?? null,
     };
   }
 
@@ -71,13 +74,13 @@ export class LangGraphModelAdapter implements ChatModelPort {
         message: chatMessage,
         inputTokenCount: chunk.usage_metadata?.input_tokens ?? 0,
         outputTokenCount: chunk.usage_metadata?.output_tokens ?? 0,
-        finishReason: chunk.response_metadata?.finish_reason ?? null,
+        finishReason: (chunk.response_metadata?.finish_reason as string | null | undefined) ?? null,
       };
     }
   }
 
   getModelName(): string {
-    return this.langchainModel.modelName ?? "unknown";
+    return this.modelName ?? "unknown";
   }
 
   getProvider(): string {

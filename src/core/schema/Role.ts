@@ -19,6 +19,16 @@ export const RoleDisplayNames: Record<Role, string> = {
   qa_planner: "QA策划",
 };
 
+export const RoleAgentMap: Record<Role, string> = {
+  chief_designer: "Director",
+  system_designer: "SystemDesigner",
+  combat_designer: "CombatDesigner",
+  numerical_planner: "NumericalPlanner",
+  gameplay_designer: "GameplayDesigner",
+  executive_planner: "ExecutivePlanner",
+  qa_planner: "QAPlanner",
+};
+
 const ROLE_DOMAINS: Record<Role, Domain[] | "all"> = {
   chief_designer: "all",
   system_designer: ["system_design"],
