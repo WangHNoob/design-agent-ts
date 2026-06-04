@@ -1,5 +1,5 @@
 ---
-name: "gameplay_design"
+name: "gameplay-design"
 description: "玩法设计技能 - 指导 GameplayDesignerAgent 完成游戏玩法设计"
 ---
 

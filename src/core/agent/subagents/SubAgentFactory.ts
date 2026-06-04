@@ -14,11 +14,14 @@ export const DEFAULT_TOOL_NAMES = [
   "workspace_list",
 ];
 
+const DEFAULT_MAX_TOKENS = 16384;
+
 const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
   SystemDesigner: {
     name: "SystemDesigner",
     systemPrompt: "",
     maxIterations: 10,
+    maxTokens: DEFAULT_MAX_TOKENS,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
@@ -26,6 +29,7 @@ const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     name: "CombatDesigner",
     systemPrompt: "",
     maxIterations: 10,
+    maxTokens: DEFAULT_MAX_TOKENS,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
@@ -33,6 +37,7 @@ const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     name: "NumericalPlanner",
     systemPrompt: "",
     maxIterations: 10,
+    maxTokens: DEFAULT_MAX_TOKENS,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
@@ -40,6 +45,7 @@ const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     name: "GameplayDesigner",
     systemPrompt: "",
     maxIterations: 10,
+    maxTokens: DEFAULT_MAX_TOKENS,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
@@ -47,6 +53,7 @@ const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     name: "ExecutivePlanner",
     systemPrompt: "",
     maxIterations: 10,
+    maxTokens: DEFAULT_MAX_TOKENS,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
@@ -54,6 +61,7 @@ const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     name: "QAPlanner",
     systemPrompt: "",
     maxIterations: 10,
+    maxTokens: DEFAULT_MAX_TOKENS,
     toolNames: DEFAULT_TOOL_NAMES,
     options: {},
   },
@@ -68,7 +76,8 @@ export function getSubAgentDescriptor(name: string): AgentDescriptor | undefined
 export function configureSubAgentDescriptors(
   prompts: Partial<Record<string, string>>,
   toolNames?: string[],
-  defaultMaxIterations?: number
+  defaultMaxIterations?: number,
+  defaultMaxTokens?: number
 ): void {
   for (const [name, systemPrompt] of Object.entries(prompts)) {
     const existing = SubAgentDescriptors[name];
@@ -78,6 +87,7 @@ export function configureSubAgentDescriptors(
         systemPrompt: systemPrompt || existing.systemPrompt,
         toolNames: toolNames ?? existing.toolNames,
         maxIterations: defaultMaxIterations ?? existing.maxIterations,
+        maxTokens: defaultMaxTokens ?? existing.maxTokens,
       };
     }
   }

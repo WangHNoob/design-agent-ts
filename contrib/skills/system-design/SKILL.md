@@ -1,5 +1,5 @@
 ---
-name: "system_design"
+name: "system-design"
 description: "系统设计技能 - 指导 SystemDesignerAgent 完成游戏系统的架构设计"
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: "combat_design"
+name: "combat-design"
 description: "战斗设计技能 - 指导 CombatDesignerAgent 完成战斗系统设计"
 ---
 
