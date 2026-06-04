@@ -314,6 +314,43 @@ export interface O11yEvent {
   [key: string]: unknown;
 }
 
+export interface SessionFileInfo {
+  name: string;
+  size: string;
+  downloadUrl: string;
+}
+
+export interface SessionTaskFiles {
+  taskId: string;
+  domain: string;
+  path: string;
+  files: SessionFileInfo[];
+}
+
+export interface SessionFilesResponse {
+  sessionId: string;
+  tasks: SessionTaskFiles[];
+}
+
+export async function fetchSessionFiles(sessionId: string): Promise<SessionFilesResponse> {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/files`);
+  if (!res.ok) throw new Error(`Failed to fetch files: ${res.status}`);
+  return res.json();
+}
+
+export function getSessionZipUrl(sessionId: string): string {
+  return `${API_BASE}/api/sessions/${sessionId}/files/zip`;
+}
+
+export function downloadSessionFile(downloadUrl: string): void {
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 export function subscribeO11yEvents(
   onEvent: (event: O11yEvent) => void,
   onError?: (error: Error) => void

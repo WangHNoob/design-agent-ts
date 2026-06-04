@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { GitBranch, Terminal } from 'lucide-react';
+import { GitBranch, Terminal, FolderOpen } from 'lucide-react';
 import StepsTimeline, { type TimelineEntry } from './StepsTimeline';
 import DetailedLogs, { type DetailedLog } from './DetailedLogs';
+import FileBrowserPanel from './FileBrowserPanel';
 
 interface Props {
   timeline: TimelineEntry[];
@@ -12,6 +13,8 @@ interface Props {
   messageCount: number;
   executionTime: string;
   onClearLogs: () => void;
+  activeTab?: 'steps' | 'logs' | 'files';
+  onChangeTab?: (tab: 'steps' | 'logs' | 'files') => void;
 }
 
 export default function RightPanel({
@@ -21,8 +24,15 @@ export default function RightPanel({
   messageCount,
   executionTime,
   onClearLogs,
+  activeTab: activeTabProp,
+  onChangeTab,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<'steps' | 'logs'>('steps');
+  const [internalTab, setInternalTab] = useState<'steps' | 'logs' | 'files'>('steps');
+  const activeTab = activeTabProp ?? internalTab;
+  const setActiveTab = (tab: 'steps' | 'logs' | 'files') => {
+    setInternalTab(tab);
+    onChangeTab?.(tab);
+  };
 
   return (
     <div className="h-full w-full flex flex-col bg-white border-l border-ink/8 shadow-sm">
@@ -34,6 +44,7 @@ export default function RightPanel({
         <div className="flex items-center gap-1">
           <TabBtn active={activeTab === 'steps'} onClick={() => setActiveTab('steps')} icon={<GitBranch size={14} />} label="步骤" count={timeline.length} />
           <TabBtn active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} icon={<Terminal size={14} />} label="日志" count={logs.length} />
+          <TabBtn active={activeTab === 'files'} onClick={() => setActiveTab('files')} icon={<FolderOpen size={14} />} label="文件" />
         </div>
       </div>
 
@@ -53,6 +64,9 @@ export default function RightPanel({
         )}
         {activeTab === 'logs' && (
           <DetailedLogs logs={logs} onClear={onClearLogs} />
+        )}
+        {activeTab === 'files' && sessionId && (
+          <FileBrowserPanel sessionId={sessionId} />
         )}
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Sparkles, Loader2, Zap, User, Bot, Info } from 'lucide-react';
+import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useRouter } from 'next/navigation';
@@ -92,6 +92,7 @@ export default function ConsolePage({ mode }: Props) {
   const roleLocked = !!task && (task.messages.length > 0);
   const [requirement, setRequirement] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [rightPanelTab, setRightPanelTab] = useState<'steps' | 'logs' | 'files'>('steps');
   const [useStream, setUseStream] = useState(true);
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(false);
@@ -152,6 +153,13 @@ export default function ConsolePage({ mode }: Props) {
             scrollToBottom();
             streamingRafRef.current = null;
           });
+        }
+      }
+
+      if (event === 'complete') {
+        const taskRole = store.getTask(sessionId)?.role;
+        if (taskRole === 'chief_designer') {
+          setRightPanelTab('files');
         }
       }
 
@@ -484,6 +492,8 @@ export default function ConsolePage({ mode }: Props) {
               onClearLogs={() => {
                 if (activeSessionId) store.updateTask(activeSessionId, { logs: [] });
               }}
+              activeTab={rightPanelTab}
+              onChangeTab={setRightPanelTab}
             />
           </div>
         )}
