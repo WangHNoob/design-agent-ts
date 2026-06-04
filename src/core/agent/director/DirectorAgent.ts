@@ -37,7 +37,7 @@ function fallbackUUID(): string {
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error"
-    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used";
+    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched";
   data: Record<string, unknown>;
 }
 
@@ -168,10 +168,11 @@ export class DirectorAgent {
       await this.deps.workspace.initialize(sessionId);
     }
 
-    const planSpan = startSpan("TaskPlanner.plan", "TASK_PLANNER", null, { requirementPreview: requirement.substring(0, 100) });
     const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+    console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+    const planSpan = startSpan("TaskPlanner.plan", "TASK_PLANNER", null, { requirementPreview: requirement.substring(0, 100), matchedSkill: skill?.getName() ?? null });
     const plan = await this.taskPlanner.plan(requirement, role, skill);
-    endSpan(planSpan, { subTaskCount: plan.subTasks.length });
+    endSpan(planSpan, { subTaskCount: plan.subTasks.length, matchedSkill: skill?.getName() ?? null });
 
     runtimeStatus(sessionId, traceId ?? "unknown", "PIPELINE", 20, `${plan.subTasks.length} sub-tasks planned`, null, null);
 
@@ -554,10 +555,11 @@ export class DirectorAgent {
         await this.deps.workspace.initialize(sessionId);
       }
 
-      yield { type: "plan", data: { message: "Planning tasks..." } };
       const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+      console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+      yield { type: "plan", data: { message: "Planning tasks...", matchedSkill: skill?.getName() ?? null } };
       const plan = await this.taskPlanner.plan(requirement, role, skill);
-      yield { type: "plan", data: { message: `Planned ${plan.subTasks.length} tasks`, plan } };
+      yield { type: "plan", data: { message: `Planned ${plan.subTasks.length} tasks`, plan, matchedSkill: skill?.getName() ?? null } };
 
       const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
         sessionId, "hitl-1-task-plan", plan
@@ -672,6 +674,7 @@ export class DirectorAgent {
     }
 
     const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+    console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
     const assignment = skill
       ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
       : requirement;
@@ -729,6 +732,8 @@ export class DirectorAgent {
       yield { type: "route", data: { message: `分配给 ${descriptor.name}` } };
 
       const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+      console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+      yield { type: "skill_matched", data: { skillName: skill?.getName() ?? null, role } };
       const assignment = skill
         ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
         : requirement;

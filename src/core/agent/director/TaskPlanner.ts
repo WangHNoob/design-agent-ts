@@ -76,6 +76,7 @@ export class TaskPlanner {
   }
 
   async plan(requirement: string, role: string, skill: SkillPort | null): Promise<TaskPlan> {
+    console.log(`[TaskPlanner] Using skill: ${skill?.getName() ?? "none"} for role=${role}`);
     const skillHint = skill ? `参考技能: ${skill.getName()}\n` : "";
     const prompt = this.promptTemplate
       .replace(/\{role\}/g, role)

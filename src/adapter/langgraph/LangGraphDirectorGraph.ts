@@ -55,6 +55,7 @@ export class LangGraphDirectorGraph {
 
       .addNode("skillMatch", async (state) => {
         const skill = deps.skillRegistry.matchSkill(state.requirement, state.role);
+        console.log(`[LangGraphDirectorGraph] Matched skill: ${skill?.getName() ?? "none"} for role=${state.role}`);
         return { taskPlan: { skill: skill?.getName() ?? null } as Record<string, unknown> };
       })
 
