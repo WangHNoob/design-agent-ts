@@ -39,10 +39,32 @@ export function setConsoleHITLManager(hm: HITLManager) {
 
 export const consoleRoute = new Hono();
 
+const executingSessions = new Set<string>();
+
+function validateExecuteRequest(body: ExecuteRequest): string | null {
+  if (!body.requirement || body.requirement.trim().length === 0) {
+    return "Requirement cannot be empty";
+  }
+  if (body.requirement.trim().length > 50000) {
+    return "Requirement too long (max 50000 characters)";
+  }
+  return null;
+}
+
 consoleRoute.post("/execute", async (c) => {
   const body = await c.req.json<ExecuteRequest>();
   const sessionId = body.sessionId ?? crypto.randomUUID();
   const role = body.role ?? "chief_designer";
+
+  const validationError = validateExecuteRequest(body);
+  if (validationError) {
+    return c.json<ExecuteResponse>({
+      success: false,
+      output: null,
+      error: validationError,
+      sessionId,
+    }, 400);
+  }
 
   if (!directorInstance) {
     return c.json<ExecuteResponse>({
@@ -52,6 +74,17 @@ consoleRoute.post("/execute", async (c) => {
       sessionId,
     }, 409);
   }
+
+  // Concurrent execution guard
+  if (executingSessions.has(sessionId)) {
+    return c.json<ExecuteResponse>({
+      success: false,
+      output: null,
+      error: "Session already has an active execution",
+      sessionId,
+    }, 409);
+  }
+  executingSessions.add(sessionId);
 
   // track session
   await sessionManagerInstance?.create({
@@ -91,6 +124,8 @@ consoleRoute.post("/execute", async (c) => {
       error: errorMsg,
       sessionId,
     }, 500);
+  } finally {
+    executingSessions.delete(sessionId);
   }
 });
 
@@ -99,9 +134,20 @@ consoleRoute.post("/execute/stream", async (c) => {
   const sessionId = body.sessionId ?? crypto.randomUUID();
   const role = body.role ?? "chief_designer";
 
+  const validationError = validateExecuteRequest(body);
+  if (validationError) {
+    return c.json({ error: "validation_error", message: validationError }, 400);
+  }
+
   if (!directorInstance) {
     return c.json({ error: "not_configured", message: "API key not configured. Please configure via settings." }, 409);
   }
+
+  // Concurrent execution guard
+  if (executingSessions.has(sessionId)) {
+    return c.json({ error: "concurrent_execution", message: "Session already has an active execution" }, 409);
+  }
+  executingSessions.add(sessionId);
 
   await sessionManagerInstance?.create({
     id: sessionId,
@@ -199,6 +245,8 @@ consoleRoute.post("/execute/stream", async (c) => {
         await sessionManagerInstance?.update(sessionId, { status: "failed", error: errorMsg });
         send("error", { error: errorMsg, sessionId });
         controller.close();
+      } finally {
+        executingSessions.delete(sessionId);
       }
     },
   });

@@ -72,8 +72,27 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
 
       try {
+        // Use messages possibly modified by hooks (compression, budget warnings, etc.)
+        const effectiveMessages = preCtx.messages
+          ? preCtx.messages.map((m) => this.messageMapper.toLangGraph(m))
+          : state.messages;
+
         const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
-        const response = await (modelWithTools as { invoke(msgs: BaseMessage[]): Promise<BaseMessage> }).invoke([systemMsg, ...state.messages]);
+
+        // Inline iteration-budget injection (remaining iterations <= 3)
+        const remaining = descriptor.maxIterations - state.iteration;
+        const injectedMessages = [...effectiveMessages];
+        if (remaining === 1) {
+          injectedMessages.push(
+            new SystemMessage({ content: "【系统提示】这是最后一次推理机会。你必须立即输出完整的文本结果，禁止发起任何工具调用。" })
+          );
+        } else if (remaining <= 3 && remaining > 0) {
+          injectedMessages.push(
+            new SystemMessage({ content: `【系统提示】剩余推理次数: ${remaining}。请尽快总结并输出最终设计内容，不要再调用工具。` })
+          );
+        }
+
+        const response = await (modelWithTools as { invoke(msgs: BaseMessage[]): Promise<BaseMessage> }).invoke([systemMsg, ...injectedMessages]);
 
         const postCtx = await runHooks("post_reasoning", HookContext.create({
           agentName: descriptor.name,

@@ -44,13 +44,15 @@ export class WorkspaceManager {
 
   // Legacy flat methods (kept for backward compat)
   async writeFile(sessionId: string, filePath: string, content: string): Promise<void> {
-    const dir = this.fs.join(this.baseDir, sessionId, this.fs.dirname(filePath));
+    const safePath = filePath.split(/[\\/]/).map((s) => this.sanitize(s)).join("/");
+    const dir = this.fs.join(this.baseDir, sessionId, this.fs.dirname(safePath));
     await this.fs.mkdir(dir, { recursive: true });
-    await this.fs.writeFile(this.fs.join(this.baseDir, sessionId, filePath), content);
+    await this.fs.writeFile(this.fs.join(this.baseDir, sessionId, safePath), content);
   }
 
   async readFile(sessionId: string, filePath: string): Promise<string | null> {
-    return this.fs.readFile(this.fs.join(this.baseDir, sessionId, filePath));
+    const safePath = filePath.split(/[\\/]/).map((s) => this.sanitize(s)).join("/");
+    return this.fs.readFile(this.fs.join(this.baseDir, sessionId, safePath));
   }
 
   async listFiles(sessionId: string): Promise<string[]> {
@@ -60,6 +62,11 @@ export class WorkspaceManager {
   }
 
   private sanitize(segment: string): string {
-    return segment.replace(/[\/\\\.\.]/g, "_");
+    // Remove path traversal sequences and filesystem-special characters
+    return segment
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .replace(/\.{2,}/g, "_")
+      .replace(/^\.+/, "_")
+      .trim() || "_";
   }
 }

@@ -50,9 +50,11 @@ export class PlanPipeline {
     let queue = plan.subTasks
       .filter((t) => t.dependencies.length === 0)
       .map((t) => t.id);
+    let totalProcessed = 0;
 
     while (queue.length > 0) {
       layers.push([...queue]);
+      totalProcessed += queue.length;
       const nextQueue: string[] = [];
       for (const id of queue) {
         for (const neighbor of adjacency.get(id) ?? []) {
@@ -62,6 +64,16 @@ export class PlanPipeline {
         }
       }
       queue = nextQueue;
+    }
+
+    // Cycle detection: if not all tasks were processed, there is a dependency cycle
+    if (totalProcessed !== plan.subTasks.length) {
+      const remaining = plan.subTasks
+        .filter((t) => !layers.flat().includes(t.id))
+        .map((t) => t.id);
+      throw new Error(
+        `Dependency cycle detected in task plan. Remaining tasks: ${remaining.join(", ")}`
+      );
     }
 
     return layers;
