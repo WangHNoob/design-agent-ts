@@ -5,7 +5,7 @@ import { SystemMessage, AIMessage } from "@langchain/core/messages";
 import type { AgentPort } from "../../port/agent/AgentPort.js";
 import type { AgentDescriptor } from "../../port/agent/AgentDescriptor.js";
 import type { AgentResponse } from "../../port/agent/AgentResponse.js";
-import type { ChatMessage } from "../../port/message/ChatMessage.js";
+import { ChatMessage } from "../../port/message/ChatMessage.js";
 import type { ToolPort } from "../../port/tool/ToolPort.js";
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import { HookContext } from "../../port/hook/HookContext.js";
@@ -200,9 +200,24 @@ export class LangGraphAgentAdapter implements AgentPort {
         lastMessage = result.messages.at(-1);
       }
 
-      const responseMessage = lastMessage
+      let responseMessage = lastMessage
         ? this.messageMapper.fromLangGraph(lastMessage)
         : null;
+
+      // Fallback: if the AI message has no text but has tool calls (e.g. iteration budget exhausted),
+      // serialize the tool calls as readable text so the user sees what the agent intended to do.
+      if (responseMessage && !ChatMessage.textContent(responseMessage)?.trim()) {
+        const toolCalls = ChatMessage.toolCalls(responseMessage);
+        if (toolCalls.length > 0) {
+          const fallback = toolCalls.map(tc =>
+            `【待执行工具】${tc.toolName}\n参数：${JSON.stringify(tc.arguments, null, 2)}`
+          ).join("\n\n");
+          responseMessage = {
+            ...responseMessage,
+            content: [{ type: "text", text: fallback }, ...responseMessage.content],
+          };
+        }
+      }
 
       const postCtx = await this.runHooks("post_agent_call", HookContext.create({
         agentName: this.descriptor.name,
