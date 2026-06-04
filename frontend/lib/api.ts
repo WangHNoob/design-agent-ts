@@ -56,6 +56,21 @@ export async function executeDesign(req: ExecuteRequest): Promise<ExecuteRespons
   return res.json();
 }
 
+export async function cancelExecution(sessionId: string): Promise<{ success: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/console/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    return res.json();
+  } catch {
+    // If the cancel request fails (e.g. server already closed the connection),
+    // still return success — the fetch abort will handle the rest.
+    return { success: false };
+  }
+}
+
 export function executeDesignStream(
   req: ExecuteRequest,
   onEvent: (event: string, data: unknown) => void,

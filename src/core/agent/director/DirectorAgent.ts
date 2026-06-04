@@ -51,6 +51,11 @@ export interface StreamEvent {
   data: Record<string, unknown>;
 }
 
+export interface DirectorStreamOptions {
+  /** AbortSignal to cancel the execution. When aborted, all LLM calls stop and the stream ends gracefully. */
+  signal?: AbortSignal;
+}
+
 export interface KnowledgeSource {
   type: "wiki_page" | "kg_node" | "grep_match" | "web_result";
   id: string;
@@ -100,7 +105,8 @@ export class DirectorAgent {
     sessionId: string,
     mode: "design" | "query" | "table",
     role: string,
-    history?: Array<{ role: "user" | "assistant"; content: string }>
+    history?: Array<{ role: "user" | "assistant"; content: string }>,
+    options?: DirectorStreamOptions
   ): Promise<AgentResponse> {
     const traceId = this.deps.idGenerator?.randomUUID() ?? fallbackUUID();
     const trace = await createTrace({
@@ -125,13 +131,13 @@ export class DirectorAgent {
         let result: AgentResponse;
         switch (mode) {
           case "design":
-            result = await this.executeDesignFlow(requirement, sessionId, role, traceId);
+            result = await this.executeDesignFlow(requirement, sessionId, role, traceId, options?.signal);
             break;
           case "query":
-            result = await this.executeQueryFlow(requirement, sessionId, traceId, history);
+            result = await this.executeQueryFlow(requirement, sessionId, traceId, history, options?.signal);
             break;
           case "table":
-            result = await this.executeTableFlow(requirement, sessionId, role, traceId);
+            result = await this.executeTableFlow(requirement, sessionId, role, traceId, options?.signal);
             break;
         }
         endSpan(rootSpan, { resultLength: result.message?.content?.length ?? 0 });
@@ -151,15 +157,17 @@ export class DirectorAgent {
     sessionId: string,
     mode: "design" | "query" | "table",
     role: string,
-    history?: Array<{ role: "user" | "assistant"; content: string }>
+    history?: Array<{ role: "user" | "assistant"; content: string }>,
+    options?: DirectorStreamOptions
   ): AsyncIterable<StreamEvent> {
+    const signal = options?.signal;
     switch (mode) {
       case "query":
-        yield* this.executeQueryStream(requirement, sessionId, history);
+        yield* this.executeQueryStream(requirement, sessionId, history, signal);
         break;
       case "design":
       case "table":
-        yield* this.executeDesignStream(requirement, sessionId, role);
+        yield* this.executeDesignStream(requirement, sessionId, role, signal);
         break;
     }
   }
@@ -168,10 +176,11 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     role: string,
-    traceId?: string
+    traceId?: string,
+    signal?: AbortSignal
   ): Promise<AgentResponse> {
     if (role !== "chief_designer") {
-      return this.executeSingleRoleFlow(requirement, sessionId, role, traceId);
+      return this.executeSingleRoleFlow(requirement, sessionId, role, traceId, signal);
     }
 
     if (this.deps.workspace) {
@@ -250,8 +259,10 @@ export class DirectorAgent {
           dependencies: task.dependencies,
         },
         sessionId,
-        traceId
-      )
+        traceId,
+        signal
+      ),
+      signal
     );
     const results = await pipeline.execute();
     endSpan(pipelineSpan, { resultCount: results.length });
@@ -308,8 +319,20 @@ export class DirectorAgent {
   private async executeSingleTask(
     task: TaskAssignment,
     sessionId: string,
-    traceId?: string
+    traceId?: string,
+    signal?: AbortSignal
   ): Promise<TaskResult> {
+    // Early abort check
+    if (signal?.aborted) {
+      return {
+        taskId: task.taskId,
+        domain: task.domain,
+        status: "cancelled",
+        output: "",
+        errorMessage: "Task cancelled by user",
+      };
+    }
+
     const taskSpan = startSpan(task.agentDescriptor.name, "SUB_AGENT", null, {
       taskId: task.taskId,
       domain: task.domain,
@@ -333,7 +356,7 @@ export class DirectorAgent {
       // Inject predecessor context into assignment message
       const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
       const input = ChatMessage.text("user", "director", enhancedAssignment);
-      const response = await agent.process(sessionId, [input]);
+      const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
 
       // Write output to workspace
       let output = AR.getTextContent(response) ?? "";
@@ -363,8 +386,20 @@ export class DirectorAgent {
     task: TaskAssignment,
     sessionId: string,
     traceId?: string,
-    additionalHook?: AgentHook
+    additionalHook?: AgentHook,
+    signal?: AbortSignal
   ): Promise<TaskResult> {
+    // Early abort check
+    if (signal?.aborted) {
+      return {
+        taskId: task.taskId,
+        domain: task.domain,
+        status: "cancelled",
+        output: "",
+        errorMessage: "Task cancelled by user",
+      };
+    }
+
     const taskSpan = startSpan(task.agentDescriptor.name, "SUB_AGENT", null, {
       taskId: task.taskId,
       domain: task.domain,
@@ -387,7 +422,7 @@ export class DirectorAgent {
 
       const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
       const input = ChatMessage.text("user", "director", enhancedAssignment);
-      const response = await agent.process(sessionId, [input]);
+      const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
 
       let output = AR.getTextContent(response) ?? "";
       if (!output.trim()) {
@@ -515,7 +550,8 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     traceId?: string,
-    history?: Array<{ role: "user" | "assistant"; content: string }>
+    history?: Array<{ role: "user" | "assistant"; content: string }>,
+    signal?: AbortSignal
   ): Promise<AgentResponse> {
     runtimeStatus(sessionId, traceId ?? "unknown", "LLM", 50, "Executing query with tools", null, null);
     const agent = await this.createQueryAgent();
@@ -528,7 +564,7 @@ export class DirectorAgent {
     }
     messages.push(ChatMessage.text("user", "user", requirement));
 
-    const response = await agent.process(sessionId, messages);
+    const response = await agent.process(sessionId, messages, signal ? { signal } : undefined);
     return {
       agentName: "Director",
       message: response.message,
@@ -541,7 +577,8 @@ export class DirectorAgent {
   private async *executeQueryStream(
     requirement: string,
     sessionId: string,
-    history?: Array<{ role: "user" | "assistant"; content: string }>
+    history?: Array<{ role: "user" | "assistant"; content: string }>,
+    signal?: AbortSignal
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
 
@@ -574,7 +611,7 @@ export class DirectorAgent {
       // Run agent.process() with concurrent event drain so SSE clients
       // receive thinking/tool events in real-time instead of after completion.
       const done = { value: false };
-      const processPromise = agent.process(sessionId, messages).finally(() => { done.value = true; });
+      const processPromise = agent.process(sessionId, messages, signal ? { signal } : undefined).finally(() => { done.value = true; });
 
       for await (const event of this.concurrentDrain(eventBus, done)) {
         yield event;
@@ -608,9 +645,9 @@ export class DirectorAgent {
     }
   }
 
-  private async *executeDesignStream(requirement: string, sessionId: string, role: string): AsyncIterable<StreamEvent> {
+  private async *executeDesignStream(requirement: string, sessionId: string, role: string, signal?: AbortSignal): AsyncIterable<StreamEvent> {
     if (role !== "chief_designer") {
-      yield* this.executeSingleRoleStream(requirement, sessionId, role);
+      yield* this.executeSingleRoleStream(requirement, sessionId, role, signal);
       return;
     }
 
@@ -681,6 +718,13 @@ export class DirectorAgent {
 
       const results: TaskResult[] = [];
       for (const task of mergedPlan.subTasks) {
+        // Check abort between sub-tasks
+        if (signal?.aborted) {
+          console.log(`[DirectorAgent] Stream aborted, skipping remaining tasks`);
+          yield { type: "error", data: { error: "任务已被取消" } };
+          return;
+        }
+
         yield { type: "task_start", data: { taskId: task.id, domain: task.domain, description: task.description } };
 
         // Run task with concurrent event drain for real-time SSE progress
@@ -695,7 +739,8 @@ export class DirectorAgent {
           },
           sessionId,
           undefined,
-          streamEmitterHook
+          streamEmitterHook,
+          signal
         ).finally(() => { done.value = true; });
 
         for await (const event of this.concurrentDrain(eventBus, done)) {
@@ -736,7 +781,8 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     role: string,
-    traceId?: string
+    traceId?: string,
+    signal?: AbortSignal
   ): Promise<AgentResponse> {
     const { RoleAgentMap, parseRole } = await import("../../schema/Role.js");
     const typedRole = parseRole(role);
@@ -777,7 +823,8 @@ export class DirectorAgent {
         dependencies: [],
       },
       sessionId,
-      traceId
+      traceId,
+      signal
     );
 
     return {
@@ -792,7 +839,8 @@ export class DirectorAgent {
   private async *executeSingleRoleStream(
     requirement: string,
     sessionId: string,
-    role: string
+    role: string,
+    signal?: AbortSignal
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "design", role } };
 
@@ -859,7 +907,8 @@ export class DirectorAgent {
         },
         sessionId,
         undefined,
-        streamEmitterHook
+        streamEmitterHook,
+        signal
       ).finally(() => { done.value = true; });
 
       for await (const event of this.concurrentDrain(eventBus, done)) {
@@ -892,8 +941,9 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     role: string,
-    traceId?: string
+    traceId?: string,
+    signal?: AbortSignal
   ): Promise<AgentResponse> {
-    return this.executeDesignFlow(requirement, sessionId, role, traceId);
+    return this.executeDesignFlow(requirement, sessionId, role, traceId, signal);
   }
 }

@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import type { TimelineEntry } from '@/components/Console/StepsTimeline';
 import type { DetailedLog } from '@/components/Console/DetailedLogs';
+import { cancelExecution } from '@/lib/api';
 
 export type TaskMode = 'design' | 'query' | 'table';
 
@@ -197,6 +198,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (task?.streamRef) {
       task.streamRef.close();
     }
+    // Notify backend to abort the running execution
+    cancelExecution(sessionId);
     set((state) => {
       const tasks = new Map(state.tasks);
       const task = tasks.get(sessionId);
