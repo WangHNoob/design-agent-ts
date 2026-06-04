@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FolderOpen, FileText, Download, Package, Loader2 } from 'lucide-react';
 import { fetchSessionFiles, getSessionZipUrl, downloadSessionFile, type SessionFilesResponse, type SessionTaskFiles, type SessionFileInfo } from '@/lib/api';
 
@@ -13,17 +13,26 @@ export default function FileBrowserPanel({ sessionId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetchSessionFiles(sessionId);
+      if (!isMountedRef.current) return;
       setData(res);
       setSelected(new Set());
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError(err instanceof Error ? err.message : '加载失败');
     } finally {
+      if (!isMountedRef.current) return;
       setLoading(false);
     }
   }, [sessionId]);

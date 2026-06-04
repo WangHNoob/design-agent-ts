@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download } from 'lucide-react';
+import { Send, Sparkles, Loader2, Zap, User, Bot, Info } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useRouter } from 'next/navigation';
