@@ -17,21 +17,6 @@ import { ValidationHook } from "../core/hook/ValidationHook.js";
 import { IterationBudgetHook } from "../core/hook/IterationBudgetHook.js";
 import { OutputEnforcementHook } from "../core/hook/OutputEnforcementHook.js";
 import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
-import { O11yReportingHook } from "../core/hook/O11yReportingHook.js";
-import { setSpanReporter, setTraceReporter } from "../core/o11y/O11yTraceBridge.js";
-import { setRuntimeStatusReporter as setRuntimeBridgeReporter } from "../core/o11y/O11yRuntimeBridge.js";
-import { BatchSpanReporter } from "../core/o11y/BatchSpanReporter.js";
-import { BatchLogReporter } from "../core/o11y/BatchLogReporter.js";
-import {
-  NoOpTraceReporter,
-  NoOpSpanReporter,
-  NoOpLogReporter,
-  NoOpRuntimeStatusReporter,
-} from "../core/o11y/NoOpReporter.js";
-import { HttpTraceReporter } from "../adapter/o11y/HttpTraceReporter.js";
-import { HttpSpanReporter } from "../adapter/o11y/HttpSpanReporter.js";
-import { HttpLogReporter } from "../adapter/o11y/HttpLogReporter.js";
-import { HttpRuntimeStatusReporter } from "../adapter/o11y/HttpRuntimeStatusReporter.js";
 import { WikiPageTool } from "../core/tool/knowledge/WikiPageTool.js";
 import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
@@ -42,9 +27,6 @@ import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
-import { NodeContextStorageAdapter } from "../adapter/infra/NodeContextStorageAdapter.js";
-import { configureIdGenerator } from "../core/o11y/O11ySpan.js";
-import { configureContextStorage } from "../core/o11y/O11yContext.js";
 import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
 
 let bootstrapState: {
@@ -122,8 +104,6 @@ export async function lateBootstrapDirector(): Promise<void> {
 export async function bootstrap() {
   const config = loadConfig();
   const fileSystem = new NodeFileSystemAdapter();
-  configureIdGenerator(new NodeIdGeneratorAdapter());
-  configureContextStorage(new NodeContextStorageAdapter());
 
   let apiKey = config.model.apiKey;
 
@@ -192,7 +172,7 @@ export async function bootstrap() {
   ];
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations, config.limits.modelMaxTokens);
 
-  // Initialize O11y reporters
+  // Initialize hooks
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
     new LoggingHook(),
     new ValidationHook(),
@@ -200,25 +180,6 @@ export async function bootstrap() {
     new OutputEnforcementHook(),
     new ContextManagementHook(config.limits.contextCompressionThreshold, config.limits.contextMaxTokens),
   ];
-
-  if (config.o11y.enabled) {
-    const baseUrl = config.o11y.baseUrl;
-    const httpSpanReporter = new HttpSpanReporter(baseUrl);
-    const httpLogReporter = new HttpLogReporter(baseUrl);
-    const batchSpanReporter = new BatchSpanReporter(httpSpanReporter, config.o11y.flushIntervalMs, config.o11y.batchSize);
-    const batchLogReporter = new BatchLogReporter(httpLogReporter, config.o11y.flushIntervalMs, config.o11y.batchSize);
-    batchSpanReporter.start();
-    batchLogReporter.start();
-
-    setTraceReporter(new HttpTraceReporter(baseUrl));
-    setSpanReporter(batchSpanReporter);
-    setRuntimeBridgeReporter(new HttpRuntimeStatusReporter(baseUrl));
-    hooks.push(new O11yReportingHook(100));
-  } else {
-    setTraceReporter(new NoOpTraceReporter());
-    setSpanReporter(new NoOpSpanReporter());
-    setRuntimeBridgeReporter(new NoOpRuntimeStatusReporter());
-  }
 
   const workspaceManager = new WorkspaceManager("workspace", fileSystem);
 

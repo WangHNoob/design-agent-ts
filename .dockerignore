@@ -20,8 +20,6 @@ pip-delete-this-directory.txt
 *.md
 !README.md
 sessions
-o11y.db
-*.db
 coverage
 .nyc_output
 .vscode

@@ -3,8 +3,6 @@ import type { DirectorAgent } from "../../core/agent/director/DirectorAgent.js";
 import { AgentResponse as AR } from "../../port/agent/AgentResponse.js";
 import type { SessionManager } from "../../core/session/SessionManager.js";
 import type { HITLManager } from "../../core/hitl/HITLManager.js";
-import { runInContext } from "../../core/o11y/O11yContext.js";
-import { createTrace } from "../../core/o11y/O11yTraceBridge.js";
 
 interface ExecuteRequest {
   requirement: string;
@@ -181,82 +179,69 @@ consoleRoute.post("/execute/stream", async (c) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
-      const traceId = crypto.randomUUID();
-      const rootCtx = { traceId, spanId: traceId, sessionId };
-
       try {
-        await runInContext(rootCtx, async () => {
-          await createTrace({
-            id: traceId,
-            session_id: sessionId,
-            name: `DirectorAgent.${body.mode}`,
-            status: "running",
-          });
+        const eventStream = directorInstance!.executeStream(
+          body.requirement,
+          sessionId,
+          body.mode,
+          role,
+          body.history,
+          { signal: abortController.signal }
+        );
 
-          const eventStream = directorInstance!.executeStream(
-            body.requirement,
-            sessionId,
-            body.mode,
-            role,
-            body.history,
-            { signal: abortController.signal }
-          );
+        let finalOutput = "";
+        let hasError = false;
+        let errorMsg = "";
 
-          let finalOutput = "";
-          let hasError = false;
-          let errorMsg = "";
-
-          for await (const event of eventStream) {
-            switch (event.type) {
-              case "start":
-                send("start", event.data);
-                break;
-              case "plan":
-                send("plan", event.data);
-                break;
-              case "route":
-                send("route", event.data);
-                break;
-              case "task_start":
-                send("task_start", event.data);
-                break;
-              case "task_complete":
-                send("task_complete", event.data);
-                break;
-              case "integrate":
-                send("integrate", event.data);
-                break;
-              case "chunk":
-                send("chunk", event.data);
-                finalOutput += (event.data.text as string) ?? "";
-                break;
-              case "complete":
-                finalOutput = (event.data.output as string) ?? finalOutput;
-                send("complete", { ...event.data, output: finalOutput, sessionId });
-                break;
-              case "error":
-                hasError = true;
-                errorMsg = (event.data.error as string) ?? "Unknown error";
-                send("error", { ...event.data, sessionId });
-                break;
-              // Forward new event types
-              case "thinking":
-              case "tool_start":
-              case "tool_complete":
-              case "knowledge_used":
-                send(event.type, event.data);
-                break;
-            }
+        for await (const event of eventStream) {
+          switch (event.type) {
+            case "start":
+              send("start", event.data);
+              break;
+            case "plan":
+              send("plan", event.data);
+              break;
+            case "route":
+              send("route", event.data);
+              break;
+            case "task_start":
+              send("task_start", event.data);
+              break;
+            case "task_complete":
+              send("task_complete", event.data);
+              break;
+            case "integrate":
+              send("integrate", event.data);
+              break;
+            case "chunk":
+              send("chunk", event.data);
+              finalOutput += (event.data.text as string) ?? "";
+              break;
+            case "complete":
+              finalOutput = (event.data.output as string) ?? finalOutput;
+              send("complete", { ...event.data, output: finalOutput, sessionId });
+              break;
+            case "error":
+              hasError = true;
+              errorMsg = (event.data.error as string) ?? "Unknown error";
+              send("error", { ...event.data, sessionId });
+              break;
+            // Forward new event types
+            case "thinking":
+            case "tool_start":
+            case "tool_complete":
+            case "knowledge_used":
+              send(event.type, event.data);
+              break;
           }
+        }
 
-          const isAborted = abortController.signal.aborted;
-          await sessionManagerInstance?.update(sessionId, {
-            status: isAborted ? "failed" : (hasError ? "failed" : "completed"),
-            output: finalOutput || undefined,
-            error: isAborted ? "Cancelled by user" : (errorMsg || undefined),
-          });
+        const isAborted = abortController.signal.aborted;
+        await sessionManagerInstance?.update(sessionId, {
+          status: isAborted ? "failed" : (hasError ? "failed" : "completed"),
+          output: finalOutput || undefined,
+          error: isAborted ? "Cancelled by user" : (errorMsg || undefined),
         });
-
         controller.close();
       } catch (err) {
         const isAborted = abortController.signal.aborted;

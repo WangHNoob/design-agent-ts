@@ -6,7 +6,7 @@ import type { KnowledgeSource } from "../agent/director/DirectorAgent.js";
 
 /**
  * Hook that emits fine-grained execution events to an EventBus for real-time SSE streaming.
- * Priority: 200 (runs after O11yReportingHook which is 100)
+ * Priority: 200
  */
 export class StreamEmitterHook implements AgentHook {
   readonly priority = 200;
