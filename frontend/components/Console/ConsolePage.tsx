@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Sparkles, Loader2, Zap, User, Bot, Info } from 'lucide-react';
+import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useRouter } from 'next/navigation';
@@ -14,7 +14,7 @@ import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import ResultPanel from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
 import { executeDesignStream, getConfigStatus, type SessionMeta } from '@/lib/api';
-import { useTaskStore, type TaskMode } from '@/lib/stores/taskStore';
+import { useTaskStore, type TaskMode, type ChatMessage } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking } from '@/lib/streamHandler';
 
 interface Props {
@@ -375,7 +375,7 @@ export default function ConsolePage({ mode }: Props) {
             ) : (
               <div className="space-y-4">
                 {messages.map((msg) => (
-                  <ChatBubble key={msg.id} msg={msg} />
+                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} />
                 ))}
                 {streaming && (
                   streamingText ? (
@@ -510,7 +510,15 @@ export default function ConsolePage({ mode }: Props) {
   );
 }
 
-const ChatBubble = React.memo(function ChatBubble({ msg }: { msg: { id: string; type: 'user' | 'ai' | 'system'; content: string; timestamp: string } }) {
+const ChatBubble = React.memo(function ChatBubble({
+  msg,
+  sessionId,
+  role,
+}: {
+  msg: ChatMessage;
+  sessionId: string | null;
+  role: string;
+}) {
   if (msg.type === 'system') {
     return (
       <div className="flex items-center justify-center">
@@ -524,6 +532,7 @@ const ChatBubble = React.memo(function ChatBubble({ msg }: { msg: { id: string; 
   }
 
   const isUser = msg.type === 'user';
+  const showDownload = !isUser && sessionId && role !== 'chief_designer' && msg.content.length > 0;
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -545,8 +554,20 @@ const ChatBubble = React.memo(function ChatBubble({ msg }: { msg: { id: string; 
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
           </div>
         )}
-        <div className={`text-[10px] mt-1 ${isUser ? 'text-white/60' : 'text-ink/50'}`}>
-          {msg.timestamp}
+        <div className="flex items-center justify-between mt-1">
+          <div className={`text-[10px] ${isUser ? 'text-white/60' : 'text-ink/50'}`}>
+            {msg.timestamp}
+          </div>
+          {showDownload && (
+            <a
+              href={`/api/sessions/${sessionId}/files/download?path=${encodeURIComponent('single/output.md')}`}
+              download
+              className="flex items-center gap-1 text-[10px] text-ink/60 hover:text-coral"
+            >
+              <Download size={12} />
+              下载
+            </a>
+          )}
         </div>
       </div>
     </motion.div>
