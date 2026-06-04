@@ -25,7 +25,7 @@ export default function RightPanel({
   const [activeTab, setActiveTab] = useState<'steps' | 'logs'>('steps');
 
   return (
-    <div className="h-full flex flex-col bg-white border-l border-ink/8 shadow-sm w-[420px] shrink-0">
+    <div className="h-full flex flex-col bg-white border-l border-ink/8 shadow-sm flex-1 min-w-[420px]">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-ink/8 shrink-0">
         <span className="text-sm font-semibold tracking-wider uppercase text-ink/90">
