@@ -16,6 +16,10 @@ export function setWorkspaceManager(ws: WorkspaceManager) {
   workspaceManagerInstance = ws;
 }
 
+function isValidSessionId(id: string): boolean {
+  return /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
 export const sessionsRoute = new Hono();
 
 sessionsRoute.get("/", async (c) => {
@@ -52,7 +56,15 @@ sessionsRoute.get("/:id/files", async (c) => {
   if (!workspaceManagerInstance) {
     return c.json({ error: "WorkspaceManager not initialized" }, 503);
   }
+  if (!sessionManagerInstance) {
+    return c.json({ error: "SessionManager not initialized" }, 503);
+  }
   const sessionId = c.req.param("id");
+  if (!isValidSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
+  const session = await sessionManagerInstance.get(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
 
   try {
     const taskDirs = await workspaceManagerInstance.listTasks(sessionId);
@@ -100,6 +112,11 @@ sessionsRoute.get("/:id/files/download", async (c) => {
     return c.json({ error: "WorkspaceManager not initialized" }, 503);
   }
   const sessionId = c.req.param("id");
+  if (!isValidSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
+  const session = await sessionManagerInstance?.get(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
   const rawPath = c.req.query("path") ?? "";
   const safePath = sanitizeFilePath(rawPath);
   if (!safePath) {
@@ -130,6 +147,11 @@ sessionsRoute.get("/:id/files/zip", async (c) => {
     return c.json({ error: "WorkspaceManager not initialized" }, 503);
   }
   const sessionId = c.req.param("id");
+  if (!isValidSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
+  const session = await sessionManagerInstance?.get(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
   const zip = new JSZip();
 
   try {
