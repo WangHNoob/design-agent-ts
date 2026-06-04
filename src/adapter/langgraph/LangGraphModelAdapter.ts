@@ -1,5 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
+import { AIMessageChunk } from "@langchain/core/messages";
 import type { ChatModelPort } from "../../port/model/ChatModelPort.js";
 import type { ModelOptions } from "../../port/model/ModelOptions.js";
 import type { ModelResponse } from "../../port/model/ModelResponse.js";
@@ -54,20 +55,34 @@ export class LangGraphModelAdapter implements ChatModelPort {
     const lgMessages = this.messageMapper.toLangGraphList(messages);
     const lcOptions = this.mapOptions(options);
 
-    const LLM_TIMEOUT_MS = 300_000; // 5 minutes
+    // Use streaming internally to avoid Anthropic SDK's 10-minute timeout
+    // for non-streaming requests with high max_tokens.
+    const LLM_TIMEOUT_MS = 300_000; // 5 minutes total
+
+    const collectStream = async () => {
+      const stream = await this.langchainModel.stream(lgMessages, lcOptions);
+      let aggregated: AIMessageChunk | null = null;
+      for await (const chunk of stream) {
+        aggregated = aggregated ? aggregated.concat(chunk) : chunk;
+      }
+      if (!aggregated) throw new Error("LLM stream returned no chunks");
+      return aggregated;
+    };
+
     const response = await Promise.race([
-      this.langchainModel.invoke(lgMessages, lcOptions),
+      collectStream(),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`LLM call timed out after ${LLM_TIMEOUT_MS}ms`)), LLM_TIMEOUT_MS)
+        setTimeout(() => reject(new Error(`LLM stream timed out after ${LLM_TIMEOUT_MS}ms`)), LLM_TIMEOUT_MS)
       ),
     ]);
+
     const chatMessage = this.messageMapper.fromLangGraph(response);
 
     return {
       message: chatMessage,
       inputTokenCount: response.usage_metadata?.input_tokens ?? 0,
       outputTokenCount: response.usage_metadata?.output_tokens ?? 0,
-      finishReason: (response.response_metadata?.finish_reason as string | null | undefined) ?? null,
+      finishReason: ((response.response_metadata?.finish_reason ?? response.response_metadata?.stop_reason) as string | null | undefined) ?? null,
     };
   }
 
@@ -84,7 +99,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
         message: chatMessage,
         inputTokenCount: chunk.usage_metadata?.input_tokens ?? 0,
         outputTokenCount: chunk.usage_metadata?.output_tokens ?? 0,
-        finishReason: (chunk.response_metadata?.finish_reason as string | null | undefined) ?? null,
+        finishReason: ((chunk.response_metadata?.finish_reason ?? chunk.response_metadata?.stop_reason) as string | null | undefined) ?? null,
       };
     }
   }

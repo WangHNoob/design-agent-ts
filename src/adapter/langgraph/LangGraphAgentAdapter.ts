@@ -1,7 +1,7 @@
 import { StateGraph, Annotation, START, END, type MemorySaver } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { BaseMessage, AIMessage as AIMessageType } from "@langchain/core/messages";
-import { SystemMessage, AIMessage } from "@langchain/core/messages";
+import { SystemMessage, AIMessage, AIMessageChunk } from "@langchain/core/messages";
 import type { AgentPort } from "../../port/agent/AgentPort.js";
 import type { AgentDescriptor } from "../../port/agent/AgentDescriptor.js";
 import type { AgentResponse } from "../../port/agent/AgentResponse.js";
@@ -92,12 +92,23 @@ export class LangGraphAgentAdapter implements AgentPort {
           );
         }
 
-        console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke with maxTokens=${descriptor.maxTokens ?? "undefined"}`);
-        const response = await (modelWithTools as {
-          invoke(msgs: BaseMessage[], options?: Record<string, unknown>): Promise<BaseMessage>;
-        }).invoke([systemMsg, ...injectedMessages], descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : undefined);
+        console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke (streaming) with maxTokens=${descriptor.maxTokens ?? "undefined"}`);
+        // Use streaming internally to avoid Anthropic SDK's 10-minute timeout
+        // for non-streaming requests with high max_tokens.
+        const stream = await (modelWithTools as {
+          stream(msgs: BaseMessage[], options?: Record<string, unknown>): AsyncIterable<AIMessageChunk>;
+        }).stream([systemMsg, ...injectedMessages], descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : undefined);
 
-        const finishReason = (response as { response_metadata?: { finish_reason?: string } }).response_metadata?.finish_reason;
+        let response: AIMessageChunk | null = null;
+        for await (const chunk of stream) {
+          response = response ? response.concat(chunk) : chunk;
+        }
+        if (!response) {
+          throw new Error("LLM streaming returned no chunks");
+        }
+
+        const metadata = (response as { response_metadata?: Record<string, unknown> }).response_metadata;
+        const finishReason = (metadata?.finish_reason ?? metadata?.stop_reason) as string | undefined;
         console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM response finish_reason=${finishReason ?? "unknown"}, contentLength=${typeof response.content === "string" ? response.content.length : JSON.stringify(response.content).length}`);
 
         const postCtx = await runHooks("post_reasoning", HookContext.create({
@@ -161,12 +172,18 @@ export class LangGraphAgentAdapter implements AgentPort {
 
     const forceFinalOutput = async (state: typeof AgentState.State) => {
       console.warn(`[LangGraphAgentAdapter:${descriptor.name}] Iteration budget exhausted with pending tool calls. Forcing final text output.`);
-      const rawModel = this.model as { invoke(msgs: BaseMessage[]): Promise<BaseMessage> };
+      const rawModel = this.model as { stream(msgs: BaseMessage[]): AsyncIterable<AIMessageChunk> };
       const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
       const finalInstruction = new SystemMessage({
         content: "【系统提示】迭代预算已耗尽，之前规划但尚未执行的工具调用已被取消。请基于你当前已掌握的所有信息，直接输出完整、连贯的最终设计文档。禁止再发起任何工具调用。",
       });
-      const response = await rawModel.invoke([systemMsg, ...state.messages, finalInstruction]);
+      let response: AIMessageChunk | null = null;
+      for await (const chunk of await rawModel.stream([systemMsg, ...state.messages, finalInstruction])) {
+        response = response ? response.concat(chunk) : chunk;
+      }
+      if (!response) {
+        throw new Error("LLM streaming returned no chunks in forceFinalOutput");
+      }
       return { messages: [response], iteration: state.iteration };
     };
 
@@ -241,7 +258,8 @@ export class LangGraphAgentAdapter implements AgentPort {
         lastMessage = result.messages.at(-1);
       }
 
-      const finalFinishReason = (lastMessage as { response_metadata?: { finish_reason?: string } }).response_metadata?.finish_reason;
+      const finalMetadata = (lastMessage as { response_metadata?: Record<string, unknown> }).response_metadata;
+      const finalFinishReason = (finalMetadata?.finish_reason ?? finalMetadata?.stop_reason) as string | undefined;
       console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] Final finish_reason=${finalFinishReason ?? "unknown"}`);
 
       let responseMessage = lastMessage
