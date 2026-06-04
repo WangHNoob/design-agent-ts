@@ -1,7 +1,7 @@
 import { StateGraph, Annotation, START, END, type MemorySaver } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { BaseMessage, AIMessage as AIMessageType } from "@langchain/core/messages";
-import { SystemMessage } from "@langchain/core/messages";
+import { SystemMessage, AIMessage } from "@langchain/core/messages";
 import type { AgentPort } from "../../port/agent/AgentPort.js";
 import type { AgentDescriptor } from "../../port/agent/AgentDescriptor.js";
 import type { AgentResponse } from "../../port/agent/AgentResponse.js";
@@ -188,7 +188,18 @@ export class LangGraphAgentAdapter implements AgentPort {
         config
       );
 
-      const lastMessage = result.messages.at(-1);
+      // Prefer the last AIMessage as the response (not ToolMessage or HumanMessage)
+      let lastMessage: BaseMessage | undefined;
+      for (let i = result.messages.length - 1; i >= 0; i--) {
+        if (result.messages[i] instanceof AIMessage) {
+          lastMessage = result.messages[i];
+          break;
+        }
+      }
+      if (!lastMessage && result.messages.length > 0) {
+        lastMessage = result.messages.at(-1);
+      }
+
       const responseMessage = lastMessage
         ? this.messageMapper.fromLangGraph(lastMessage)
         : null;

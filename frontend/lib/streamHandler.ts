@@ -335,15 +335,13 @@ export function handleStreamEvent(
 
     case 'complete': {
       const output = (d.output as string) || store.getTask(sessionId)?.streamingText || '';
-      if (output) {
-        const msg: ChatMessage = {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
-          type: 'ai',
-          content: output,
-          timestamp: getCurrentTime(),
-        };
-        store.appendMessage(sessionId, msg);
-      }
+      const msg: ChatMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+        type: output ? 'ai' : 'system',
+        content: output || '执行完成，但 Agent 未返回任何输出内容。',
+        timestamp: getCurrentTime(),
+      };
+      store.appendMessage(sessionId, msg);
 
       store.updateTask(sessionId, {
         streaming: false,
@@ -357,15 +355,15 @@ export function handleStreamEvent(
         id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
         type: 'complete',
-        title: '执行完成',
+        title: output ? '执行完成' : '执行完成（无输出）',
         status: 'completed',
       });
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
-        level: 'info',
+        level: output ? 'info' : 'warn',
         source: 'System',
-        message: '执行完成',
+        message: output ? '执行完成' : '执行完成，但输出为空',
         data: { outputLength: output.length },
       });
       break;
