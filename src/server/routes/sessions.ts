@@ -115,6 +115,9 @@ sessionsRoute.get("/:id/files/download", async (c) => {
   try {
     const content = await fs.readFile(fullPath);
     const fileName = path.basename(safePath);
+    const ext = path.extname(fileName).toLowerCase();
+    const contentType = ext === ".md" ? "text/markdown; charset=utf-8" : "application/octet-stream";
+    c.header("Content-Type", contentType);
     c.header("Content-Disposition", `attachment; filename="${fileName}"`);
     return c.body(content);
   } catch {
@@ -146,7 +149,7 @@ sessionsRoute.get("/:id/files/zip", async (c) => {
 
     const buffer = await zip.generateAsync({ type: "nodebuffer" });
     c.header("Content-Type", "application/zip");
-    c.header("Content-Disposition", `attachment; filename="${sessionId}_files.zip"`);
+    c.header("Content-Disposition", `attachment; filename="design-output-${sessionId}.zip"`);
     return c.body(new Uint8Array(buffer));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
