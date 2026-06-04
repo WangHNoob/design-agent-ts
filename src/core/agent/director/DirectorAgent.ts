@@ -535,6 +535,10 @@ export class DirectorAgent {
     });
 
     try {
+      if (this.deps.workspace) {
+        await this.deps.workspace.initialize(sessionId);
+      }
+
       yield { type: "plan", data: { message: "Planning tasks..." } };
       const skill = this.deps.skillRegistry.matchSkill(requirement, role);
       const plan = await this.taskPlanner.plan(requirement, role, skill);
@@ -552,11 +556,13 @@ export class DirectorAgent {
         .map((decision): TaskAssignment | null => {
           const descriptor = getSubAgentDescriptor(decision.agentName);
           if (!descriptor) return null;
+          const originalSubTask = plan.subTasks.find((st) => st.id === decision.fragmentId || st.fragmentId === decision.fragmentId);
           return {
             taskId: decision.fragmentId,
             domain: decision.domain,
             assignment: decision.assignment,
             agentDescriptor: descriptor,
+            dependencies: originalSubTask?.dependencies ?? [],
           };
         })
         .filter((a): a is TaskAssignment => a !== null);
@@ -564,27 +570,30 @@ export class DirectorAgent {
       const mergedPlan = {
         planId: plan.planId,
         requirement,
-        subTasks: assignments.map((a) => ({
-          id: a.taskId,
-          fragmentId: a.taskId,
-          domain: a.domain,
-          description: a.assignment,
-          dependencies: [],
-          priority: 1,
-        })),
+        subTasks: assignments.map((a) => {
+          const originalSubTask = plan.subTasks.find((st) => st.id === a.taskId || st.fragmentId === a.taskId);
+          return {
+            id: a.taskId,
+            fragmentId: a.taskId,
+            domain: a.domain,
+            description: a.assignment,
+            dependencies: originalSubTask?.dependencies ?? [],
+            priority: originalSubTask?.priority ?? 1,
+          };
+        }),
       };
 
       const results: TaskResult[] = [];
       for (const task of mergedPlan.subTasks) {
         yield { type: "task_start", data: { taskId: task.id, domain: task.domain, description: task.description } };
 
-        // Pass EventBus to executeSingleTask via hooks
         const result = await this.executeSingleTaskWithHooks(
           {
             taskId: task.id,
             domain: task.domain,
             assignment: task.description,
             agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor ?? getSubAgentDescriptor("SystemDesigner")!,
+            dependencies: task.dependencies,
           },
           sessionId,
           undefined,
