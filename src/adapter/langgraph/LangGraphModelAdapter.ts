@@ -1,6 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
-import { AIMessageChunk } from "@langchain/core/messages";
+import { AIMessage, AIMessageChunk } from "@langchain/core/messages";
 import type { ChatModelPort } from "../../port/model/ChatModelPort.js";
 import type { ModelOptions } from "../../port/model/ModelOptions.js";
 import type { ModelResponse } from "../../port/model/ModelResponse.js";
@@ -61,12 +61,57 @@ export class LangGraphModelAdapter implements ChatModelPort {
 
     const collectStream = async () => {
       const stream = await this.langchainModel.stream(lgMessages, lcOptions);
-      let aggregated: AIMessageChunk | null = null;
+
+      // Aggregate chunks with proper block-level merging (same id → append text)
+      // instead of AIMessageChunk.concat() which just concatenates arrays.
+      const contentBlocks = new Map<string, Record<string, unknown>>();
+      let textContent = "";
+      let hasArrayContent = false;
+      let lastMetadata: Record<string, unknown> = {};
+      let lastAdditionalKwargs: Record<string, unknown> = {};
+      let usageInput = 0;
+      let usageOutput = 0;
+
       for await (const chunk of stream) {
-        aggregated = aggregated ? aggregated.concat(chunk) : chunk;
+        const content = chunk.content;
+        if (typeof content === "string") {
+          textContent += content;
+        } else if (Array.isArray(content)) {
+          hasArrayContent = true;
+          for (const block of content) {
+            if (typeof block !== "object" || block === null) continue;
+            const b = block as Record<string, unknown>;
+            const id = (b.id as string) ?? `_idx_${contentBlocks.size}`;
+            if (contentBlocks.has(id)) {
+              const existing = contentBlocks.get(id)!;
+              if (typeof existing.text === "string" && typeof b.text === "string") {
+                existing.text += b.text;
+              }
+            } else {
+              contentBlocks.set(id, { ...b });
+            }
+          }
+        }
+        if (chunk.response_metadata) {
+          lastMetadata = { ...lastMetadata, ...(chunk.response_metadata as Record<string, unknown>) };
+        }
+        if (chunk.additional_kwargs) {
+          lastAdditionalKwargs = { ...lastAdditionalKwargs, ...chunk.additional_kwargs };
+        }
+        if (chunk.usage_metadata?.input_tokens) usageInput = chunk.usage_metadata.input_tokens;
+        if (chunk.usage_metadata?.output_tokens) usageOutput = chunk.usage_metadata.output_tokens;
       }
-      if (!aggregated) throw new Error("LLM stream returned no chunks");
-      return aggregated;
+
+      const finalContent = hasArrayContent
+        ? (Array.from(contentBlocks.values()) as unknown as string)
+        : textContent;
+
+      return new AIMessage({
+        content: finalContent,
+        response_metadata: lastMetadata,
+        additional_kwargs: lastAdditionalKwargs,
+        usage_metadata: { input_tokens: usageInput, output_tokens: usageOutput, total_tokens: usageInput + usageOutput },
+      });
     };
 
     const response = await Promise.race([

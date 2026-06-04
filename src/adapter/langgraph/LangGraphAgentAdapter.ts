@@ -37,6 +37,97 @@ export class LangGraphAgentAdapter implements AgentPort {
     this.compiledGraph = this.buildGraph(tools);
   }
 
+  /**
+   * Aggregate an Anthropic/OpenAI streaming response into a single AIMessage.
+   *
+   * AIMessageChunk.concat() simply concatenates content arrays, which breaks
+   * Anthropic's block-level streaming (each chunk carries a partial block with
+   * the same id, producing many duplicate blocks). This helper merges content
+   * blocks by their `id`, concatenates partial tool_call_chunks into proper
+   * tool_calls, and keeps response_metadata from the last chunk.
+   */
+  private async aggregateStream(chunks: AsyncIterable<AIMessageChunk>): Promise<AIMessage> {
+    const contentBlocks = new Map<string, Record<string, unknown>>();
+    let textContent = "";
+    let hasArrayContent = false;
+    const toolCallMap = new Map<string, { id: string; name: string; args: string }>();
+    let lastMetadata: Record<string, unknown> = {};
+    let lastAdditionalKwargs: Record<string, unknown> = {};
+
+    for await (const chunk of chunks) {
+      const content = chunk.content;
+
+      if (typeof content === "string") {
+        textContent += content;
+      } else if (Array.isArray(content)) {
+        hasArrayContent = true;
+        for (const block of content) {
+          if (typeof block !== "object" || block === null) continue;
+          const b = block as Record<string, unknown>;
+          const id = (b.id as string) ?? `_idx_${contentBlocks.size}`;
+
+          if (contentBlocks.has(id)) {
+            const existing = contentBlocks.get(id)!;
+            if (typeof existing.text === "string" && typeof b.text === "string") {
+              existing.text += b.text;
+            }
+            if (typeof existing.partial_json === "string" && typeof b.partial_json === "string") {
+              existing.partial_json += b.partial_json;
+            }
+          } else {
+            contentBlocks.set(id, { ...b });
+          }
+        }
+      }
+
+      // Aggregate partial tool call chunks
+      const tcChunks = (chunk as unknown as { tool_call_chunks?: Array<{ id?: string; name?: string; args?: string; index?: number }> }).tool_call_chunks;
+      if (tcChunks) {
+        for (const tc of tcChunks) {
+          const id = tc.id ?? `_tc_${tc.index ?? toolCallMap.size}`;
+          if (toolCallMap.has(id)) {
+            const existing = toolCallMap.get(id)!;
+            if (tc.args) existing.args += tc.args;
+            if (tc.name && !existing.name) existing.name = tc.name;
+            if (tc.id && !existing.id) existing.id = tc.id;
+          } else {
+            toolCallMap.set(id, { id: tc.id ?? "", name: tc.name ?? "", args: tc.args ?? "" });
+          }
+        }
+      }
+
+      if (chunk.response_metadata) {
+        lastMetadata = { ...lastMetadata, ...(chunk.response_metadata as Record<string, unknown>) };
+      }
+      if (chunk.additional_kwargs) {
+        lastAdditionalKwargs = { ...lastAdditionalKwargs, ...chunk.additional_kwargs };
+      }
+    }
+
+    // Build final tool_calls
+    const toolCalls = Array.from(toolCallMap.values())
+      .filter((tc) => tc.name)
+      .map((tc) => {
+        let parsedArgs: Record<string, unknown> = {};
+        try { parsedArgs = JSON.parse(tc.args || "{}"); } catch { /* keep empty */ }
+        return { id: tc.id, name: tc.name, args: parsedArgs };
+      });
+
+    // Use array blocks if present, otherwise the concatenated string.
+    // Cast needed because Anthropic content blocks are runtime objects, not
+    // the narrower TypeScript types expected by AIMessage's constructor.
+    const msgContent = hasArrayContent
+      ? (Array.from(contentBlocks.values()) as unknown as string)
+      : textContent;
+
+    return new AIMessage({
+      content: msgContent,
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+      response_metadata: lastMetadata,
+      additional_kwargs: lastAdditionalKwargs,
+    });
+  }
+
   private async runHooks(point: import("../../port/hook/HookPoint.js").HookPoint, context: import("../../port/hook/HookContext.js").HookContext): Promise<import("../../port/hook/HookContext.js").HookContext> {
     let ctx = context;
     const sortedHooks = [...this.hooks].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
@@ -99,15 +190,9 @@ export class LangGraphAgentAdapter implements AgentPort {
           stream(msgs: BaseMessage[], options?: Record<string, unknown>): AsyncIterable<AIMessageChunk>;
         }).stream([systemMsg, ...injectedMessages], descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : undefined);
 
-        let response: AIMessageChunk | null = null;
-        for await (const chunk of stream) {
-          response = response ? response.concat(chunk) : chunk;
-        }
-        if (!response) {
-          throw new Error("LLM streaming returned no chunks");
-        }
+        const response = await this.aggregateStream(stream);
 
-        const metadata = (response as { response_metadata?: Record<string, unknown> }).response_metadata;
+        const metadata = response.response_metadata as Record<string, unknown> | undefined;
         const finishReason = (metadata?.finish_reason ?? metadata?.stop_reason) as string | undefined;
         console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM response finish_reason=${finishReason ?? "unknown"}, contentLength=${typeof response.content === "string" ? response.content.length : JSON.stringify(response.content).length}`);
 
@@ -177,13 +262,9 @@ export class LangGraphAgentAdapter implements AgentPort {
       const finalInstruction = new SystemMessage({
         content: "【系统提示】迭代预算已耗尽，之前规划但尚未执行的工具调用已被取消。请基于你当前已掌握的所有信息，直接输出完整、连贯的最终设计文档。禁止再发起任何工具调用。",
       });
-      let response: AIMessageChunk | null = null;
-      for await (const chunk of await rawModel.stream([systemMsg, ...state.messages, finalInstruction])) {
-        response = response ? response.concat(chunk) : chunk;
-      }
-      if (!response) {
-        throw new Error("LLM streaming returned no chunks in forceFinalOutput");
-      }
+      const response = await this.aggregateStream(
+        await rawModel.stream([systemMsg, ...state.messages, finalInstruction])
+      );
       return { messages: [response], iteration: state.iteration };
     };
 
