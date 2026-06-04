@@ -7,7 +7,7 @@ import { loadSkills } from "./SkillLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
 import { configureSubAgentDescriptors } from "../core/agent/subagents/SubAgentFactory.js";
 import { setDirector, setConsoleSessionManager, setConsoleHITLManager } from "./routes/console.js";
-import { setSessionManager } from "./routes/sessions.js";
+import { setSessionManager, setWorkspaceManager } from "./routes/sessions.js";
 import { setHITLManager } from "./routes/hitl.js";
 import { SessionManager } from "../core/session/SessionManager.js";
 import { HITLManager } from "../core/hitl/HITLManager.js";
@@ -56,6 +56,7 @@ let bootstrapState: {
   directorPrompts: Record<string, string | undefined>;
   hooks: import("../port/hook/AgentHook.js").AgentHook[];
   fileSystem: NodeFileSystemAdapter;
+  workspaceManager: WorkspaceManager;
 } | null = null;
 
 export function getBootstrapState() {
@@ -68,7 +69,7 @@ export function isDirectorReady(): boolean {
 
 export async function lateBootstrapDirector(): Promise<void> {
   if (!bootstrapState) throw new Error("Bootstrap not yet called");
-  const { config, toolRegistry, skillRegistry, settingsManager, tavilyTool, directorPrompts, hooks, fileSystem } = bootstrapState;
+  const { config, toolRegistry, skillRegistry, settingsManager, tavilyTool, directorPrompts, hooks, workspaceManager } = bootstrapState;
 
   const settings = settingsManager.getSettings();
   const apiKey = settings.modelApiKey || config.model.apiKey;
@@ -106,7 +107,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     hooks,
     prompts: directorPrompts,
     idGenerator: new NodeIdGeneratorAdapter(),
-    workspace: new WorkspaceManager("workspace", fileSystem),
+    workspace: workspaceManager,
     limits: {
       queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
@@ -217,8 +218,10 @@ export async function bootstrap() {
     setRuntimeBridgeReporter(new NoOpRuntimeStatusReporter());
   }
 
+  const workspaceManager = new WorkspaceManager("workspace", fileSystem);
+
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager };
 
   const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
   await sessionManager.initialize();
@@ -229,6 +232,7 @@ export async function bootstrap() {
   setConsoleSessionManager(sessionManager);
   setConsoleHITLManager(hitlManager);
   setSessionManager(sessionManager);
+  setWorkspaceManager(workspaceManager);
   setHITLManager(hitlManager);
   setSettingsManager(settingsManager);
   setTavilyTool(tavilyTool);
@@ -267,7 +271,7 @@ export async function bootstrap() {
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),
-      workspace: new WorkspaceManager("workspace", fileSystem),
+      workspace: workspaceManager,
       limits: {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
