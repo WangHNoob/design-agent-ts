@@ -39,7 +39,8 @@ export function setConsoleHITLManager(hm: HITLManager) {
 
 export const consoleRoute = new Hono();
 
-const executingSessions = new Set<string>();
+/** Active AbortControllers per session — used to cancel running executions. */
+const activeControllers = new Map<string, AbortController>();
 
 function validateExecuteRequest(body: ExecuteRequest): string | null {
   if (!body.requirement || body.requirement.trim().length === 0) {
@@ -76,7 +77,7 @@ consoleRoute.post("/execute", async (c) => {
   }
 
   // Concurrent execution guard
-  if (executingSessions.has(sessionId)) {
+  if (activeControllers.has(sessionId)) {
     return c.json<ExecuteResponse>({
       success: false,
       output: null,
@@ -84,7 +85,8 @@ consoleRoute.post("/execute", async (c) => {
       sessionId,
     }, 409);
   }
-  executingSessions.add(sessionId);
+  const abortController = new AbortController();
+  activeControllers.set(sessionId, abortController);
 
   // track session
   await sessionManagerInstance?.create({
@@ -96,19 +98,23 @@ consoleRoute.post("/execute", async (c) => {
   });
 
   try {
-    const response = await directorInstance.execute(body.requirement, sessionId, body.mode, role, body.history);
+    const response = await directorInstance.execute(
+      body.requirement, sessionId, body.mode, role, body.history,
+      { signal: abortController.signal }
+    );
     const output = AR.getTextContent(response);
 
+    const isAborted = abortController.signal.aborted;
     await sessionManagerInstance?.update(sessionId, {
-      status: response.success ? "completed" : "failed",
+      status: isAborted ? "failed" : (response.success ? "completed" : "failed"),
       output: output ?? undefined,
-      error: response.errorMessage ?? undefined,
+      error: isAborted ? "Cancelled by user" : (response.errorMessage ?? undefined),
     });
 
     return c.json<ExecuteResponse>({
-      success: response.success,
+      success: isAborted ? false : response.success,
       output,
-      error: response.errorMessage,
+      error: isAborted ? "Cancelled by user" : response.errorMessage,
       sessionId,
     });
   } catch (err) {
@@ -125,7 +131,7 @@ consoleRoute.post("/execute", async (c) => {
       sessionId,
     }, 500);
   } finally {
-    executingSessions.delete(sessionId);
+    activeControllers.delete(sessionId);
   }
 });
 
@@ -144,10 +150,20 @@ consoleRoute.post("/execute/stream", async (c) => {
   }
 
   // Concurrent execution guard
-  if (executingSessions.has(sessionId)) {
+  if (activeControllers.has(sessionId)) {
     return c.json({ error: "concurrent_execution", message: "Session already has an active execution" }, 409);
   }
-  executingSessions.add(sessionId);
+  const abortController = new AbortController();
+  activeControllers.set(sessionId, abortController);
+
+  // Detect client disconnect: when the SSE client aborts the fetch,
+  // propagate that into our AbortController so backend processing stops.
+  const clientSignal = c.req.raw.signal;
+  const onClientAbort = () => {
+    console.log(`[console.ts] Client disconnected for session ${sessionId}, aborting execution`);
+    abortController.abort();
+  };
+  clientSignal.addEventListener("abort", onClientAbort, { once: true });
 
   await sessionManagerInstance?.create({
     id: sessionId,
@@ -182,7 +198,8 @@ consoleRoute.post("/execute/stream", async (c) => {
             sessionId,
             body.mode,
             role,
-            body.history
+            body.history,
+            { signal: abortController.signal }
           );
 
           let finalOutput = "";
@@ -232,21 +249,29 @@ consoleRoute.post("/execute/stream", async (c) => {
             }
           }
 
+          const isAborted = abortController.signal.aborted;
           await sessionManagerInstance?.update(sessionId, {
-            status: hasError ? "failed" : "completed",
+            status: isAborted ? "failed" : (hasError ? "failed" : "completed"),
             output: finalOutput || undefined,
-            error: errorMsg || undefined,
+            error: isAborted ? "Cancelled by user" : (errorMsg || undefined),
           });
         });
 
         controller.close();
       } catch (err) {
+        const isAborted = abortController.signal.aborted;
         const errorMsg = err instanceof Error ? err.message : String(err);
-        await sessionManagerInstance?.update(sessionId, { status: "failed", error: errorMsg });
-        send("error", { error: errorMsg, sessionId });
+        await sessionManagerInstance?.update(sessionId, {
+          status: "failed",
+          error: isAborted ? "Cancelled by user" : errorMsg,
+        });
+        if (!isAborted) {
+          send("error", { error: errorMsg, sessionId });
+        }
         controller.close();
       } finally {
-        executingSessions.delete(sessionId);
+        clientSignal.removeEventListener("abort", onClientAbort);
+        activeControllers.delete(sessionId);
       }
     },
   });
@@ -258,4 +283,29 @@ consoleRoute.post("/execute/stream", async (c) => {
       Connection: "keep-alive",
     },
   });
+});
+
+/** Cancel an active execution session. */
+consoleRoute.post("/cancel", async (c) => {
+  const body = await c.req.json<{ sessionId: string }>();
+  const { sessionId } = body;
+
+  if (!sessionId) {
+    return c.json({ success: false, error: "sessionId is required" }, 400);
+  }
+
+  const controller = activeControllers.get(sessionId);
+  if (!controller) {
+    return c.json({ success: false, error: "No active execution for this session" }, 404);
+  }
+
+  console.log(`[console.ts] Cancelling session ${sessionId}`);
+  controller.abort();
+
+  await sessionManagerInstance?.update(sessionId, {
+    status: "failed",
+    error: "Cancelled by user",
+  });
+
+  return c.json({ success: true, sessionId });
 });

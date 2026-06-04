@@ -2,7 +2,7 @@ import { StateGraph, Annotation, START, END, type MemorySaver } from "@langchain
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { BaseMessage, AIMessage as AIMessageType } from "@langchain/core/messages";
 import { SystemMessage, HumanMessage, AIMessage, AIMessageChunk } from "@langchain/core/messages";
-import type { AgentPort } from "../../port/agent/AgentPort.js";
+import type { AgentPort, AgentProcessOptions } from "../../port/agent/AgentPort.js";
 import type { AgentDescriptor } from "../../port/agent/AgentDescriptor.js";
 import type { AgentResponse } from "../../port/agent/AgentResponse.js";
 import { ChatMessage } from "../../port/message/ChatMessage.js";
@@ -153,7 +153,13 @@ export class LangGraphAgentAdapter implements AgentPort {
     const hooks = this.hooks;
     const runHooks = this.runHooks.bind(this);
 
-    const llmCall = async (state: typeof AgentState.State) => {
+    const llmCall = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {
+      // Early abort check
+      if (config?.signal?.aborted) {
+        console.log(`[LangGraphAgentAdapter:${descriptor.name}] Aborted before LLM call`);
+        return { messages: [], iteration: state.iteration };
+      }
+
       const hookCtx = HookContext.create({
         agentName: descriptor.name,
         sessionId: state.sessionId,
@@ -192,9 +198,13 @@ export class LangGraphAgentAdapter implements AgentPort {
         console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke (streaming) with maxTokens=${descriptor.maxTokens ?? "undefined"}`);
         // Use streaming internally to avoid Anthropic SDK's 10-minute timeout
         // for non-streaming requests with high max_tokens.
+        const streamOptions: Record<string, unknown> = descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : {};
+        if (config?.signal) {
+          streamOptions.signal = config.signal;
+        }
         const stream = await (modelWithTools as {
           stream(msgs: BaseMessage[], options?: Record<string, unknown>): AsyncIterable<AIMessageChunk>;
-        }).stream([systemMsg, ...injectedMessages], descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : undefined);
+        }).stream([systemMsg, ...injectedMessages], streamOptions);
 
         const response = await this.aggregateStream(stream);
 
@@ -211,6 +221,18 @@ export class LangGraphAgentAdapter implements AgentPort {
 
         return { messages: [response], iteration: state.iteration + 1 };
       } catch (err) {
+        // Handle abort gracefully
+        const isAbort = err instanceof Error && (
+          err.name === "AbortError" ||
+          err.message.includes("abort") ||
+          err.message.includes("Abort") ||
+          config?.signal?.aborted
+        );
+        if (isAbort) {
+          console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM call aborted by signal`);
+          return { messages: [], iteration: state.iteration };
+        }
+
         const error = err instanceof Error ? err : new Error(String(err));
         // Log detailed error for API debugging
         console.error(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke failed:`, error.message);
@@ -261,17 +283,21 @@ export class LangGraphAgentAdapter implements AgentPort {
       return result;
     };
 
-    const forceFinalOutput = async (state: typeof AgentState.State) => {
+    const forceFinalOutput = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {
       console.warn(`[LangGraphAgentAdapter:${descriptor.name}] Iteration budget exhausted with pending tool calls. Forcing final text output.`);
-      const rawModel = this.model as { stream(msgs: BaseMessage[]): AsyncIterable<AIMessageChunk> };
+      const rawModel = this.model as { stream(msgs: BaseMessage[], options?: Record<string, unknown>): AsyncIterable<AIMessageChunk> };
       const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
       // Use HumanMessage for the final instruction because Anthropic only
       // allows system messages as the first message in the conversation.
       const finalInstruction = new HumanMessage({
         content: "【系统提示】迭代预算已耗尽，之前规划但尚未执行的工具调用已被取消。请基于你当前已掌握的所有信息，直接输出完整、连贯的最终设计文档。禁止再发起任何工具调用。",
       });
+      const streamOptions: Record<string, unknown> = {};
+      if (config?.signal) {
+        streamOptions.signal = config.signal;
+      }
       const response = await this.aggregateStream(
-        await rawModel.stream([systemMsg, ...state.messages, finalInstruction])
+        await rawModel.stream([systemMsg, ...state.messages, finalInstruction], streamOptions)
       );
       return { messages: [response], iteration: state.iteration };
     };
@@ -308,8 +334,19 @@ export class LangGraphAgentAdapter implements AgentPort {
     return builder.compile({ checkpointer: this.checkpointer });
   }
 
-  async process(sessionId: string, messages: ChatMessage[]): Promise<AgentResponse> {
+  async process(sessionId: string, messages: ChatMessage[], options?: AgentProcessOptions): Promise<AgentResponse> {
     try {
+      // Early abort check
+      if (options?.signal?.aborted) {
+        return {
+          agentName: this.descriptor.name,
+          message: null,
+          metadata: { aborted: true },
+          success: false,
+          errorMessage: "Aborted before execution",
+        };
+      }
+
       const preCtx = await this.runHooks("pre_agent_call", HookContext.create({
         agentName: this.descriptor.name,
         sessionId,
@@ -327,7 +364,13 @@ export class LangGraphAgentAdapter implements AgentPort {
 
       const lgMessages = this.messageMapper.toLangGraphList(messages);
       const recursionLimit = this.descriptor.maxIterations * 2 + 4;
-      const config = { configurable: { thread_id: sessionId }, recursionLimit };
+      const config: Record<string, unknown> = {
+        configurable: { thread_id: sessionId },
+        recursionLimit,
+      };
+      if (options?.signal) {
+        config.signal = options.signal;
+      }
 
       const compiled = this.compiledGraph as { invoke(state: unknown, config: unknown): Promise<{ messages: BaseMessage[] }> };
       const result = await compiled.invoke(
@@ -390,6 +433,23 @@ export class LangGraphAgentAdapter implements AgentPort {
         errorMessage: null,
       };
     } catch (err) {
+      // Handle abort gracefully
+      const isAbort = err instanceof Error && (
+        err.name === "AbortError" ||
+        err.message.includes("abort") ||
+        err.message.includes("Abort")
+      ) || options?.signal?.aborted;
+      if (isAbort) {
+        console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] Process aborted by signal`);
+        return {
+          agentName: this.descriptor.name,
+          message: null,
+          metadata: { aborted: true },
+          success: false,
+          errorMessage: "Aborted by user",
+        };
+      }
+
       await this.runHooks("on_error", HookContext.create({
         agentName: this.descriptor.name,
         sessionId,
@@ -405,7 +465,19 @@ export class LangGraphAgentAdapter implements AgentPort {
     }
   }
 
-  async *processStream(sessionId: string, messages: ChatMessage[]): AsyncIterable<AgentResponse> {
+  async *processStream(sessionId: string, messages: ChatMessage[], options?: AgentProcessOptions): AsyncIterable<AgentResponse> {
+    // Early abort check
+    if (options?.signal?.aborted) {
+      yield {
+        agentName: this.descriptor.name,
+        message: null,
+        metadata: { aborted: true },
+        success: false,
+        errorMessage: "Aborted before execution",
+      };
+      return;
+    }
+
     const preCtx = await this.runHooks("pre_agent_call", HookContext.create({
       agentName: this.descriptor.name,
       sessionId,
@@ -424,7 +496,14 @@ export class LangGraphAgentAdapter implements AgentPort {
 
     const lgMessages = this.messageMapper.toLangGraphList(messages);
     const recursionLimit = this.descriptor.maxIterations * 2 + 4;
-    const config = { configurable: { thread_id: sessionId }, streamMode: "updates" as const, recursionLimit };
+    const config: Record<string, unknown> = {
+      configurable: { thread_id: sessionId },
+      streamMode: "updates" as const,
+      recursionLimit,
+    };
+    if (options?.signal) {
+      config.signal = options.signal;
+    }
 
     const compiled = this.compiledGraph as {
       stream(state: unknown, config: unknown): Promise<AsyncIterable<Record<string, { messages?: BaseMessage[] }>>>;
@@ -439,6 +518,11 @@ export class LangGraphAgentAdapter implements AgentPort {
       let lastLlmMessage: BaseMessage | null = null;
 
       for await (const chunk of stream) {
+        // Check abort between chunks
+        if (options?.signal?.aborted) {
+          console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] Stream aborted by signal`);
+          break;
+        }
         for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
           if (nodeName === "llmCall" && nodeOutput.messages) {
             const lastMsg = nodeOutput.messages.at(-1) as AIMessageType | undefined;
@@ -477,6 +561,24 @@ export class LangGraphAgentAdapter implements AgentPort {
         messages: preCtx.messages ?? [],
       }));
     } catch (err) {
+      // Handle abort gracefully
+      const isAbort = err instanceof Error && (
+        err.name === "AbortError" ||
+        err.message.includes("abort") ||
+        err.message.includes("Abort")
+      ) || options?.signal?.aborted;
+      if (isAbort) {
+        console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] ProcessStream aborted by signal`);
+        yield {
+          agentName: this.descriptor.name,
+          message: null,
+          metadata: { aborted: true },
+          success: false,
+          errorMessage: "Aborted by user",
+        };
+        return;
+      }
+
       await this.runHooks("on_error", HookContext.create({
         agentName: this.descriptor.name,
         sessionId,

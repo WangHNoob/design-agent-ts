@@ -51,75 +51,72 @@ export class LangGraphModelAdapter implements ChatModelPort {
     return this.langchainModel;
   }
 
-  async generate(messages: ChatMessage[], options?: ModelOptions): Promise<ModelResponse> {
+  async generate(messages: ChatMessage[], options?: ModelOptions, signal?: AbortSignal): Promise<ModelResponse> {
     const lgMessages = this.messageMapper.toLangGraphList(messages);
     const lcOptions = this.mapOptions(options);
 
-    // Use streaming internally to avoid Anthropic SDK's 10-minute timeout
-    // for non-streaming requests with high max_tokens.
+    // Combine caller's signal with a hard timeout
     const LLM_TIMEOUT_MS = 300_000; // 5 minutes total
+    const timeoutSignal = AbortSignal.timeout(LLM_TIMEOUT_MS);
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal;
 
-    const collectStream = async () => {
-      const stream = await this.langchainModel.stream(lgMessages, lcOptions);
+    const stream = await this.langchainModel.stream(lgMessages, { ...lcOptions, signal: combinedSignal });
 
-      // Aggregate chunks with proper block-level merging (same id → append text)
-      // instead of AIMessageChunk.concat() which just concatenates arrays.
-      const contentBlocks = new Map<string, Record<string, unknown>>();
-      let textContent = "";
-      let hasArrayContent = false;
-      let lastMetadata: Record<string, unknown> = {};
-      let lastAdditionalKwargs: Record<string, unknown> = {};
-      let usageInput = 0;
-      let usageOutput = 0;
+    // Aggregate chunks with proper block-level merging (same id → append text)
+    // instead of AIMessageChunk.concat() which just concatenates arrays.
+    const contentBlocks = new Map<string, Record<string, unknown>>();
+    let textContent = "";
+    let hasArrayContent = false;
+    let lastMetadata: Record<string, unknown> = {};
+    let lastAdditionalKwargs: Record<string, unknown> = {};
+    let usageInput = 0;
+    let usageOutput = 0;
 
-      for await (const chunk of stream) {
-        const content = chunk.content;
-        if (typeof content === "string") {
-          textContent += content;
-        } else if (Array.isArray(content)) {
-          hasArrayContent = true;
-          for (const block of content) {
-            if (typeof block !== "object" || block === null) continue;
-            const b = block as Record<string, unknown>;
-            const id = (b.id as string) ?? `_idx_${contentBlocks.size}`;
-            if (contentBlocks.has(id)) {
-              const existing = contentBlocks.get(id)!;
-              if (typeof existing.text === "string" && typeof b.text === "string") {
-                existing.text += b.text;
-              }
-            } else {
-              contentBlocks.set(id, { ...b });
+    for await (const chunk of stream) {
+      if (combinedSignal.aborted) {
+        throw new Error("LLM call aborted");
+      }
+      const content = chunk.content;
+      if (typeof content === "string") {
+        textContent += content;
+      } else if (Array.isArray(content)) {
+        hasArrayContent = true;
+        for (const block of content) {
+          if (typeof block !== "object" || block === null) continue;
+          const b = block as Record<string, unknown>;
+          const id = (b.id as string) ?? `_idx_${contentBlocks.size}`;
+          if (contentBlocks.has(id)) {
+            const existing = contentBlocks.get(id)!;
+            if (typeof existing.text === "string" && typeof b.text === "string") {
+              existing.text += b.text;
             }
+          } else {
+            contentBlocks.set(id, { ...b });
           }
         }
-        if (chunk.response_metadata) {
-          lastMetadata = { ...lastMetadata, ...(chunk.response_metadata as Record<string, unknown>) };
-        }
-        if (chunk.additional_kwargs) {
-          lastAdditionalKwargs = { ...lastAdditionalKwargs, ...chunk.additional_kwargs };
-        }
-        if (chunk.usage_metadata?.input_tokens) usageInput = chunk.usage_metadata.input_tokens;
-        if (chunk.usage_metadata?.output_tokens) usageOutput = chunk.usage_metadata.output_tokens;
       }
+      if (chunk.response_metadata) {
+        lastMetadata = { ...lastMetadata, ...(chunk.response_metadata as Record<string, unknown>) };
+      }
+      if (chunk.additional_kwargs) {
+        lastAdditionalKwargs = { ...lastAdditionalKwargs, ...chunk.additional_kwargs };
+      }
+      if (chunk.usage_metadata?.input_tokens) usageInput = chunk.usage_metadata.input_tokens;
+      if (chunk.usage_metadata?.output_tokens) usageOutput = chunk.usage_metadata.output_tokens;
+    }
 
-      const finalContent = hasArrayContent
-        ? (Array.from(contentBlocks.values()) as unknown as string)
-        : textContent;
+    const finalContent = hasArrayContent
+      ? (Array.from(contentBlocks.values()) as unknown as string)
+      : textContent;
 
-      return new AIMessage({
-        content: finalContent,
-        response_metadata: lastMetadata,
-        additional_kwargs: lastAdditionalKwargs,
-        usage_metadata: { input_tokens: usageInput, output_tokens: usageOutput, total_tokens: usageInput + usageOutput },
-      });
-    };
-
-    const response = await Promise.race([
-      collectStream(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`LLM stream timed out after ${LLM_TIMEOUT_MS}ms`)), LLM_TIMEOUT_MS)
-      ),
-    ]);
+    const response = new AIMessage({
+      content: finalContent,
+      response_metadata: lastMetadata,
+      additional_kwargs: lastAdditionalKwargs,
+      usage_metadata: { input_tokens: usageInput, output_tokens: usageOutput, total_tokens: usageInput + usageOutput },
+    });
 
     const chatMessage = this.messageMapper.fromLangGraph(response);
 
@@ -131,14 +128,16 @@ export class LangGraphModelAdapter implements ChatModelPort {
     };
   }
 
-  async *stream(messages: ChatMessage[], options?: ModelOptions): AsyncIterable<ModelResponse> {
+  async *stream(messages: ChatMessage[], options?: ModelOptions, signal?: AbortSignal): AsyncIterable<ModelResponse> {
     const lgMessages = this.messageMapper.toLangGraphList(messages);
     const lcOptions = this.mapOptions(options);
 
-    const stream = await this.langchainModel.stream(lgMessages, lcOptions);
-    const CHUNK_TIMEOUT_MS = 120_000; // 2 minutes per chunk
+    const stream = await this.langchainModel.stream(lgMessages, { ...lcOptions, signal });
 
     for await (const chunk of stream) {
+      if (signal?.aborted) {
+        throw new Error("LLM stream aborted");
+      }
       const chatMessage = this.messageMapper.fromLangGraph(chunk);
       yield {
         message: chatMessage,

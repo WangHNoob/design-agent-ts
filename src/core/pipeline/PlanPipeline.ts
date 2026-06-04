@@ -6,7 +6,8 @@ export class PlanPipeline {
 
   constructor(
     private plan: TaskPlan,
-    private executor: (task: SubTask) => Promise<TaskResult>
+    private executor: (task: SubTask) => Promise<TaskResult>,
+    private signal?: AbortSignal
   ) {
     this.layers = this.topologicalSort(plan);
   }
@@ -15,6 +16,25 @@ export class PlanPipeline {
     const allResults: TaskResult[] = [];
 
     for (const layer of this.layers) {
+      // Check abort between layers
+      if (this.signal?.aborted) {
+        console.log(`[PlanPipeline] Aborted, skipping remaining ${this.layers.length - allResults.length} layers`);
+        // Mark remaining tasks as cancelled
+        const executedIds = new Set(allResults.map(r => r.taskId));
+        for (const task of this.plan.subTasks) {
+          if (!executedIds.has(task.id)) {
+            allResults.push({
+              taskId: task.id,
+              domain: task.domain,
+              status: "cancelled",
+              output: "",
+              errorMessage: "Cancelled by user",
+            });
+          }
+        }
+        return allResults;
+      }
+
       const layerTasks = layer
         .map((id) => this.plan.subTasks.find((t) => t.id === id))
         .filter((t): t is SubTask => t !== undefined);
