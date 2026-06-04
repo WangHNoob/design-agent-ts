@@ -1,5 +1,6 @@
 import type { SkillPort } from "../../port/skill/SkillPort.js";
 import type { SkillWorkflow } from "../../port/skill/SkillPort.js";
+import type { WorkflowTask } from "../../core/schema/TaskPlan.js";
 
 /**
  * Simple SkillWorkflow implementation with empty defaults.
@@ -97,5 +98,13 @@ export class MarkdownSkill implements SkillPort {
     }
 
     return score;
+  }
+
+  getWorkflowTasks(): readonly WorkflowTask[] {
+    return [];
+  }
+
+  getKeywords(): readonly string[] {
+    return [];
   }
 }
