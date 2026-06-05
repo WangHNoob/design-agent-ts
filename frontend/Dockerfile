@@ -9,11 +9,23 @@ ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --legacy-peer-deps
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY . .
-RUN npm run build
+# Copy workspace config (pnpm needs ALL member package.json files)
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.json ./
+COPY .npmrc ./
+COPY frontend/package.json ./frontend/package.json
+
+# Install dependencies with shamefully-hoist for Next.js compatibility
+RUN pnpm install --no-frozen-lockfile --shamefully-hoist
+
+# Copy frontend source
+COPY frontend/ ./frontend/
+
+# Build
+WORKDIR /app/frontend
+RUN pnpm run build
 
 # ==========================================
 # Stage 2: Runner
@@ -25,9 +37,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+COPY --from=builder /app/frontend/.next/standalone ./
+COPY --from=builder /app/frontend/.next/static ./.next/static
+COPY --from=builder /app/frontend/public ./public
 
 EXPOSE 3001
 
