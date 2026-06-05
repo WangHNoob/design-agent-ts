@@ -4,6 +4,7 @@ import type { Container } from "../Container.js";
 import type { TavilySearchTool } from "../../adapter/tavily/TavilySearchTool.js";
 import { syncEnvFromSettings } from "../envSync.js";
 import { isDirectorReady, lateBootstrapDirector } from "../bootstrap.js";
+import { hasActiveExecutions } from "./console.js";
 
 let settingsManagerInstance: SettingsManager | null = null;
 let containerInstance: Container | null = null;
@@ -49,6 +50,14 @@ settingsRoute.post("/", async (c) => {
     return c.json({ error: "SettingsManager not initialized" }, 503);
   }
 
+  // Session lock: prevent config changes while tasks are running
+  if (hasActiveExecutions()) {
+    return c.json(
+      { success: false, error: "无法在任务执行中修改配置，请等待当前任务完成后再试" },
+      409
+    );
+  }
+
   const body = await c.req.json<Partial<import("../../core/settings/SettingsManager.js").AppSettings>>();
   settingsManagerInstance.updateSettings(body);
   await settingsManagerInstance.save();
@@ -67,20 +76,23 @@ settingsRoute.post("/", async (c) => {
   }
 
   // Reconfigure LLM in real-time if model config changed and director is ready
-  if (
-    isDirectorReady() &&
-    containerInstance &&
-    (body.modelProvider !== undefined ||
-      body.modelName !== undefined ||
-      body.modelApiKey !== undefined ||
-      body.modelBaseUrl !== undefined)
-  ) {
+  const modelFieldsChanged =
+    body.modelProvider !== undefined ||
+    body.modelName !== undefined ||
+    body.modelApiKey !== undefined ||
+    body.modelBaseUrl !== undefined ||
+    body.temperature !== undefined ||
+    body.maxTokens !== undefined;
+
+  if (isDirectorReady() && containerInstance && modelFieldsChanged) {
     const settings = settingsManagerInstance.getSettings();
     containerInstance.reconfigureModel({
       provider: (settings.modelProvider as "openai" | "anthropic" | "openai-compatible") ?? "openai",
       modelName: settings.modelName ?? "gpt-4o",
       apiKey: settings.modelApiKey ?? "",
       baseUrl: settings.modelBaseUrl || undefined,
+      maxTokens: settings.maxTokens || undefined,
+      temperature: settings.temperature,
     });
   }
 
