@@ -64,4 +64,9 @@ export class SkillManager implements SkillRegistry {
   getAll(): SkillPort[] {
     return [...this.skills];
   }
+
+  /** Remove all registered skills (used for hot-reload). */
+  clear(): void {
+    this.skills = [];
+  }
 }

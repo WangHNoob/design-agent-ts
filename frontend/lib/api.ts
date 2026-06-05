@@ -261,3 +261,157 @@ export function downloadSessionFile(downloadUrl: string): void {
   a.click();
   document.body.removeChild(a);
 }
+
+// ── Prompts API ──────────────────────────────────────────────
+
+export interface PromptInfo {
+  name: string;
+  preview: string;
+  size: number;
+  isBuiltin: boolean;
+}
+
+export interface PromptDetail {
+  name: string;
+  content: string;
+  isBuiltin: boolean;
+}
+
+export async function listPrompts(): Promise<{ prompts: PromptInfo[] }> {
+  const res = await fetch(`${API_BASE}/api/prompts`);
+  return res.json();
+}
+
+export async function getPrompt(name: string): Promise<PromptDetail> {
+  const res = await fetch(`${API_BASE}/api/prompts/${name}`);
+  if (!res.ok) throw new Error(`Prompt '${name}' not found`);
+  return res.json();
+}
+
+export async function savePrompt(name: string, content: string): Promise<{ success: boolean; isNew: boolean }> {
+  const res = await fetch(`${API_BASE}/api/prompts/${name}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  return res.json();
+}
+
+export async function deletePrompt(name: string): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE}/api/prompts/${name}`, { method: 'DELETE' });
+  return res.json();
+}
+
+// ── Skills API ───────────────────────────────────────────────
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  size: number;
+}
+
+export interface SkillDetail {
+  name: string;
+  description: string;
+  content: string;
+}
+
+export async function listSkills(): Promise<{ skills: SkillInfo[] }> {
+  const res = await fetch(`${API_BASE}/api/skills`);
+  return res.json();
+}
+
+export async function getSkill(name: string): Promise<SkillDetail> {
+  const res = await fetch(`${API_BASE}/api/skills/${name}`);
+  if (!res.ok) throw new Error(`Skill '${name}' not found`);
+  return res.json();
+}
+
+export async function saveSkill(name: string, content: string): Promise<{ success: boolean; isNew: boolean }> {
+  const res = await fetch(`${API_BASE}/api/skills/${name}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  return res.json();
+}
+
+export async function deleteSkill(name: string): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE}/api/skills/${name}`, { method: 'DELETE' });
+  return res.json();
+}
+
+// ── Workflows API ────────────────────────────────────────────
+
+export interface WorkflowTaskDef {
+  taskId: string;
+  domain: string;
+  requirement: string;
+  dependencies: string[];
+  outputType: string;
+  outputTemplate: string;
+}
+
+export interface WorkflowInfo {
+  name: string;
+  description: string;
+  keywords: string[];
+  taskCount: number;
+}
+
+export interface WorkflowDetail {
+  name: string;
+  description: string;
+  keywords: string[];
+  tasks: WorkflowTaskDef[];
+  content: string;
+}
+
+export async function listWorkflows(): Promise<{ workflows: WorkflowInfo[]; validDomains: string[]; validOutputTypes: string[] }> {
+  const res = await fetch(`${API_BASE}/api/workflows`);
+  return res.json();
+}
+
+export async function getWorkflow(name: string): Promise<WorkflowDetail> {
+  const res = await fetch(`${API_BASE}/api/workflows/${name}`);
+  if (!res.ok) throw new Error(`Workflow '${name}' not found`);
+  return res.json();
+}
+
+export async function saveWorkflow(name: string, def: {
+  name: string;
+  description: string;
+  keywords: string[];
+  tasks: WorkflowTaskDef[];
+  body?: string;
+}): Promise<{ success: boolean; isNew: boolean; taskCount: number; errors?: string[] }> {
+  const res = await fetch(`${API_BASE}/api/workflows/${name}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(def),
+  });
+  return res.json();
+}
+
+export async function deleteWorkflow(name: string): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE}/api/workflows/${name}`, { method: 'DELETE' });
+  return res.json();
+}
+
+export async function validateWorkflow(content: string): Promise<{ valid: boolean; errors?: string[]; taskCount?: number }> {
+  const res = await fetch(`${API_BASE}/api/workflows/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  return res.json();
+}
+
+export async function llmGenerateWorkflowContent(prompt: string, context?: string): Promise<{ success: boolean; data: unknown; raw: string }> {
+  const res = await fetch(`${API_BASE}/api/workflows/llm-generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, context }),
+  });
+  return res.json();
+}

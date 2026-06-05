@@ -6,8 +6,8 @@ import { SkillManager } from "../core/skill/SkillManager.js";
 import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
-import { configureSubAgentDescriptors } from "../core/agent/subagents/SubAgentFactory.js";
-import { setDirector, setConsoleSessionManager, setConsoleHITLManager } from "./routes/console.js";
+import { configureSubAgentDescriptors, resetSubAgentDescriptors } from "../core/agent/subagents/SubAgentFactory.js";
+import { setDirector, setConsoleSessionManager, setConsoleHITLManager, hasActiveExecutions } from "./routes/console.js";
 import { setSessionManager, setWorkspaceManager } from "./routes/sessions.js";
 import { setHITLManager } from "./routes/hitl.js";
 import { SessionManager } from "../core/session/SessionManager.js";
@@ -22,7 +22,7 @@ import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
 import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
-import { loadPrompt } from "./PromptLoader.js";
+import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
@@ -255,4 +255,69 @@ export async function bootstrap() {
 
   const app = createApp();
   return { app, config, container: bootstrapState.container, director: null, sessionManager, hitlManager, settingsManager };
+}
+
+/**
+ * Hot-reload the DirectorAgent after prompts, skills, or workflows change.
+ * Clears caches, re-reads files from disk, and rebuilds the DirectorAgent
+ * without restarting the server.
+ */
+export async function reloadDirector(): Promise<void> {
+  if (!bootstrapState) throw new Error("Bootstrap not yet called");
+  if (hasActiveExecutions()) {
+    throw new Error("无法在任务执行中重载，请等待当前任务完成后再试");
+  }
+
+  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager } = bootstrapState;
+
+  // 1. Reload prompts
+  clearPromptCache();
+  const subAgentPrompts = {
+    SystemDesigner: loadPrompt("system_designer"),
+    CombatDesigner: loadPrompt("combat_designer"),
+    NumericalPlanner: loadPrompt("numerical_planner"),
+    GameplayDesigner: loadPrompt("gameplay_designer"),
+    ExecutivePlanner: loadPrompt("executive_planner"),
+    QAPlanner: loadPrompt("qa_planner"),
+  };
+  directorPrompts.querySystem = loadPrompt("query_knowledge") || undefined;
+  directorPrompts.taskPlanner = loadPrompt("task_planner_freeform") || undefined;
+  directorPrompts.router = loadPrompt("router_classify") || undefined;
+
+  // 2. Reconfigure sub-agent descriptors
+  resetSubAgentDescriptors();
+  configureSubAgentDescriptors(
+    subAgentPrompts,
+    undefined,
+    config.limits.subAgentMaxIterations,
+    config.limits.modelMaxTokens
+  );
+
+  // 3. Reload skills and workflows
+  skillRegistry.clear();
+  loadSkills(skillRegistry);
+  loadWorkflows(skillRegistry);
+
+  // 4. Rebuild DirectorAgent (if container exists)
+  if (bootstrapState.container) {
+    const director = new DirectorAgent({
+      model: bootstrapState.container.model,
+      agentFactory: bootstrapState.container.agentFactory,
+      toolRegistry,
+      skillRegistry,
+      humanReviewGateway: bootstrapState.container.humanReviewGateway,
+      hooks,
+      prompts: directorPrompts,
+      idGenerator: new NodeIdGeneratorAdapter(),
+      workspace: workspaceManager,
+      limits: {
+        queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
+        subAgentMaxIterations: config.limits.subAgentMaxIterations,
+      },
+    });
+    setDirector(director);
+    console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");
+  } else {
+    console.log("[Bootstrap] Prompts/skills/workflows reloaded (Director not yet initialized)");
+  }
 }
