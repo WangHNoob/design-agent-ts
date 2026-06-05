@@ -4,4 +4,5 @@ export interface ModelConfig {
   apiKey: string;
   baseUrl?: string;
   maxTokens?: number;
+  temperature?: number;
 }

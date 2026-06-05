@@ -22,6 +22,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
 
   private buildModel(config: ModelConfig): ChatOpenAI | ChatAnthropic {
     const maxTokens = config.maxTokens;
+    const temperature = config.temperature;
     switch (config.provider) {
       case "openai":
       case "openai-compatible":
@@ -29,6 +30,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
           model: config.modelName,
           apiKey: config.apiKey,
           maxTokens,
+          temperature,
           configuration: config.baseUrl ? { baseURL: config.baseUrl } : undefined,
         });
       case "anthropic":
@@ -36,6 +38,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
           model: config.modelName,
           apiKey: config.apiKey,
           maxTokens,
+          temperature,
           anthropicApiUrl: config.baseUrl,
         });
     }

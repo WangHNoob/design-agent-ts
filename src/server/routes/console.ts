@@ -40,6 +40,11 @@ export const consoleRoute = new Hono();
 /** Active AbortControllers per session — used to cancel running executions. */
 const activeControllers = new Map<string, AbortController>();
 
+/** Check whether any execution is currently running. Used by settings to prevent mid-session config changes. */
+export function hasActiveExecutions(): boolean {
+  return activeControllers.size > 0;
+}
+
 function validateExecuteRequest(body: ExecuteRequest): string | null {
   if (!body.requirement || body.requirement.trim().length === 0) {
     return "Requirement cannot be empty";

@@ -64,6 +64,8 @@ export async function lateBootstrapDirector(): Promise<void> {
     provider: (settings.modelProvider as typeof config.model.provider) || config.model.provider,
     modelName: settings.modelName || config.model.modelName,
     baseUrl: settings.modelBaseUrl || config.model.baseUrl,
+    maxTokens: settings.maxTokens || config.limits.modelMaxTokens,
+    temperature: settings.temperature,
   };
 
   const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
@@ -208,6 +210,8 @@ export async function bootstrap() {
       provider: (settings.modelProvider as typeof config.model.provider) || config.model.provider,
       modelName: settings.modelName || config.model.modelName,
       baseUrl: settings.modelBaseUrl || config.model.baseUrl,
+      maxTokens: settings.maxTokens || config.limits.modelMaxTokens,
+      temperature: settings.temperature,
     };
 
     const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
