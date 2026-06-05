@@ -17,8 +17,6 @@ pip-delete-this-directory.txt
 .env.local
 .git
 .gitignore
-*.md
-!README.md
 sessions
 coverage
 .nyc_output
@@ -27,3 +25,5 @@ coverage
 *.swp
 *.swo
 *~
+o11y
+workspace

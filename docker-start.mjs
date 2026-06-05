@@ -3,8 +3,8 @@
  *
  * 用法:
  *   node docker-start.mjs           # 启动全部服务
- *   node docker-start.mjs --infra   # 只启动基础设施（postgres + redis），本地开发用
- *   node docker-start.mjs --build   # 强制重新构建镜像后启动
+ *   node docker-start.mjs --build   # 重建镜像后启动
+ *   node docker-start.mjs --rebuild # 无缓存重建镜像后启动（代码变更后使用）
  *   node docker-start.mjs --down    # 停止并移除所有服务
  *   node docker-start.mjs --logs    # 查看所有服务日志
  *
@@ -18,10 +18,10 @@ import { createInterface } from "node:readline";
 import net from "node:net";
 
 const colors = {
-  info: "\x1b[36m",    // 青色
-  success: "\x1b[32m", // 绿色
-  warn: "\x1b[33m",    // 黄色
-  error: "\x1b[31m",   // 红色
+  info: "\x1b[36m",
+  success: "\x1b[32m",
+  warn: "\x1b[33m",
+  error: "\x1b[31m",
   reset: "\x1b[0m",
 };
 
@@ -92,17 +92,7 @@ async function isPortAvailable(port, host = "127.0.0.1") {
   });
 }
 
-async function waitForPort(port, maxRetries = 30) {
-  for (let i = 0; i < maxRetries; i++) {
-    if (!(await isPortAvailable(port))) {
-      return true;
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  return false;
-}
-
-async function waitForService(url, maxRetries = 30, interval = 1000) {
+async function waitForService(url, maxRetries = 30, interval = 2000) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
@@ -126,41 +116,23 @@ function printBanner() {
 function printAccessInfo() {
   console.log("");
   console.log("╔══════════════════════════════════════════════════════════════╗");
-  console.log("║                      🚀 服务访问地址                          ║");
+  console.log("║                      服务访问地址                            ║");
   console.log("╠══════════════════════════════════════════════════════════════╣");
-  console.log("║  主前端:        http://localhost:3001                        ║");
-  console.log("║  主后端 API:    http://localhost:13000                       ║");
-  console.log("║  PostgreSQL:    localhost:15432                              ║");
-  console.log("║  Redis:         localhost:16379                              ║");
+  console.log("║  前端:          http://localhost:3001                        ║");
+  console.log("║  后端 API:      http://localhost:13000                       ║");
   console.log("╚══════════════════════════════════════════════════════════════╝");
   console.log("");
   console.log("提示: 按 Ctrl+C 停止日志查看，服务仍在后台运行");
   console.log("      使用 'node docker-start.mjs --down' 停止所有服务");
-  console.log("");
-}
-
-function printInfraInfo() {
-  console.log("");
-  console.log("╔══════════════════════════════════════════════════════════════╗");
-  console.log("║              🚀 基础设施已启动（本地开发模式）                ║");
-  console.log("╠══════════════════════════════════════════════════════════════╣");
-  console.log("║  PostgreSQL:    localhost:15432                              ║");
-  console.log("║  Redis:         localhost:16379                              ║");
-  console.log("╚══════════════════════════════════════════════════════════════╝");
-  console.log("");
-  console.log("接下来可以运行本地开发服务:");
-  console.log("  主后端:   node --env-file=.env dist/server/main.js");
-  console.log("  主前端:   cd frontend && npm run dev");
-  console.log("");
-  console.log("或使用: node start-all.mjs");
+  console.log("      使用 'node docker-start.mjs --rebuild' 重建并启动");
   console.log("");
 }
 
 // ========== 主逻辑 ==========
 
 const args = process.argv.slice(2);
-const infraOnly = args.includes("--infra");
 const forceBuild = args.includes("--build");
+const noCacheRebuild = args.includes("--rebuild");
 const stopMode = args.includes("--down");
 const logsMode = args.includes("--logs");
 
@@ -178,7 +150,7 @@ log("info", `使用命令: ${composeCmd}`);
 if (stopMode) {
   log("warn", "正在停止并移除所有服务...");
   try {
-    await run(composeCmd, ["down", "--volumes"]);
+    await run(composeCmd, ["down", "--volumes", "--remove-orphans"]);
     log("success", "所有服务已停止并移除");
   } catch (e) {
     log("error", `停止失败: ${e.message}`);
@@ -198,6 +170,18 @@ if (logsMode) {
   process.exit(0);
 }
 
+// --rebuild 模式：无缓存重建
+if (noCacheRebuild) {
+  log("info", "正在无缓存重建所有镜像（代码变更后推荐使用）...");
+  try {
+    await run(composeCmd, ["build", "--no-cache"]);
+    log("success", "镜像重建完成");
+  } catch (e) {
+    log("error", `重建失败: ${e.message}`);
+    process.exit(1);
+  }
+}
+
 // 检查 .env
 if (!existsSync(".env")) {
   log("warn", ".env 文件不存在，已从 .env.example 复制模板");
@@ -209,11 +193,8 @@ if (!existsSync(".env")) {
   }
 }
 
-// 检查关键端口是否被占用（使用非标准端口避免与其他应用冲突）
-const portsToCheck = infraOnly
-  ? [15432, 16379]
-  : [13000, 3001, 15432, 16379];
-
+// 检查端口
+const portsToCheck = [13000, 3001];
 const occupiedPorts = [];
 for (const port of portsToCheck) {
   if (!(await isPortAvailable(port))) {
@@ -223,74 +204,44 @@ for (const port of portsToCheck) {
 
 if (occupiedPorts.length > 0) {
   log("warn", `以下端口已被占用: ${occupiedPorts.join(", ")}`);
-  if (!infraOnly) {
-    log("warn", "如果已运行 'node start-all.mjs'，请先停止它");
-  }
+  log("warn", "如果已运行服务，请先执行: node docker-start.mjs --down");
 }
 
 // 构建启动参数
-const composeArgs = ["up"];
+const composeArgs = ["up", "--remove-orphans"];
 if (forceBuild) {
   composeArgs.push("--build");
 }
 
-if (infraOnly) {
-  log("info", "启动基础设施服务: PostgreSQL + Redis...");
-  composeArgs.push("postgres", "redis");
-} else {
-  log("info", "启动全部服务...");
-  composeArgs.push("--remove-orphans");
-}
+log("info", `启动全部服务...`);
 
-// 启动服务
+// 启动服务（后台模式，以便做健康检查）
+composeArgs.push("-d");
 log("info", `执行: ${composeCmd} ${composeArgs.join(" ")}`);
 
 try {
-  // 在后台启动（detached mode）以便我们可以做健康检查
-  composeArgs.push("-d");
   await run(composeCmd, composeArgs);
 } catch (e) {
   log("error", `启动失败: ${e.message}`);
   process.exit(1);
 }
 
-// 健康检查
-if (infraOnly) {
-  log("info", "等待 PostgreSQL 就绪...");
-  const pgPortReady = await waitForPort(15432, 30);
-  if (pgPortReady) {
-    log("success", "PostgreSQL 已就绪 (localhost:15432)");
-  } else {
-    log("error", "PostgreSQL 未在预期时间内就绪");
-  }
-
-  log("info", "等待 Redis 就绪...");
-  const redisPortReady = await waitForPort(16379, 30);
-  if (redisPortReady) {
-    log("success", "Redis 已就绪 (localhost:16379)");
-  } else {
-    log("error", "Redis 未在预期时间内就绪");
-  }
-
-  printInfraInfo();
+// 健康检查（使用映射端口 13000）
+log("info", "等待后端健康检查...");
+const backendReady = await waitForService("http://localhost:13000/health", 60, 2000);
+if (backendReady) {
+  log("success", "后端已就绪");
 } else {
-  log("info", "等待服务健康检查...");
+  log("warn", "后端健康检查超时，请查看日志排查");
+}
 
-  const backendReady = await waitForService("http://localhost:3000/health", 60, 2000);
-  if (backendReady) {
-    log("success", "主后端已就绪");
-  } else {
-    log("warn", "主后端健康检查超时，请查看日志排查");
-  }
+printAccessInfo();
 
-  printAccessInfo();
-
-  // 显示日志
-  log("info", "正在显示服务日志（按 Ctrl+C 停止查看，服务仍在后台运行）");
-  console.log("---");
-  try {
-    await run(composeCmd, ["logs", "-f"]);
-  } catch {
-    // User pressed Ctrl+C
-  }
+// 显示日志
+log("info", "正在显示服务日志（按 Ctrl+C 停止查看，服务仍在后台运行）");
+console.log("---");
+try {
+  await run(composeCmd, ["logs", "-f"]);
+} catch {
+  // User pressed Ctrl+C
 }

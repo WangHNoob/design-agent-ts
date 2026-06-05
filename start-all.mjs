@@ -8,8 +8,9 @@
  * - 彩色前缀区分前后端日志，Ctrl+C 一次性优雅退出
  *
  * 用法：
- *   node start-all.mjs            # 直接启动（需先手动 pnpm run build）
- *   node start-all.mjs --build    # 自动编译后再启动
+ *   node start-all.mjs            # 直接启动本地开发（需先手动 pnpm run build）
+ *   node start-all.mjs --build    # 自动编译后再启动本地开发
+ *   node start-all.mjs --docker   # 重建 Docker 镜像并重启容器（部署模式）
  *
  * 前置条件：
  *   1. 根目录已执行 `pnpm run build`（生成 dist/server/main.js）
@@ -23,6 +24,7 @@ import net from "node:net";
 const colors = {
   server: "\x1b[36m",   // 青色 (Cyan)
   frontend: "\x1b[35m", // 洋红 (Magenta)
+  docker: "\x1b[33m",   // 黄色 (Yellow)
   reset: "\x1b[0m",
 };
 
@@ -141,66 +143,143 @@ async function waitForHealth(port, maxRetries = 30) {
   return false;
 }
 
-// ========== --build 参数支持 ==========
+// ========== --docker 模式 ==========
 
-const shouldBuild = process.argv.includes("--build");
-if (shouldBuild) {
-  console.log("⚙️  检测到 --build 参数，正在重新编译 TypeScript...\n");
+const dockerMode = process.argv.includes("--docker");
+
+if (dockerMode) {
+  console.log("");
+  console.log("╔══════════════════════════════════════════════════════════════╗");
+  console.log("║    Game Designer TS — Docker 重建并部署模式                   ║");
+  console.log("╚══════════════════════════════════════════════════════════════╝");
+  console.log("");
+
+  // Step 1: 编译后端 TypeScript
+  console.log("[DOCKER] Step 1: 编译后端 TypeScript...\n");
   const buildResult = spawnSync("pnpm", ["run", "build"], {
     shell: true,
     stdio: "inherit",
     cwd: process.cwd(),
   });
   if (buildResult.status !== 0) {
-    console.error("\n❌ 编译失败，请修复上方错误后重试。");
+    console.error("\n编译失败，请修复上方错误后重试。");
     process.exit(1);
   }
-  console.log("\n✅ 编译完成\n");
+  console.log("\n[DOCKER] 后端编译完成\n");
+
+  // Step 2: 检测 docker compose 命令
+  const dockerComposeCmd = process.platform === "win32"
+    ? "docker compose"
+    : (await new Promise((resolve) => {
+        const checkCompose = spawn("which", ["docker-compose"], { shell: true });
+        checkCompose.on("close", (code) => resolve(code === 0 ? "docker-compose" : "docker compose"));
+      }));
+
+  console.log(`[DOCKER] 使用命令: ${dockerComposeCmd}\n`);
+
+  // Step 3: 停止旧容器
+  console.log("[DOCKER] Step 2: 停止旧容器...\n");
+  const downResult = spawnSync(dockerComposeCmd, ["down", "--remove-orphans"], {
+    shell: true,
+    stdio: "inherit",
+    cwd: process.cwd(),
+  });
+  console.log("");
+
+  // Step 4: 无缓存重建镜像
+  console.log("[DOCKER] Step 3: 无缓存重建 Docker 镜像（耗时较长）...\n");
+  const buildDockerResult = spawnSync(dockerComposeCmd, ["build", "--no-cache"], {
+    shell: true,
+    stdio: "inherit",
+    cwd: process.cwd(),
+  });
+  if (buildDockerResult.status !== 0) {
+    console.error("\nDocker 镜像构建失败，请查看上方错误。");
+    process.exit(1);
+  }
+  console.log("\n[DOCKER] 镜像构建完成\n");
+
+  // Step 5: 启动新容器
+  console.log("[DOCKER] Step 4: 启动新容器...\n");
+  const upResult = spawnSync(dockerComposeCmd, ["up", "-d", "--remove-orphans"], {
+    shell: true,
+    stdio: "inherit",
+    cwd: process.cwd(),
+  });
+  if (upResult.status !== 0) {
+    console.error("\n容器启动失败。");
+    process.exit(1);
+  }
+
+  // Step 6: 健康检查
+  console.log("\n[DOCKER] Step 5: 等待后端健康检查...");
+  const backendReady = await waitForHealth(13000, 30);
+  if (backendReady) {
+    console.log("[DOCKER] 后端已就绪");
+  } else {
+    console.error("[DOCKER] 后端健康检查超时，请查看日志排查");
+  }
+
+  console.log("");
+  console.log("╔══════════════════════════════════════════════════════════════╗");
+  console.log("║                      服务访问地址                            ║");
+  console.log("╠══════════════════════════════════════════════════════════════╣");
+  console.log("║  前端:          http://localhost:3001                        ║");
+  console.log("║  后端 API:      http://localhost:13000                       ║");
+  console.log("╚══════════════════════════════════════════════════════════════╝");
+  console.log("");
+
+  process.exit(0);
+}
+
+// ========== 本地开发模式 ==========
+
+const shouldBuild = process.argv.includes("--build");
+if (shouldBuild) {
+  console.log("检测到 --build 参数，正在重新编译 TypeScript...\n");
+  const buildResult = spawnSync("pnpm", ["run", "build"], {
+    shell: true,
+    stdio: "inherit",
+    cwd: process.cwd(),
+  });
+  if (buildResult.status !== 0) {
+    console.error("\n编译失败，请修复上方错误后重试。");
+    process.exit(1);
+  }
+  console.log("\n编译完成\n");
 }
 
 // ========== 前置检查 ==========
 
 if (!existsSync("dist/server/main.js")) {
-  console.error("❌ 错误：未找到 dist/server/main.js，请先执行 pnpm run build");
+  console.error("错误：未找到 dist/server/main.js，请先执行 pnpm run build");
   process.exit(1);
 }
 
 if (!existsSync("frontend/node_modules")) {
-  console.log("⚙️  frontend/node_modules 不存在，正在自动安装依赖...");
+  console.log("frontend/node_modules 不存在，正在自动安装依赖...");
   const result = spawnSync("pnpm", ["install"], { shell: true, stdio: "inherit" });
   if (result.status !== 0) {
-    console.error("❌ 依赖安装失败，请在根目录执行 pnpm install");
+    console.error("依赖安装失败，请在根目录执行 pnpm install");
     process.exit(1);
   }
-  console.log("✅ 依赖安装完成");
+  console.log("依赖安装完成");
 }
 
 const serverPort = getServerPort();
 
-// 检查后端正要使用的端口是否已被占用
+// 检查后端端口是否已被占用
 const serverPortAvailable = await isPortAvailable(serverPort);
 if (!serverPortAvailable) {
-  console.error(`❌ 错误：端口 ${serverPort} 已被占用，后端无法启动。`);
+  console.error(`错误：端口 ${serverPort} 已被占用，后端无法启动。`);
   console.error(`   请先结束占用该端口的进程，或修改 .env 中的 PORT 配置。`);
-  if (serverPort === 3000) {
-    console.error(`   提示：可尝试执行 "npx kill-port 3000" 或手动结束 node 进程。`);
-  }
   process.exit(1);
-}
-
-// 如果后端不用 3000，而 3000 被其他进程占用，给出警告（常见陷阱）
-if (serverPort !== 3000) {
-  const port3000Available = await isPortAvailable(3000);
-  if (!port3000Available) {
-    console.warn(`⚠️  警告：3000 端口被其他进程占用，但后端将运行在 ${serverPort}。`);
-    console.warn(`   前端已自动配置为请求 http://localhost:${serverPort}。`);
-  }
 }
 
 // 同步前端 API 地址
 syncFrontendApiBase(serverPort);
 
-console.log(`🚀 正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器 (端口 4528)...\n`);
+console.log(`正在启动后端服务 (端口 ${serverPort}) 与前端开发服务器...\n`);
 
 // 启动后端
 run("SERVER", colors.server, "node", ["--env-file=.env", "dist/server/main.js"]);
@@ -211,9 +290,9 @@ run("FRONTEND", colors.frontend, "pnpm", ["run", "dev"], "frontend");
 // 等待后端就绪
 waitForHealth(serverPort).then((ok) => {
   if (ok) {
-    console.log(`\n✅ 后端已就绪: http://localhost:${serverPort}`);
-    console.log(`🌐 主前端地址: http://localhost:4528\n`);
+    console.log(`\n后端已就绪: http://localhost:${serverPort}`);
+    console.log(`前端地址: http://localhost:4528\n`);
   } else {
-    console.error(`\n⚠️  后端在 ${serverPort} 端口未通过健康检查，请查看上方日志排查问题。`);
+    console.error(`\n后端在 ${serverPort} 端口未通过健康检查，请查看上方日志排查问题。`);
   }
 });

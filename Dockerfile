@@ -5,20 +5,26 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json tsconfig.json ./
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy workspace config and package files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.json ./
+COPY .npmrc ./
+COPY frontend/package.json ./frontend/
 
 # Install dependencies
-RUN npm ci --legacy-peer-deps
+RUN pnpm install --no-frozen-lockfile --shamefully-hoist
 
 # Copy source code
 COPY src/ ./src/
 COPY prompts/ ./prompts/
 COPY knowledge/ ./knowledge/
+COPY contrib/ ./contrib/
 COPY settings.json ./
 
 # Build TypeScript
-RUN npm run build
+RUN pnpm run build
 
 # ==========================================
 # Stage 2: Runner
@@ -35,6 +41,7 @@ COPY --from=builder /app/package.json ./
 # Copy runtime assets
 COPY --from=builder /app/prompts ./prompts
 COPY --from=builder /app/knowledge ./knowledge
+COPY --from=builder /app/contrib ./contrib
 COPY --from=builder /app/settings.json ./
 
 # Create sessions directory
