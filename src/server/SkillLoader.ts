@@ -3,14 +3,14 @@ import path from "path";
 import { MarkdownSkill } from "../core/skill/MarkdownSkill.js";
 import type { SkillRegistry } from "../port/skill/SkillRegistry.js";
 
-const SKILLS_DIR = path.resolve("contrib", "skills");
+export const SKILLS_DIR = path.resolve("contrib", "skills");
 
 interface SkillFrontmatter {
   name: string;
   description: string;
 }
 
-function parseFrontmatter(content: string): SkillFrontmatter | null {
+export function parseFrontmatter(content: string): SkillFrontmatter | null {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
   if (!match) return null;
 

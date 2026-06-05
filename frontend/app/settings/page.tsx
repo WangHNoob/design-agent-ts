@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Settings, Save, RotateCcw, Database, Cpu, MessageSquare, Globe, KeyRound, Link2 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
+import SettingsNav from '@/components/SettingsNav';
 import { getSettings, saveSettings, getTavilyStatus, type TavilyStatus } from '@/lib/api';
 
 interface AppSettings {
@@ -150,6 +151,8 @@ export default function SettingsPage() {
       <Navbar />
 
       <main className="mx-auto max-w-3xl px-6 py-10">
+        <SettingsNav />
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

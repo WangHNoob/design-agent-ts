@@ -4,7 +4,7 @@ import type { WorkflowTask, Domain, OutputType } from "../core/schema/TaskPlan.j
 import { WorkflowSkill } from "../core/skill/WorkflowSkill.js";
 import type { SkillRegistry } from "../port/skill/SkillRegistry.js";
 
-const WORKFLOWS_DIR = path.resolve("contrib", "workflows");
+export const WORKFLOWS_DIR = path.resolve("contrib", "workflows");
 
 // ---------------------------------------------------------------------------
 // YAML frontmatter helpers (lightweight, no external dependency)
