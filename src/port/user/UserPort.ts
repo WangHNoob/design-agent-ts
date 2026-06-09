@@ -1,9 +1,9 @@
 /**
- * User port — user identity, authentication, and tenant isolation.
+ * User port — user identity, session management, and asset ownership.
  *
  * This port defines the contract for user management in a multi-tenant system.
- * All user data is isolated by userId (tenant). Adapter implementations may
- * use PostgreSQL, Redis, or any identity provider.
+ * Authentication is delegated to Better Auth; this port focuses on
+ * user data, session resolution, and asset access control.
  */
 
 /** A registered user. */
@@ -51,50 +51,31 @@ export type UserAssetType =
   | "settings"         // User-level settings overrides
   | "knowledge_base";  // System knowledge base (immutable)
 
-/** Parameters for creating a new user. */
-export interface CreateUserParams {
-  readonly email: string;
-  readonly displayName: string;
-  readonly passwordHash: string;
-  readonly role?: UserRole;
-}
-
 /** Parameters for updating a user. */
 export interface UpdateUserParams {
   readonly displayName?: string;
-  readonly passwordHash?: string;
   readonly role?: UserRole;
   readonly isActive?: boolean;
 }
 
-/** Authentication result. */
-export interface AuthResult {
-  readonly user: User;
-  readonly token: string;
+/** Session info resolved from Better Auth. */
+export interface SessionInfo {
+  readonly userId: string;
+  readonly sessionId: string;
+  readonly role: UserRole;
   readonly expiresAt: string;
 }
 
-/** Token verification result. */
-export interface TokenPayload {
-  readonly userId: string;
-  readonly role: UserRole;
-  readonly iat: number;
-  readonly exp: number;
-}
-
 /**
- * Port interface for user management and authentication.
+ * Port interface for user management and session resolution.
  *
  * Implementations must ensure:
- * - Password hashing (never store plaintext)
- * - Token-based auth (JWT or similar)
+ * - Session validation is delegated to Better Auth
  * - Tenant isolation (users can only access their own assets)
+ * - System assets are shared but immutable for non-admin users
  */
 export interface UserPort {
-  // ─── CRUD ──────────────────────────────────────────────────────
-
-  /** Create a new user. */
-  createUser(params: CreateUserParams): Promise<User>;
+  // ─── User CRUD ────────────────────────────────────────────────
 
   /** Get a user by ID. */
   getUser(id: string): Promise<User | null>;
@@ -108,20 +89,18 @@ export interface UserPort {
   /** Deactivate (soft-delete) a user. */
   deactivateUser(id: string): Promise<boolean>;
 
-  // ─── Authentication ────────────────────────────────────────────
+  // ─── Session Resolution ───────────────────────────────────────
 
-  /** Authenticate a user by email + password. Returns null on failure. */
-  authenticate(email: string, password: string): Promise<AuthResult | null>;
-
-  /** Verify a token and return the payload. Returns null if invalid/expired. */
-  verifyToken(token: string): Promise<TokenPayload | null>;
-
-  /** Refresh a token. */
-  refreshToken(token: string): Promise<AuthResult | null>;
+  /**
+   * Resolve a session from request headers.
+   * Delegates to Better Auth for session validation.
+   * Returns null if no valid session found.
+   */
+  resolveSession(headers: Record<string, string | undefined>): Promise<SessionInfo | null>;
 
   // ─── Asset Ownership ──────────────────────────────────────────
 
-  /** List assets owned by a user. */
+  /** List assets owned by a user (includes system assets). */
   listUserAssets(userId: string, assetType?: UserAssetType): Promise<UserAsset[]>;
 
   /** Get a specific asset. System assets are accessible to all users (read-only). */

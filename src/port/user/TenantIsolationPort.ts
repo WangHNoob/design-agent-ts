@@ -14,7 +14,7 @@
 export interface TenantContext {
   readonly userId: string;
   readonly role: import("./UserPort.js").UserRole;
-  readonly sessionId?: string;
+  readonly sessionId: string;
 }
 
 /** Lock options for distributed locking. */
@@ -48,14 +48,18 @@ export interface CacheOptions {
  *
  * Adapter implementations may use:
  * - Redis for distributed locking and caching
+ * - Better Auth for session-based tenant resolution
  * - PostgreSQL RLS (Row-Level Security) for data isolation
  * - A combination of both
  */
 export interface TenantIsolationPort {
   // ─── Tenant Context ──────────────────────────────────────────
 
-  /** Resolve the tenant context from an auth token. */
-  resolveTenant(token: string): Promise<TenantContext | null>;
+  /**
+   * Resolve the tenant context from request headers.
+   * Delegates to Better Auth for session validation.
+   */
+  resolveTenantFromHeaders(headers: Record<string, string | undefined>): Promise<TenantContext | null>;
 
   /** Create a tenant-scoped namespace key (e.g. "user:123:sessions"). */
   scopeKey(userId: string, resourceType: string, key?: string): string;

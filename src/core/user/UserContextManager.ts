@@ -1,6 +1,5 @@
 import type { UserPort, User, UserAsset, UserAssetType } from "../../port/user/UserPort.js";
 import type { TenantIsolationPort, TenantContext } from "../../port/user/TenantIsolationPort.js";
-import type { DatabasePort } from "../../port/infra/DatabasePort.js";
 
 /**
  * Framework-agnostic user context manager.
@@ -8,10 +7,12 @@ import type { DatabasePort } from "../../port/infra/DatabasePort.js";
  * Provides tenant-scoped access to user data and assets.
  * Lives in core/ and depends ONLY on port/ interfaces.
  *
- * This is the central coordination point for user isolation:
- * - All data access goes through this manager
- * - System assets are shared but immutable
- * - User assets are isolated by userId
+ * Authentication is fully delegated to Better Auth (via UserPort.resolveSession).
+ * This manager focuses on:
+ * - Resolving tenant context from request headers
+ * - User data access (read-only, Better Auth manages writes)
+ * - Asset access with proper isolation
+ * - Concurrency control
  */
 export class UserContextManager {
   constructor(
@@ -19,16 +20,11 @@ export class UserContextManager {
     private readonly tenantPort: TenantIsolationPort,
   ) {}
 
-  // ─── Authentication ────────────────────────────────────────────
+  // ─── Tenant Context ───────────────────────────────────────────
 
-  /** Resolve a tenant context from an auth token. */
-  async resolveContext(token: string): Promise<TenantContext | null> {
-    return this.tenantPort.resolveTenant(token);
-  }
-
-  /** Authenticate a user by email + password. */
-  async authenticate(email: string, password: string) {
-    return this.userPort.authenticate(email, password);
+  /** Resolve a tenant context from request headers (Better Auth session). */
+  async resolveContext(headers: Record<string, string | undefined>): Promise<TenantContext | null> {
+    return this.tenantPort.resolveTenantFromHeaders(headers);
   }
 
   // ─── User CRUD ─────────────────────────────────────────────────
@@ -38,27 +34,11 @@ export class UserContextManager {
     return this.userPort.getUser(id);
   }
 
-  /** Create a new user. */
-  async createUser(params: {
-    email: string;
-    displayName: string;
-    password: string;
-    role?: "admin" | "user";
-  }) {
-    const passwordHash = await this.hashPassword(params.password);
-    return this.userPort.createUser({
-      email: params.email,
-      displayName: params.displayName,
-      passwordHash,
-      role: params.role,
-    });
-  }
-
   // ─── Asset Access ──────────────────────────────────────────────
 
   /**
    * Get a user's asset, falling back to system asset.
-   * This implements the asset resolution chain:
+   * Resolution chain:
    * 1. Check user's own asset
    * 2. Fall back to system asset (read-only)
    */
@@ -67,11 +47,9 @@ export class UserContextManager {
     assetType: UserAssetType,
     assetKey: string,
   ): Promise<T | null> {
-    // Try user asset first
     const userAsset = await this.userPort.getAsset(assetType, assetKey, ctx.userId);
     if (userAsset) return userAsset.data as T;
 
-    // Fall back to system asset
     const systemAsset = await this.userPort.getAsset(assetType, assetKey);
     if (systemAsset) return systemAsset.data as T;
 
@@ -125,16 +103,5 @@ export class UserContextManager {
    */
   async releaseConcurrencySlot(ctx: TenantContext): Promise<void> {
     await this.tenantPort.decrementConcurrency(ctx.userId);
-  }
-
-  // ─── Private ───────────────────────────────────────────────────
-
-  private async hashPassword(password: string): Promise<string> {
-    // Delegate to the adapter's hashPassword method
-    // The UserPort adapter handles the actual hashing
-    const { createHmac } = await import("crypto");
-    // Use a simple HMAC — the adapter will use its own secret
-    // This is a placeholder; the actual hashing happens in PostgresUserAdapter
-    return createHmac("sha256", "placeholder").update(password).digest("hex");
   }
 }

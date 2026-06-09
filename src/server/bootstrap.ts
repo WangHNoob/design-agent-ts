@@ -33,14 +33,14 @@ import { MemoryManager } from "../core/memory/MemoryManager.js";
 import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
 import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
 import { PostgresDatabaseAdapter } from "../adapter/postgres/PostgresDatabaseAdapter.js";
-import { PostgresUserAdapter } from "../adapter/postgres/PostgresUserAdapter.js";
 import { PostgresLongTermMemoryAdapter } from "../adapter/postgres/PostgresLongTermMemoryAdapter.js";
 import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
+import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
-import { authMiddleware } from "./middleware/auth.js";
-import { usersRoute, setUserContextManager } from "./routes/users.js";
+import { setAuthAdapter, setTenantPort } from "./app.js";
+import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -56,6 +56,7 @@ let bootstrapState: {
   memoryManager: MemoryManager | null;
   userContextManager: UserContextManager | null;
   dbAdapter: PostgresDatabaseAdapter | null;
+  betterAuthAdapter: BetterAuthAdapter | null;
   redisAdapter: RedisTenantIsolationAdapter | null;
   mqAdapter: RedisMessageQueueAdapter | null;
 } | null = null;
@@ -234,11 +235,12 @@ export async function bootstrap() {
   // ─── User System (Multi-Tenant) ──────────────────────────────────
   let userContextManager: UserContextManager | null = null;
   let dbAdapter: PostgresDatabaseAdapter | null = null;
+  let betterAuthAdapter: BetterAuthAdapter | null = null;
   let redisAdapter: RedisTenantIsolationAdapter | null = null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
 
   if (config.userSystem.enabled) {
-    console.log("[Bootstrap] Initializing user system (multi-tenant)...");
+    console.log("[Bootstrap] Initializing user system (multi-tenant with Better Auth)...");
 
     // PostgreSQL
     dbAdapter = new PostgresDatabaseAdapter(config.userSystem.postgresUrl);
@@ -247,22 +249,30 @@ export async function bootstrap() {
       console.log("[Bootstrap] PostgreSQL schema initialized");
     }
 
-    // Redis
+    // Better Auth (handles registration, login, sessions, password hashing)
+    betterAuthAdapter = new BetterAuthAdapter(
+      {
+        postgresUrl: config.userSystem.postgresUrl,
+        betterAuthSecret: config.userSystem.betterAuthSecret,
+        baseUrl: config.userSystem.betterAuthBaseUrl,
+      },
+      dbAdapter,
+    );
+    console.log("[Bootstrap] Better Auth initialized");
+
+    // Redis (tenant isolation: caching, locking, concurrency)
     redisAdapter = new RedisTenantIsolationAdapter(
       config.userSystem.redisUrl,
-      new PostgresUserAdapter(dbAdapter, new NodeIdGeneratorAdapter(), config.userSystem.jwtSecret, config.userSystem.tokenTtlMs),
+      betterAuthAdapter,
     );
     await redisAdapter.connect();
     console.log("[Bootstrap] Redis connected");
 
-    // User adapters
-    const userAdapter = new PostgresUserAdapter(dbAdapter, new NodeIdGeneratorAdapter(), config.userSystem.jwtSecret, config.userSystem.tokenTtlMs);
-    userContextManager = new UserContextManager(userAdapter, redisAdapter);
+    // User context manager (core layer: tenant-scoped access)
+    userContextManager = new UserContextManager(betterAuthAdapter, redisAdapter);
 
     // Replace file-based LTM with PostgreSQL-backed LTM per user
     if (config.longTermMemory.enabled) {
-      // When user system is enabled, LTM uses PostgreSQL per-user
-      // MemoryManager will be created per-request with user-scoped adapter
       console.log("[Bootstrap] Long-term memory using PostgreSQL (user-scoped)");
     }
 
@@ -278,11 +288,11 @@ export async function bootstrap() {
       console.log("[Bootstrap] Message queue started");
     }
 
-    console.log("[Bootstrap] User system enabled: multi-tenant mode active");
+    console.log("[Bootstrap] User system enabled: multi-tenant mode with Better Auth");
   }
 
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, redisAdapter, mqAdapter };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter };
 
   const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
   await sessionManager.initialize();
@@ -301,6 +311,13 @@ export async function bootstrap() {
   // Wire user context manager (if user system is enabled)
   if (userContextManager) {
     setUserContextManager(userContextManager);
+  }
+  if (betterAuthAdapter) {
+    setBetterAuthAdapter(betterAuthAdapter);
+    setAuthAdapter(betterAuthAdapter);
+  }
+  if (redisAdapter) {
+    setTenantPort(redisAdapter);
   }
 
   // If API key is available, initialize director immediately

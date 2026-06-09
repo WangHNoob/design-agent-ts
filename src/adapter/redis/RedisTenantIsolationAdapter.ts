@@ -5,7 +5,7 @@ import type {
   DistributedLock,
   CacheOptions,
 } from "../../port/user/TenantIsolationPort.js";
-import type { UserPort, TokenPayload } from "../../port/user/UserPort.js";
+import type { UserPort } from "../../port/user/UserPort.js";
 import type { UserRole } from "../../port/user/UserPort.js";
 import Redis from "ioredis";
 import type { Redis as RedisType } from "ioredis";
@@ -21,7 +21,7 @@ const DEFAULT_LOCK_OPTIONS: LockOptions = {
  * Redis-backed TenantIsolationPort adapter.
  *
  * Provides:
- * - Tenant context resolution via UserPort token verification
+ * - Tenant context resolution via Better Auth session (delegated to UserPort)
  * - Distributed locking with Redis SET NX EX
  * - Tenant-scoped caching with TTL
  * - Concurrency control via Redis INCR/DECR
@@ -43,31 +43,43 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
 
   // ─── Tenant Context ──────────────────────────────────────────
 
-  async resolveTenant(token: string): Promise<TenantContext | null> {
-    const payload: TokenPayload | null = await this.userPort.verifyToken(token);
-    if (!payload) return null;
+  async resolveTenantFromHeaders(headers: Record<string, string | undefined>): Promise<TenantContext | null> {
+    // Try Redis cache first (by cookie/session token)
+    const cookieHeader = headers["cookie"] ?? "";
+    const sessionToken = this.extractSessionToken(cookieHeader);
 
-    // Check if user is still active (cache this in Redis)
-    const cacheKey = this.buildKey("tenant_ctx", payload.userId);
-    const cached = await this.redis.get(cacheKey);
-    if (cached) {
-      try {
-        return JSON.parse(cached) as TenantContext;
-      } catch {
-        // Fall through to DB check
+    if (sessionToken) {
+      const cacheKey = this.buildKey("tenant_ctx", sessionToken);
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        try {
+          return JSON.parse(cached) as TenantContext;
+        } catch {
+          // Fall through to Better Auth verification
+        }
       }
     }
 
-    const user = await this.userPort.getUser(payload.userId);
+    // Delegate to Better Auth via UserPort
+    const session = await this.userPort.resolveSession(headers);
+    if (!session) return null;
+
+    // Check if user is still active
+    const user = await this.userPort.getUser(session.userId);
     if (!user || !user.isActive) return null;
 
     const ctx: TenantContext = {
       userId: user.id,
       role: user.role as UserRole,
+      sessionId: session.sessionId,
     };
 
-    // Cache for 5 minutes
-    await this.redis.set(cacheKey, JSON.stringify(ctx), "EX", 300);
+    // Cache for 5 minutes (keyed by session token)
+    if (sessionToken) {
+      const cacheKey = this.buildKey("tenant_ctx", sessionToken);
+      await this.redis.set(cacheKey, JSON.stringify(ctx), "EX", 300);
+    }
+
     return ctx;
   }
 
@@ -84,7 +96,6 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
     const holderId = `holder_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const ttlSeconds = Math.ceil(opts.ttlMs / 1000);
 
-    // Try to acquire with retries
     for (let attempt = 0; attempt <= opts.retries; attempt++) {
       const acquired = await this.redis.set(lockKey, holderId, "EX", ttlSeconds, "NX");
       if (acquired === "OK") {
@@ -107,7 +118,6 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
   async releaseLock(lock: DistributedLock): Promise<boolean> {
     const lockKey = this.buildKey("lock", lock.key);
 
-    // Only release if we still hold the lock (compare holderId)
     const script = `
       if redis.call("GET", KEYS[1]) == ARGV[1] then
         return redis.call("DEL", KEYS[1])
@@ -124,7 +134,6 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
     const lockKey = this.buildKey("lock", lock.key);
     const ttlSeconds = Math.ceil(ttlMs / 1000);
 
-    // Only extend if we still hold the lock
     const script = `
       if redis.call("GET", KEYS[1]) == ARGV[1] then
         return redis.call("EXPIRE", KEYS[1], ARGV[2])
@@ -182,7 +191,6 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
   async incrementConcurrency(userId: string): Promise<number> {
     const key = this.scopeKey(userId, "concurrent");
     const val = await this.redis.incr(key);
-    // Set TTL as safety net (auto-expire after 1 hour)
     if (val === 1) {
       await this.redis.expire(key, 3600);
     }
@@ -210,7 +218,6 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
     }
   }
 
-  /** Close the Redis connection. */
   async close(): Promise<void> {
     await this.redis.quit();
   }
@@ -223,5 +230,14 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Extract Better Auth session token from cookie header.
+   * Better Auth uses `better-auth.session_token` as the cookie name.
+   */
+  private extractSessionToken(cookieHeader: string): string | null {
+    const match = cookieHeader.match(/better-auth\.session_token=([^;]+)/);
+    return match?.[1] ?? null;
   }
 }
