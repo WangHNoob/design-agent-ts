@@ -85,10 +85,66 @@ if (process.platform === "win32") {
 }
 
 function getServerPort() {
-  if (!existsSync(".env")) return 3000;
+  const env = readEnvFile();
+  const match = env.PORT?.match(/^\d+$/);
+  return match ? Number(env.PORT) : 3000;
+}
+
+function readEnvFile() {
+  if (!existsSync(".env")) return {};
   const content = readFileSync(".env", "utf-8");
-  const match = content.match(/^PORT\s*=\s*(\d+)/m);
-  return match ? Number(match[1]) : 3000;
+  const env = {};
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^([A-Z0-9_]+)\s*=\s*(.*)$/);
+    if (match) {
+      env[match[1]] = match[2];
+    }
+  }
+  return env;
+}
+
+function upsertEnvValue(key, value) {
+  const envPath = ".env";
+  let content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
+  const line = `${key}=${value}`;
+  const pattern = new RegExp(`^${key}=.*$`, "m");
+  if (pattern.test(content)) {
+    content = content.replace(pattern, line);
+  } else {
+    content = `${content.replace(/\s*$/, "")}\n${line}\n`;
+  }
+  writeFileSync(envPath, content.endsWith("\n") ? content : `${content}\n`);
+}
+
+function syncBetterAuthBaseUrl(port) {
+  const env = readEnvFile();
+  if (env.USER_SYSTEM_ENABLED !== "true") return;
+  const expected = `http://localhost:${port}`;
+  if (env.BETTER_AUTH_BASE_URL !== expected) {
+    upsertEnvValue("BETTER_AUTH_BASE_URL", expected);
+    console.log(`已同步 BETTER_AUTH_BASE_URL=${expected}`);
+  }
+}
+
+function checkUserSystemPrerequisites() {
+  const env = readEnvFile();
+  if (env.USER_SYSTEM_ENABLED !== "true") return;
+
+  const issues = [];
+  if (!env.POSTGRES_URL) issues.push("POSTGRES_URL 未配置");
+  if (!env.REDIS_URL) issues.push("REDIS_URL 未配置");
+  if (!env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET === "change-me-in-production") {
+    issues.push("BETTER_AUTH_SECRET 仍是默认值");
+  }
+
+  if (issues.length > 0) {
+    console.error("错误：USER_SYSTEM_ENABLED=true 时需要补齐以下配置：");
+    issues.forEach((issue) => console.error(`   - ${issue}`));
+    console.error("请更新 .env 后重试。");
+    process.exit(1);
+  }
+
+  console.log("用户系统已启用：请确认本地 PostgreSQL 和 Redis 已启动。");
 }
 
 function isPortAvailable(port, host = "127.0.0.1") {
@@ -179,6 +235,8 @@ if (dockerMode) {
 
   // Step 3: 设置前端 API 地址为 Docker 模式端口，再编译前端 Next.js
   console.log("[DOCKER] Step 3: 设置前端 API 地址 (http://localhost:13000)...\n");
+  syncBetterAuthBaseUrl(13000);
+  checkUserSystemPrerequisites();
   syncFrontendApiBase(13000);
 
   console.log("[DOCKER] 编译前端 Next.js...\n");
@@ -293,6 +351,8 @@ if (!existsSync("frontend/node_modules")) {
 }
 
 const serverPort = getServerPort();
+syncBetterAuthBaseUrl(serverPort);
+checkUserSystemPrerequisites();
 
 const serverPortAvailable = await isPortAvailable(serverPort);
 if (!serverPortAvailable) {
