@@ -31,6 +31,31 @@ export function loadConfig(): FrameworkConfig {
       tavilyApiKey: process.env.TAVILY_API_KEY,
       tavilyEnabled: process.env.TAVILY_ENABLED === "true",
     },
+    longTermMemory: {
+      enabled: process.env.LTM_ENABLED === "true",
+      storagePath: process.env.LTM_STORAGE_PATH ?? "./data/long-term-memory",
+      defaultNamespace: process.env.LTM_DEFAULT_NAMESPACE ?? "global",
+      maxContextMemories: Number(process.env.LTM_MAX_CONTEXT_MEMORIES ?? 10),
+      minImportanceForContext: Number(process.env.LTM_MIN_IMPORTANCE ?? 0.4),
+      autoExtract: process.env.LTM_AUTO_EXTRACT !== "false",
+      autoPrune: process.env.LTM_AUTO_PRUNE !== "false",
+      maxAgeMs: Number(process.env.LTM_MAX_AGE_MS ?? 2592000000), // 30 days
+      pruneBelowImportance: Number(process.env.LTM_PRUNE_BELOW_IMPORTANCE ?? 0.3),
+    },
+    userSystem: {
+      enabled: process.env.USER_SYSTEM_ENABLED === "true",
+      jwtSecret: process.env.JWT_SECRET ?? "change-me-in-production",
+      tokenTtlMs: Number(process.env.JWT_TTL_MS ?? 86400000), // 24 hours
+      maxConcurrentPerUser: Number(process.env.MAX_CONCURRENT_PER_USER ?? 3),
+      postgresUrl: process.env.POSTGRES_URL ?? "postgresql://localhost:5432/game_designer",
+      redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
+      autoInitSchema: process.env.AUTO_INIT_SCHEMA !== "false",
+    },
+    messageQueue: {
+      enabled: process.env.MQ_ENABLED === "true",
+      consumerGroup: process.env.MQ_CONSUMER_GROUP ?? "gd-workers",
+      pollIntervalMs: Number(process.env.MQ_POLL_INTERVAL_MS ?? 100),
+    },
     limits: {
       subAgentMaxIterations: Number(process.env.SUB_AGENT_MAX_ITERATIONS) || 20,
       queryAgentMaxIterations: Number(process.env.QUERY_AGENT_MAX_ITERATIONS) || 20,
