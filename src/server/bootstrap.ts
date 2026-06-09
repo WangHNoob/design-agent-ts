@@ -28,6 +28,19 @@ import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./route
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
 import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
+import { FileBasedLongTermMemoryAdapter } from "../adapter/memory/FileBasedLongTermMemoryAdapter.js";
+import { MemoryManager } from "../core/memory/MemoryManager.js";
+import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
+import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
+import { PostgresDatabaseAdapter } from "../adapter/postgres/PostgresDatabaseAdapter.js";
+import { PostgresUserAdapter } from "../adapter/postgres/PostgresUserAdapter.js";
+import { PostgresLongTermMemoryAdapter } from "../adapter/postgres/PostgresLongTermMemoryAdapter.js";
+import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
+import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
+import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
+import { UserContextManager } from "../core/user/UserContextManager.js";
+import { authMiddleware } from "./middleware/auth.js";
+import { usersRoute, setUserContextManager } from "./routes/users.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -40,6 +53,11 @@ let bootstrapState: {
   hooks: import("../port/hook/AgentHook.js").AgentHook[];
   fileSystem: NodeFileSystemAdapter;
   workspaceManager: WorkspaceManager;
+  memoryManager: MemoryManager | null;
+  userContextManager: UserContextManager | null;
+  dbAdapter: PostgresDatabaseAdapter | null;
+  redisAdapter: RedisTenantIsolationAdapter | null;
+  mqAdapter: RedisMessageQueueAdapter | null;
 } | null = null;
 
 export function getBootstrapState() {
@@ -183,10 +201,88 @@ export async function bootstrap() {
     new ContextManagementHook(config.limits.contextCompressionThreshold, config.limits.contextMaxTokens),
   ];
 
+  // Initialize long-term memory (composition root: wire adapter → core)
+  let memoryManager: MemoryManager | null = null;
+  if (config.longTermMemory.enabled) {
+    const ltmAdapter = new FileBasedLongTermMemoryAdapter(
+      config.longTermMemory.storagePath,
+      fileSystem,
+      new NodeIdGeneratorAdapter(),
+    );
+    memoryManager = new MemoryManager(ltmAdapter, {
+      defaultNamespace: config.longTermMemory.defaultNamespace,
+      maxContextMemories: config.longTermMemory.maxContextMemories,
+      minImportanceForContext: config.longTermMemory.minImportanceForContext,
+      autoExtract: config.longTermMemory.autoExtract,
+      autoPrune: config.longTermMemory.autoPrune,
+      maxAgeMs: config.longTermMemory.maxAgeMs,
+      pruneBelowImportance: config.longTermMemory.pruneBelowImportance,
+    });
+
+    // Memory injection hook runs at pre_reasoning (priority 60, before compression)
+    hooks.push(new MemoryInjectionHook(memoryManager, config.longTermMemory.defaultNamespace));
+    // Memory extraction hook runs at post_agent_call (priority 200, after other hooks)
+    if (config.longTermMemory.autoExtract) {
+      hooks.push(new MemoryExtractionHook(memoryManager, config.longTermMemory.defaultNamespace));
+    }
+
+    console.log(`[Bootstrap] Long-term memory enabled: storage=${config.longTermMemory.storagePath}, namespace=${config.longTermMemory.defaultNamespace}`);
+  }
+
   const workspaceManager = new WorkspaceManager("workspace", fileSystem);
 
+  // ─── User System (Multi-Tenant) ──────────────────────────────────
+  let userContextManager: UserContextManager | null = null;
+  let dbAdapter: PostgresDatabaseAdapter | null = null;
+  let redisAdapter: RedisTenantIsolationAdapter | null = null;
+  let mqAdapter: RedisMessageQueueAdapter | null = null;
+
+  if (config.userSystem.enabled) {
+    console.log("[Bootstrap] Initializing user system (multi-tenant)...");
+
+    // PostgreSQL
+    dbAdapter = new PostgresDatabaseAdapter(config.userSystem.postgresUrl);
+    if (config.userSystem.autoInitSchema) {
+      await dbAdapter.initializeSchema();
+      console.log("[Bootstrap] PostgreSQL schema initialized");
+    }
+
+    // Redis
+    redisAdapter = new RedisTenantIsolationAdapter(
+      config.userSystem.redisUrl,
+      new PostgresUserAdapter(dbAdapter, new NodeIdGeneratorAdapter(), config.userSystem.jwtSecret, config.userSystem.tokenTtlMs),
+    );
+    await redisAdapter.connect();
+    console.log("[Bootstrap] Redis connected");
+
+    // User adapters
+    const userAdapter = new PostgresUserAdapter(dbAdapter, new NodeIdGeneratorAdapter(), config.userSystem.jwtSecret, config.userSystem.tokenTtlMs);
+    userContextManager = new UserContextManager(userAdapter, redisAdapter);
+
+    // Replace file-based LTM with PostgreSQL-backed LTM per user
+    if (config.longTermMemory.enabled) {
+      // When user system is enabled, LTM uses PostgreSQL per-user
+      // MemoryManager will be created per-request with user-scoped adapter
+      console.log("[Bootstrap] Long-term memory using PostgreSQL (user-scoped)");
+    }
+
+    // Message Queue
+    if (config.messageQueue.enabled) {
+      mqAdapter = new RedisMessageQueueAdapter(
+        config.userSystem.redisUrl,
+        new NodeIdGeneratorAdapter(),
+        { consumerGroup: config.messageQueue.consumerGroup, pollIntervalMs: config.messageQueue.pollIntervalMs },
+      );
+      await mqAdapter.connect();
+      await mqAdapter.start();
+      console.log("[Bootstrap] Message queue started");
+    }
+
+    console.log("[Bootstrap] User system enabled: multi-tenant mode active");
+  }
+
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, redisAdapter, mqAdapter };
 
   const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
   await sessionManager.initialize();
@@ -201,6 +297,11 @@ export async function bootstrap() {
   setHITLManager(hitlManager);
   setSettingsManager(settingsManager);
   setTavilyTool(tavilyTool);
+
+  // Wire user context manager (if user system is enabled)
+  if (userContextManager) {
+    setUserContextManager(userContextManager);
+  }
 
   // If API key is available, initialize director immediately
   if (apiKey) {

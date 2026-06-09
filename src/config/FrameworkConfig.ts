@@ -23,6 +23,31 @@ export interface FrameworkConfig {
     tavilyApiKey?: string;
     tavilyEnabled: boolean;
   };
+  longTermMemory: {
+    enabled: boolean;
+    storagePath: string;
+    defaultNamespace: string;
+    maxContextMemories: number;
+    minImportanceForContext: number;
+    autoExtract: boolean;
+    autoPrune: boolean;
+    maxAgeMs: number;
+    pruneBelowImportance: number;
+  };
+  userSystem: {
+    enabled: boolean;
+    jwtSecret: string;
+    tokenTtlMs: number;
+    maxConcurrentPerUser: number;
+    postgresUrl: string;
+    redisUrl: string;
+    autoInitSchema: boolean;
+  };
+  messageQueue: {
+    enabled: boolean;
+    consumerGroup: string;
+    pollIntervalMs: number;
+  };
   limits: {
     subAgentMaxIterations: number;
     queryAgentMaxIterations: number;

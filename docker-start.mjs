@@ -1,20 +1,23 @@
 /**
- * Docker 环境一键启动脚本
+ * Docker 环境启动脚本
  *
  * 用法:
- *   node docker-start.mjs           # 启动全部服务
- *   node docker-start.mjs --build   # 重建镜像后启动
- *   node docker-start.mjs --rebuild # 无缓存重建镜像后启动（代码变更后使用）
+ *   node docker-start.mjs           # 启动已有镜像（不重新编译）
+ *   node docker-start.mjs --rebuild # 本地编译 → 打包进 Docker → 启动
  *   node docker-start.mjs --down    # 停止并移除所有服务
  *   node docker-start.mjs --logs    # 查看所有服务日志
  *
- * 前置条件:
- *   1. 已安装 Docker 和 Docker Compose
- *   2. .env 文件已配置（可从 .env.example 复制）
+ * --rebuild 流程：
+ *   1. pnpm install（本地环境下载依赖，网络稳定）
+ *   2. pnpm run build（后端编译）
+ *   3. cd frontend && pnpm run build（前端编译）
+ *   4. docker compose build（打包产物进镜像，无需网络）
+ *   5. docker compose up -d
+ *
+ * Dockerfile 采用本地预编译模式，镜像内不含 pnpm install / build 步骤。
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { createInterface } from "node:readline";
 import net from "node:net";
 
 const colors = {
@@ -124,21 +127,19 @@ function printAccessInfo() {
   console.log("");
   console.log("提示: 按 Ctrl+C 停止日志查看，服务仍在后台运行");
   console.log("      使用 'node docker-start.mjs --down' 停止所有服务");
-  console.log("      使用 'node docker-start.mjs --rebuild' 重建并启动");
+  console.log("      使用 'node docker-start.mjs --rebuild' 本地编译并重新部署");
   console.log("");
 }
 
 // ========== 主逻辑 ==========
 
 const args = process.argv.slice(2);
-const forceBuild = args.includes("--build");
-const noCacheRebuild = args.includes("--rebuild");
+const rebuildMode = args.includes("--rebuild");
 const stopMode = args.includes("--down");
 const logsMode = args.includes("--logs");
 
 printBanner();
 
-// 检查 Docker
 const composeCmd = await detectComposeCommand();
 if (!composeCmd) {
   log("error", "未找到 Docker Compose，请先安装 Docker 和 Docker Compose");
@@ -170,16 +171,53 @@ if (logsMode) {
   process.exit(0);
 }
 
-// --rebuild 模式：无缓存重建
-if (noCacheRebuild) {
-  log("info", "正在无缓存重建所有镜像（代码变更后推荐使用）...");
-  try {
-    await run(composeCmd, ["build", "--no-cache"]);
-    log("success", "镜像重建完成");
-  } catch (e) {
-    log("error", `重建失败: ${e.message}`);
+// --rebuild 模式：本地编译 → 打包进 Docker
+if (rebuildMode) {
+  log("info", "本地编译 → 打包进 Docker → 重启容器");
+  log("info", "（Docker 内不下载依赖，利用本地网络环境）");
+  console.log("");
+
+  // Step 1: pnpm install
+  log("info", "Step 1: pnpm install...");
+  const installResult = spawnSync("pnpm", ["install"], { shell: true, stdio: "inherit" });
+  if (installResult.status !== 0) {
+    log("error", "依赖安装失败");
     process.exit(1);
   }
+  log("success", "依赖安装完成");
+  console.log("");
+
+  // Step 2: 编译后端
+  log("info", "Step 2: 编译后端 (pnpm run build)...");
+  const backendBuild = spawnSync("pnpm", ["run", "build"], { shell: true, stdio: "inherit" });
+  if (backendBuild.status !== 0) {
+    log("error", "后端编译失败");
+    process.exit(1);
+  }
+  log("success", "后端编译完成");
+  console.log("");
+
+  // Step 3: 编译前端
+  log("info", "Step 3: 编译前端...");
+  const frontendBuild = spawnSync("pnpm", ["run", "build"], { shell: true, stdio: "inherit", cwd: "frontend" });
+  if (frontendBuild.status !== 0) {
+    log("error", "前端编译失败");
+    process.exit(1);
+  }
+  log("success", "前端编译完成");
+  console.log("");
+
+  // Step 4: 停旧容器 + 重建镜像
+  log("info", "Step 4: 停旧容器并重建镜像...");
+  try {
+    await run(composeCmd, ["down", "--remove-orphans"]);
+    await run(composeCmd, ["build"]);
+    log("success", "镜像构建完成");
+  } catch (e) {
+    log("error", `Docker 构建失败: ${e.message}`);
+    process.exit(1);
+  }
+  console.log("");
 }
 
 // 检查 .env
@@ -201,24 +239,14 @@ for (const port of portsToCheck) {
     occupiedPorts.push(port);
   }
 }
-
 if (occupiedPorts.length > 0) {
   log("warn", `以下端口已被占用: ${occupiedPorts.join(", ")}`);
   log("warn", "如果已运行服务，请先执行: node docker-start.mjs --down");
 }
 
-// 构建启动参数
-const composeArgs = ["up", "--remove-orphans"];
-if (forceBuild) {
-  composeArgs.push("--build");
-}
-
-log("info", `启动全部服务...`);
-
-// 启动服务（后台模式，以便做健康检查）
-composeArgs.push("-d");
-log("info", `执行: ${composeCmd} ${composeArgs.join(" ")}`);
-
+// 启动服务
+log("info", "启动全部服务...");
+const composeArgs = ["up", "-d", "--remove-orphans"];
 try {
   await run(composeCmd, composeArgs);
 } catch (e) {
@@ -226,7 +254,7 @@ try {
   process.exit(1);
 }
 
-// 健康检查（使用映射端口 13000）
+// 健康检查
 log("info", "等待后端健康检查...");
 const backendReady = await waitForService("http://localhost:13000/health", 60, 2000);
 if (backendReady) {

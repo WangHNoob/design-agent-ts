@@ -1,6 +1,7 @@
-node_modules
-.next
-dist
+# Docker 本地预编译模式：需要以下目录进入构建上下文
+# 不要排除 node_modules, dist, frontend/.next — Dockerfile 直接 COPY 它们
+
+.git
 .venv
 venv
 __pycache__
@@ -15,7 +16,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 .env
 .env.local
-.git
 .gitignore
 sessions
 coverage

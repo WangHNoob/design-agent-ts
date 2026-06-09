@@ -23,6 +23,8 @@ services:
     volumes:
       - ./sessions:/app/sessions
       - ./settings.json:/app/settings.json
+      - ./contrib:/app/contrib
+      - ./prompts:/app/prompts
     restart: unless-stopped
 
   frontend:
