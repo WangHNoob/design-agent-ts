@@ -65,26 +65,17 @@ export class PostgresDatabaseAdapter implements DatabasePort {
   /**
    * Initialize the database schema.
    * Called once at startup — idempotent (uses IF NOT EXISTS).
+   *
+   * Note: The "user" and "session" tables are managed by Better Auth
+   * (via `npx auth migrate`). This method only creates application-specific tables.
    */
   async initializeSchema(): Promise<void> {
     await this.pool.query(`
-      -- Users table
-      CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        email VARCHAR(255) UNIQUE NOT NULL,
-        display_name VARCHAR(100) NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(20) NOT NULL DEFAULT 'user',
-        is_active BOOLEAN NOT NULL DEFAULT true,
-        last_login_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-
       -- User assets table (polymorphic: stores all asset types)
+      -- References Better Auth's "user" table
       CREATE TABLE IF NOT EXISTS user_assets (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        user_id VARCHAR(36) NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
         asset_type VARCHAR(50) NOT NULL,
         asset_key VARCHAR(255) NOT NULL,
         data JSONB NOT NULL DEFAULT '{}',
@@ -99,10 +90,10 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       CREATE INDEX IF NOT EXISTS idx_user_assets_user_type ON user_assets(user_id, asset_type);
       CREATE INDEX IF NOT EXISTS idx_user_assets_system ON user_assets(owner, asset_type) WHERE owner = 'system';
 
-      -- Sessions table (replaces file-based sessions)
+      -- Application sessions table (game design sessions, not auth sessions)
       CREATE TABLE IF NOT EXISTS sessions (
         id VARCHAR(100) PRIMARY KEY,
-        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        user_id VARCHAR(36) REFERENCES "user"(id) ON DELETE CASCADE,
         requirement TEXT NOT NULL,
         mode VARCHAR(20) NOT NULL,
         role VARCHAR(50) NOT NULL,
@@ -118,7 +109,7 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       -- Long-term memory table (replaces file-based LTM)
       CREATE TABLE IF NOT EXISTS long_term_memory (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_id VARCHAR(36) NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
         semantic_type VARCHAR(20) NOT NULL,
         namespace VARCHAR(100) NOT NULL,
         key VARCHAR(255) NOT NULL,
@@ -144,10 +135,6 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       $$ LANGUAGE plpgsql;
 
       -- Auto-update triggers
-      DROP TRIGGER IF EXISTS trg_users_updated_at ON users;
-      CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users
-        FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
       DROP TRIGGER IF EXISTS trg_user_assets_updated_at ON user_assets;
       CREATE TRIGGER trg_user_assets_updated_at BEFORE UPDATE ON user_assets
         FOR EACH ROW EXECUTE FUNCTION update_updated_at();

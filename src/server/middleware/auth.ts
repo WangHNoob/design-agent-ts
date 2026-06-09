@@ -1,29 +1,26 @@
 import type { Context, Next } from "hono";
 import type { TenantContext, TenantIsolationPort } from "../../port/user/TenantIsolationPort.js";
-import type { UserPort } from "../../port/user/UserPort.js";
 
 /**
- * Hono middleware that extracts and validates the Bearer token,
- * then injects the TenantContext into the request context.
+ * Hono middleware that resolves the tenant context from Better Auth session.
+ *
+ * Uses TenantIsolationPort.resolveTenantFromHeaders() which internally
+ * delegates to Better Auth's session validation.
  *
  * Usage:
- *   app.use("/api/*", authMiddleware(userPort, tenantPort));
+ *   app.use("/api/*", authMiddleware(tenantPort));
  *   // In route handlers:
  *   const ctx = c.get("tenant") as TenantContext;
  */
-export function authMiddleware(
-  userPort: UserPort,
-  tenantPort: TenantIsolationPort,
-) {
+export function authMiddleware(tenantPort: TenantIsolationPort) {
   return async (c: Context, next: Next) => {
-    const authHeader = c.req.header("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      c.set("tenant", null);
-      return next();
-    }
+    // Convert Hono headers to plain record for TenantIsolationPort
+    const headers: Record<string, string | undefined> = {};
+    c.req.raw.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
 
-    const token = authHeader.slice(7);
-    const tenantCtx = await tenantPort.resolveTenant(token);
+    const tenantCtx = await tenantPort.resolveTenantFromHeaders(headers);
 
     if (!tenantCtx) {
       c.set("tenant", null);

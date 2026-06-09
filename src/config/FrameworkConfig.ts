@@ -36,8 +36,8 @@ export interface FrameworkConfig {
   };
   userSystem: {
     enabled: boolean;
-    jwtSecret: string;
-    tokenTtlMs: number;
+    betterAuthSecret: string;
+    betterAuthBaseUrl: string;
     maxConcurrentPerUser: number;
     postgresUrl: string;
     redisUrl: string;

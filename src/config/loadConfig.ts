@@ -44,8 +44,8 @@ export function loadConfig(): FrameworkConfig {
     },
     userSystem: {
       enabled: process.env.USER_SYSTEM_ENABLED === "true",
-      jwtSecret: process.env.JWT_SECRET ?? "change-me-in-production",
-      tokenTtlMs: Number(process.env.JWT_TTL_MS ?? 86400000), // 24 hours
+      betterAuthSecret: process.env.BETTER_AUTH_SECRET ?? "change-me-in-production",
+      betterAuthBaseUrl: process.env.BETTER_AUTH_BASE_URL ?? "http://localhost:4527",
       maxConcurrentPerUser: Number(process.env.MAX_CONCURRENT_PER_USER ?? 3),
       postgresUrl: process.env.POSTGRES_URL ?? "postgresql://localhost:5432/game_designer",
       redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
