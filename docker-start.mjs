@@ -204,6 +204,11 @@ if (rebuildMode) {
     log("error", "前端编译失败");
     process.exit(1);
   }
+  if (!existsSync("frontend/.next/standalone/frontend/server.js")) {
+    log("error", "前端 standalone 入口不存在: frontend/.next/standalone/frontend/server.js");
+    log("error", "请确认 frontend/next.config.* 已设置 output: 'standalone'");
+    process.exit(1);
+  }
   log("success", "前端编译完成");
   console.log("");
 

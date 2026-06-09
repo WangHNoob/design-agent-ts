@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "better-auth": "^1.6.14",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.17.0",
     "next": "^16.2.7",
