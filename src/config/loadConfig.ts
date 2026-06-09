@@ -1,8 +1,9 @@
 import type { FrameworkConfig } from "./FrameworkConfig.js";
+import { validateConfig } from "./validateConfig.js";
 
 export function loadConfig(): FrameworkConfig {
   const hitlEnabled = process.env.HITL_ENABLED === "true";
-  return {
+  const config: FrameworkConfig = {
     framework: (process.env.AGENT_FRAMEWORK as FrameworkConfig["framework"]) ?? "langgraph",
     model: {
       provider: (process.env.LLM_PROVIDER as FrameworkConfig["model"]["provider"]) ?? "openai",
@@ -70,4 +71,6 @@ export function loadConfig(): FrameworkConfig {
       modelMaxTokens: Number(process.env.MODEL_MAX_TOKENS) || 65536,
     },
   };
+  validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
+  return config;
 }
