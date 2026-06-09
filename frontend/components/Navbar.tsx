@@ -1,9 +1,10 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { LayoutDashboard, Gamepad2, Settings, ClipboardCheck, ScrollText, FolderCog } from 'lucide-react';
+import { LayoutDashboard, Gamepad2, Settings, ClipboardCheck, ScrollText, FolderCog, LogOut, User } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from './AuthProvider';
 
 const navItems = [
   { href: '/', label: '控制台', icon: Gamepad2 },
@@ -16,6 +17,7 @@ const navItems = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { user, isAuthenticated, logout } = useAuth();
 
   return (
     <motion.nav
@@ -70,6 +72,27 @@ export default function Navbar() {
               </Link>
             );
           })}
+
+          {/* User info & logout */}
+          {isAuthenticated && user && (
+            <div className="ml-2 flex items-center gap-2 border-l border-ink/10 pl-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-coral/10 text-coral">
+                  <User size={14} />
+                </div>
+                <span className="text-sm font-medium text-ink/70">
+                  {user.name || user.email}
+                </span>
+              </div>
+              <button
+                onClick={logout}
+                className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-ink/40 transition-all hover:bg-ink/5 hover:text-ink/70"
+                title="退出登录"
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
       <div className="h-px w-full bg-gradient-to-r from-transparent via-coral/30 to-transparent" />

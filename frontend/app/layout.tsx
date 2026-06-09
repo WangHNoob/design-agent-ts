@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import TaskDock from '@/components/TaskDock';
+import { AuthProvider } from '@/components/AuthProvider';
+import { AuthGuard } from '@/components/AuthGuard';
 
 export const metadata: Metadata = {
   title: '游戏策划工坊 | Game Designer',
@@ -15,8 +17,12 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="min-h-screen dot-grid">
-        {children}
-        <TaskDock />
+        <AuthProvider>
+          <AuthGuard>
+            {children}
+            <TaskDock />
+          </AuthGuard>
+        </AuthProvider>
       </body>
     </html>
   );

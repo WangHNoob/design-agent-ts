@@ -6,14 +6,16 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Copy pre-built frontend standalone output
+# Copy pre-built frontend standalone output.
+# Next builds this project from the frontend/ subdirectory, so the standalone
+# server entrypoint is emitted at /app/frontend/server.js.
 COPY frontend/.next/standalone ./
-COPY frontend/.next/static ./.next/static
-COPY frontend/public ./public
+COPY frontend/.next/static ./frontend/.next/static
+COPY frontend/public ./frontend/public
 
 ENV NODE_ENV=production
 ENV PORT=3001
 
 EXPOSE 3001
 
-CMD ["node", "server.js"]
+CMD ["node", "frontend/server.js"]
