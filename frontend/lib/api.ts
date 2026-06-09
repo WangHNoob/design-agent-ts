@@ -1,5 +1,12 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3000';
 
+function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    credentials: init.credentials ?? 'include',
+  });
+}
+
 export interface ExecuteRequest {
   requirement: string;
   sessionId?: string;
@@ -48,7 +55,7 @@ export interface HITLCheckpoint {
 }
 
 export async function executeDesign(req: ExecuteRequest): Promise<ExecuteResponse> {
-  const res = await fetch(`${API_BASE}/api/console/execute`, {
+  const res = await apiFetch(`${API_BASE}/api/console/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
@@ -58,7 +65,7 @@ export async function executeDesign(req: ExecuteRequest): Promise<ExecuteRespons
 
 export async function cancelExecution(sessionId: string): Promise<{ success: boolean }> {
   try {
-    const res = await fetch(`${API_BASE}/api/console/cancel`, {
+    const res = await apiFetch(`${API_BASE}/api/console/cancel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
@@ -81,7 +88,7 @@ export function executeDesignStream(
 
   const controller = new AbortController();
 
-  fetch(`${API_BASE}/api/console/execute/stream`, {
+  apiFetch(`${API_BASE}/api/console/execute/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -128,34 +135,34 @@ export function executeDesignStream(
 }
 
 export async function checkHealth(): Promise<HealthResponse> {
-  const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+  const res = await apiFetch(`${API_BASE}/health`, { cache: 'no-store' });
   return res.json();
 }
 
 export async function listSessions(limit = 50, offset = 0): Promise<{ sessions: SessionMeta[]; total: number }> {
-  const res = await fetch(`${API_BASE}/api/sessions?limit=${limit}&offset=${offset}`);
+  const res = await apiFetch(`${API_BASE}/api/sessions?limit=${limit}&offset=${offset}`);
   return res.json();
 }
 
 export async function getSession(id: string): Promise<SessionMeta> {
-  const res = await fetch(`${API_BASE}/api/sessions/${id}`);
+  const res = await apiFetch(`${API_BASE}/api/sessions/${id}`);
   return res.json();
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  await fetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
+  await apiFetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
 }
 
 export async function listHITLCheckpoints(sessionId?: string): Promise<{ checkpoints: HITLCheckpoint[] }> {
   const url = sessionId
     ? `${API_BASE}/api/hitl/checkpoints?sessionId=${sessionId}`
     : `${API_BASE}/api/hitl/checkpoints`;
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   return res.json();
 }
 
 export async function getHITLCheckpoint(id: string): Promise<HITLCheckpoint> {
-  const res = await fetch(`${API_BASE}/api/hitl/checkpoints/${id}`);
+  const res = await apiFetch(`${API_BASE}/api/hitl/checkpoints/${id}`);
   return res.json();
 }
 
@@ -164,7 +171,7 @@ export async function reviewHITLCheckpoint(
   action: 'approve' | 'reject' | 'modify',
   options?: { comment?: string; modifiedContent?: string }
 ): Promise<HITLCheckpoint> {
-  const res = await fetch(`${API_BASE}/api/hitl/checkpoints/${id}/review`, {
+  const res = await apiFetch(`${API_BASE}/api/hitl/checkpoints/${id}/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...options }),
@@ -196,12 +203,12 @@ export interface TavilyStatus {
 }
 
 export async function getSettings(): Promise<AppSettingsResponse> {
-  const res = await fetch(`${API_BASE}/api/settings`);
+  const res = await apiFetch(`${API_BASE}/api/settings`);
   return res.json();
 }
 
 export async function saveSettings(settings: Partial<AppSettingsResponse> & { tavilyApiKey?: string }): Promise<{ success: boolean; settings: AppSettingsResponse }> {
-  const res = await fetch(`${API_BASE}/api/settings`, {
+  const res = await apiFetch(`${API_BASE}/api/settings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
@@ -210,7 +217,7 @@ export async function saveSettings(settings: Partial<AppSettingsResponse> & { ta
 }
 
 export async function getTavilyStatus(): Promise<TavilyStatus> {
-  const res = await fetch(`${API_BASE}/api/settings/mcp/status`);
+  const res = await apiFetch(`${API_BASE}/api/settings/mcp/status`);
   return res.json();
 }
 
@@ -221,7 +228,7 @@ export interface ConfigStatus {
 }
 
 export async function getConfigStatus(): Promise<ConfigStatus> {
-  const res = await fetch(`${API_BASE}/api/settings/status`);
+  const res = await apiFetch(`${API_BASE}/api/settings/status`);
   return res.json();
 }
 
@@ -244,7 +251,7 @@ export interface SessionFilesResponse {
 }
 
 export async function fetchSessionFiles(sessionId: string): Promise<SessionFilesResponse> {
-  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/files`);
+  const res = await apiFetch(`${API_BASE}/api/sessions/${sessionId}/files`);
   if (!res.ok) throw new Error(`Failed to fetch files: ${res.status}`);
   return res.json();
 }
@@ -278,18 +285,18 @@ export interface PromptDetail {
 }
 
 export async function listPrompts(): Promise<{ prompts: PromptInfo[] }> {
-  const res = await fetch(`${API_BASE}/api/prompts`);
+  const res = await apiFetch(`${API_BASE}/api/prompts`);
   return res.json();
 }
 
 export async function getPrompt(name: string): Promise<PromptDetail> {
-  const res = await fetch(`${API_BASE}/api/prompts/${name}`);
+  const res = await apiFetch(`${API_BASE}/api/prompts/${name}`);
   if (!res.ok) throw new Error(`Prompt '${name}' not found`);
   return res.json();
 }
 
 export async function savePrompt(name: string, content: string): Promise<{ success: boolean; isNew: boolean }> {
-  const res = await fetch(`${API_BASE}/api/prompts/${name}`, {
+  const res = await apiFetch(`${API_BASE}/api/prompts/${name}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -298,7 +305,7 @@ export async function savePrompt(name: string, content: string): Promise<{ succe
 }
 
 export async function deletePrompt(name: string): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE}/api/prompts/${name}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API_BASE}/api/prompts/${name}`, { method: 'DELETE' });
   return res.json();
 }
 
@@ -317,18 +324,18 @@ export interface SkillDetail {
 }
 
 export async function listSkills(): Promise<{ skills: SkillInfo[] }> {
-  const res = await fetch(`${API_BASE}/api/skills`);
+  const res = await apiFetch(`${API_BASE}/api/skills`);
   return res.json();
 }
 
 export async function getSkill(name: string): Promise<SkillDetail> {
-  const res = await fetch(`${API_BASE}/api/skills/${name}`);
+  const res = await apiFetch(`${API_BASE}/api/skills/${name}`);
   if (!res.ok) throw new Error(`Skill '${name}' not found`);
   return res.json();
 }
 
 export async function saveSkill(name: string, content: string): Promise<{ success: boolean; isNew: boolean }> {
-  const res = await fetch(`${API_BASE}/api/skills/${name}`, {
+  const res = await apiFetch(`${API_BASE}/api/skills/${name}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -337,7 +344,7 @@ export async function saveSkill(name: string, content: string): Promise<{ succes
 }
 
 export async function deleteSkill(name: string): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE}/api/skills/${name}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API_BASE}/api/skills/${name}`, { method: 'DELETE' });
   return res.json();
 }
 
@@ -368,12 +375,12 @@ export interface WorkflowDetail {
 }
 
 export async function listWorkflows(): Promise<{ workflows: WorkflowInfo[]; validDomains: string[]; validOutputTypes: string[] }> {
-  const res = await fetch(`${API_BASE}/api/workflows`);
+  const res = await apiFetch(`${API_BASE}/api/workflows`);
   return res.json();
 }
 
 export async function getWorkflow(name: string): Promise<WorkflowDetail> {
-  const res = await fetch(`${API_BASE}/api/workflows/${name}`);
+  const res = await apiFetch(`${API_BASE}/api/workflows/${name}`);
   if (!res.ok) throw new Error(`Workflow '${name}' not found`);
   return res.json();
 }
@@ -385,7 +392,7 @@ export async function saveWorkflow(name: string, def: {
   tasks: WorkflowTaskDef[];
   body?: string;
 }): Promise<{ success: boolean; isNew: boolean; taskCount: number; errors?: string[] }> {
-  const res = await fetch(`${API_BASE}/api/workflows/${name}`, {
+  const res = await apiFetch(`${API_BASE}/api/workflows/${name}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(def),
@@ -394,12 +401,12 @@ export async function saveWorkflow(name: string, def: {
 }
 
 export async function deleteWorkflow(name: string): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE}/api/workflows/${name}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API_BASE}/api/workflows/${name}`, { method: 'DELETE' });
   return res.json();
 }
 
 export async function validateWorkflow(content: string): Promise<{ valid: boolean; errors?: string[]; taskCount?: number }> {
-  const res = await fetch(`${API_BASE}/api/workflows/validate`, {
+  const res = await apiFetch(`${API_BASE}/api/workflows/validate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
@@ -408,7 +415,7 @@ export async function validateWorkflow(content: string): Promise<{ valid: boolea
 }
 
 export async function llmGenerateWorkflowContent(prompt: string, context?: string): Promise<{ success: boolean; data: unknown; raw: string }> {
-  const res = await fetch(`${API_BASE}/api/workflows/llm-generate`, {
+  const res = await apiFetch(`${API_BASE}/api/workflows/llm-generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, context }),

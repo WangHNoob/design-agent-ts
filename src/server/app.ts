@@ -11,7 +11,7 @@ import { workflowsRoute } from "./routes/workflows.js";
 import { usersRoute } from "./routes/users.js";
 import type { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
-import { authMiddleware } from "./middleware/auth.js";
+import { authMiddleware, requireAuth } from "./middleware/auth.js";
 
 let betterAuthAdapter: BetterAuthAdapter | null = null;
 let tenantPort: TenantIsolationPort | null = null;
@@ -49,9 +49,11 @@ export function createApp() {
   }
 
   // ─── Auth Middleware (tenant resolution) ───────────────────────
-  // Resolves Better Auth session → TenantContext for all /api/* routes
+  // Resolves Better Auth session → TenantContext for all /api/* routes,
+  // then protects business API routes by default.
   if (tenantPort) {
     app.use("/api/*", authMiddleware(tenantPort));
+    app.use("/api/*", requireAuth());
   }
 
   // ─── Application Routes ────────────────────────────────────────
