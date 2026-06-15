@@ -1,12 +1,7 @@
-# ==========================================
-# 本地预编译模式：不在此镜像内编译，直接 COPY 本地产物
-# 前置：在宿主机执行 pnpm install && pnpm run build
-# ==========================================
 FROM node:22-alpine
-
 WORKDIR /app
 
-# Copy pre-built backend artifacts
+# Copy pre-built backend
 COPY dist/ ./dist/
 COPY node_modules/ ./node_modules/
 COPY package.json ./
@@ -17,8 +12,7 @@ COPY knowledge/ ./knowledge/
 COPY contrib/ ./contrib/
 COPY settings.json ./
 
-# Create sessions directory
-RUN mkdir -p sessions
+RUN mkdir -p sessions data/long-term-memory
 
 ENV NODE_ENV=production
 ENV PORT=3000

@@ -71,11 +71,13 @@ export class PostgresDatabaseAdapter implements DatabasePort {
    */
   async initializeSchema(): Promise<void> {
     await this.pool.query(`
+      CREATE EXTENSION IF NOT EXISTS vector;
+
       -- User assets table (polymorphic: stores all asset types)
       -- References Better Auth's "user" table
       CREATE TABLE IF NOT EXISTS user_assets (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id VARCHAR(36) NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        user_id VARCHAR(36) NOT NULL,
         asset_type VARCHAR(50) NOT NULL,
         asset_key VARCHAR(255) NOT NULL,
         data JSONB NOT NULL DEFAULT '{}',
@@ -93,7 +95,7 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       -- Application sessions table (game design sessions, not auth sessions)
       CREATE TABLE IF NOT EXISTS sessions (
         id VARCHAR(100) PRIMARY KEY,
-        user_id VARCHAR(36) REFERENCES "user"(id) ON DELETE CASCADE,
+        user_id VARCHAR(36),
         requirement TEXT NOT NULL,
         mode VARCHAR(20) NOT NULL,
         role VARCHAR(50) NOT NULL,
@@ -109,7 +111,7 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       -- Long-term memory table (replaces file-based LTM)
       CREATE TABLE IF NOT EXISTS long_term_memory (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id VARCHAR(36) NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        user_id VARCHAR(36) NOT NULL,
         semantic_type VARCHAR(20) NOT NULL,
         namespace VARCHAR(100) NOT NULL,
         key VARCHAR(255) NOT NULL,

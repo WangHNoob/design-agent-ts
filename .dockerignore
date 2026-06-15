@@ -1,7 +1,11 @@
-# Docker 本地预编译模式：需要以下目录进入构建上下文
-# 不要排除 node_modules, dist, frontend/.next — Dockerfile 直接 COPY 它们
+# Docker: backend only needs dist/ + node_modules/ + assets
+# Frontend is built separately
 
+# VCS
 .git
+.gitignore
+
+# Python (legacy)
 .venv
 venv
 __pycache__
@@ -13,17 +17,34 @@ __pycache__
 *.egg
 *.egg-info
 pip-log.txt
-pip-delete-this-directory.txt
-.env
-.env.local
-.gitignore
-sessions
-coverage
-.nyc_output
+
+# IDE
 .vscode
 .idea
 *.swp
 *.swo
-*~
+
+# Runtime data
+sessions
+coverage
+.nyc_output
 o11y
 workspace
+
+# Frontend source (not needed in backend image)
+frontend/node_modules
+frontend/.next
+
+# Env files (passed via docker-compose)
+.env
+.env.local
+frontend/.env.local
+
+# Docker files
+docker-compose.yml
+Dockerfile
+frontend/Dockerfile
+
+# Docs
+DEPLOY.md
+README.md

@@ -123,6 +123,8 @@ function printAccessInfo() {
   console.log("╠══════════════════════════════════════════════════════════════╣");
   console.log("║  前端:          http://localhost:3001                        ║");
   console.log("║  后端 API:      http://localhost:13000                       ║");
+  console.log("║  PostgreSQL:    localhost:5432                               ║");
+  console.log("║  Redis:         localhost:6379                               ║");
   console.log("╚══════════════════════════════════════════════════════════════╝");
   console.log("");
   console.log("提示: 按 Ctrl+C 停止日志查看，服务仍在后台运行");
