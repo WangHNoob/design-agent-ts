@@ -50,6 +50,10 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       consumerGroup: "gd-workers",
       pollIntervalMs: 100,
     },
+    mcp: {
+      enabled: false,
+      servers: [],
+    },
     limits: {
       subAgentMaxIterations: 20,
       queryAgentMaxIterations: 20,
@@ -113,5 +117,29 @@ describe("validateConfig", () => {
         redisUrl: "redis://localhost:16379/0",
       }), { port: 4527 }),
     ).not.toThrow();
+  });
+
+  test("rejects stdio MCP server without command", () => {
+    const cfg = { ...config(), mcp: { enabled: true, servers: [{ name: "s1", transport: "stdio" as const, enabled: true }] } };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/command is required for stdio transport/);
+  });
+
+  test("rejects http MCP server with invalid url", () => {
+    const cfg = { ...config(), mcp: { enabled: true, servers: [{ name: "s1", transport: "http" as const, enabled: true, url: "not-a-url" }] } };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/a valid url is required for http transport/);
+  });
+
+  test("accepts valid MCP server configs", () => {
+    const cfg = {
+      ...config(),
+      mcp: {
+        enabled: true,
+        servers: [
+          { name: "stdio-srv", transport: "stdio" as const, enabled: true, command: "node", args: ["srv.js"] },
+          { name: "http-srv", transport: "http" as const, enabled: true, url: "http://localhost:4174/mcp" },
+        ],
+      },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).not.toThrow();
   });
 });

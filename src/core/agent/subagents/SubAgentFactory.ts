@@ -69,6 +69,32 @@ const DEFAULT_DESCRIPTORS: Record<string, AgentDescriptor> = {
 
 export const SubAgentDescriptors: Record<string, AgentDescriptor> = { ...DEFAULT_DESCRIPTORS };
 
+/**
+ * Extra tool names (e.g. MCP-sourced tools) granted to every sub-agent.
+ * Stored separately so they survive `resetSubAgentDescriptors()` during
+ * hot-reload, which otherwise restores the static DEFAULT_TOOL_NAMES.
+ */
+let extraSubAgentToolNames: string[] = [];
+
+/** Register extra tool names available to all sub-agents (persists across resets). */
+export function setExtraSubAgentToolNames(names: string[]): void {
+  extraSubAgentToolNames = [...names];
+  // Apply immediately to current descriptors.
+  for (const name of Object.keys(SubAgentDescriptors)) {
+    const existing = SubAgentDescriptors[name];
+    if (existing) {
+      SubAgentDescriptors[name] = {
+        ...existing,
+        toolNames: mergeToolNames(existing.toolNames, extraSubAgentToolNames),
+      };
+    }
+  }
+}
+
+function mergeToolNames(base: string[], extra: string[]): string[] {
+  return Array.from(new Set([...base, ...extra]));
+}
+
 export function getSubAgentDescriptor(name: string): AgentDescriptor | undefined {
   return SubAgentDescriptors[name];
 }
@@ -82,10 +108,11 @@ export function configureSubAgentDescriptors(
   for (const [name, systemPrompt] of Object.entries(prompts)) {
     const existing = SubAgentDescriptors[name];
     if (existing) {
+      const baseToolNames = toolNames ?? existing.toolNames;
       SubAgentDescriptors[name] = {
         ...existing,
         systemPrompt: systemPrompt || existing.systemPrompt,
-        toolNames: toolNames ?? existing.toolNames,
+        toolNames: mergeToolNames(baseToolNames, extraSubAgentToolNames),
         maxIterations: defaultMaxIterations ?? existing.maxIterations,
         maxTokens: defaultMaxTokens ?? existing.maxTokens,
       };
@@ -95,6 +122,9 @@ export function configureSubAgentDescriptors(
 
 export function resetSubAgentDescriptors(): void {
   for (const [name, descriptor] of Object.entries(DEFAULT_DESCRIPTORS)) {
-    SubAgentDescriptors[name] = { ...descriptor };
+    SubAgentDescriptors[name] = {
+      ...descriptor,
+      toolNames: mergeToolNames(descriptor.toolNames, extraSubAgentToolNames),
+    };
   }
 }

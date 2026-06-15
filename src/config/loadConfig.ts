@@ -1,5 +1,43 @@
-import type { FrameworkConfig } from "./FrameworkConfig.js";
+import type { FrameworkConfig, McpServerConfig } from "./FrameworkConfig.js";
 import { validateConfig } from "./validateConfig.js";
+
+/**
+ * Parse MCP server definitions from the MCP_SERVERS env var (JSON array).
+ * Malformed JSON is tolerated (logged + treated as empty) so a bad value
+ * doesn't crash startup.
+ */
+function parseMcpServers(raw: string | undefined): McpServerConfig[] {
+  if (!raw || raw.trim().length === 0) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((s): s is Record<string, unknown> => typeof s === "object" && s !== null)
+      .map((s) => ({
+        name: String(s.name ?? ""),
+        transport: (s.transport as McpServerConfig["transport"]) ?? "stdio",
+        enabled: s.enabled !== false,
+        toolPrefix: typeof s.toolPrefix === "string" ? s.toolPrefix : undefined,
+        command: typeof s.command === "string" ? s.command : undefined,
+        args: Array.isArray(s.args) ? s.args.map((a) => String(a)) : undefined,
+        env: isStringRecord(s.env) ? s.env : undefined,
+        url: typeof s.url === "string" ? s.url : undefined,
+        headers: isStringRecord(s.headers) ? s.headers : undefined,
+      }));
+  } catch (err) {
+    console.warn(`[loadConfig] MCP_SERVERS is not valid JSON, ignoring: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((v) => typeof v === "string")
+  );
+}
 
 export function loadConfig(): FrameworkConfig {
   const hitlEnabled = process.env.HITL_ENABLED === "true";
@@ -62,6 +100,10 @@ export function loadConfig(): FrameworkConfig {
       enabled: process.env.MQ_ENABLED === "true",
       consumerGroup: process.env.MQ_CONSUMER_GROUP ?? "gd-workers",
       pollIntervalMs: Number(process.env.MQ_POLL_INTERVAL_MS ?? 100),
+    },
+    mcp: {
+      enabled: process.env.MCP_ENABLED === "true",
+      servers: parseMcpServers(process.env.MCP_SERVERS),
     },
     limits: {
       subAgentMaxIterations: Number(process.env.SUB_AGENT_MAX_ITERATIONS) || 20,
