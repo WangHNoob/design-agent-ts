@@ -6,7 +6,7 @@ import { SkillManager } from "../core/skill/SkillManager.js";
 import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
-import { configureSubAgentDescriptors, resetSubAgentDescriptors } from "../core/agent/subagents/SubAgentFactory.js";
+import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { setDirector, setConsoleSessionManager, setConsoleHITLManager, hasActiveExecutions } from "./routes/console.js";
 import { setSessionManager, setWorkspaceManager } from "./routes/sessions.js";
 import { setHITLManager } from "./routes/hitl.js";
@@ -41,6 +41,9 @@ import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdap
 import { UserContextManager } from "../core/user/UserContextManager.js";
 import { setAuthAdapter, setTenantPort, setDatabasePort } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
+import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
+import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
+import type { McpClientPort } from "../port/mcp/McpClientPort.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -59,6 +62,8 @@ let bootstrapState: {
   betterAuthAdapter: BetterAuthAdapter | null;
   redisAdapter: RedisTenantIsolationAdapter | null;
   mqAdapter: RedisMessageQueueAdapter | null;
+  mcpClients: McpClientPort[];
+  mcpToolNames: string[];
 } | null = null;
 
 export function getBootstrapState() {
@@ -116,6 +121,7 @@ export async function lateBootstrapDirector(): Promise<void> {
       queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
     },
+    extraToolNames: bootstrapState.mcpToolNames,
   });
 
   setDirector(director);
@@ -183,6 +189,38 @@ export async function bootstrap() {
   toolRegistry.register(new DelegatingTool("tavily_search", "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)", tavilyTool, { action: "search" }));
   toolRegistry.register(new DelegatingTool("tavily_extract", "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)", tavilyTool, { action: "extract" }));
 
+  // ─── MCP (Model Context Protocol) tools ─────────────────────────
+  // Connect to external MCP servers (e.g. Knowledge Hub) and register their
+  // tools. A single server failing does not block startup (degraded + audited).
+  const mcpClients: McpClientPort[] = [];
+  const mcpToolNames: string[] = [];
+  if (config.mcp.enabled) {
+    const entries: McpClientEntry[] = [];
+    for (const server of config.mcp.servers) {
+      if (!server.enabled) continue;
+      const transportConfig = toMcpTransportConfig(server);
+      if (!transportConfig) {
+        console.warn(`[Bootstrap] MCP server "${server.name}" skipped: invalid transport config`);
+        continue;
+      }
+      const client = new McpSdkClient(server.name, transportConfig);
+      mcpClients.push(client);
+      entries.push({ client, toolPrefix: server.toolPrefix });
+    }
+
+    if (entries.length > 0) {
+      const { tools, toolNames, failedServers } = await loadMcpTools(entries);
+      for (const tool of tools) {
+        toolRegistry.register(tool);
+      }
+      mcpToolNames.push(...toolNames);
+      console.log(`[Bootstrap] MCP enabled: registered ${tools.length} tools from ${entries.length - failedServers.length}/${entries.length} servers`);
+      for (const failed of failedServers) {
+        console.warn(`[Bootstrap] MCP server "${failed.serverName}" failed to load: ${failed.error}`);
+      }
+    }
+  }
+
   // Configure sub-agent descriptors (tool names and prompts from composition root)
   const subAgentToolNames = [
     "wiki_lookup", "wiki_read", "wiki_list",
@@ -191,6 +229,8 @@ export async function bootstrap() {
     "tavily_search", "tavily_extract",
     "workspace_read", "workspace_list",
   ];
+  // Grant MCP tools to all sub-agents (persists across hot-reload resets).
+  setExtraSubAgentToolNames(mcpToolNames);
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations, config.limits.modelMaxTokens);
 
   // Initialize hooks
@@ -307,7 +347,7 @@ export async function bootstrap() {
   }
 
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, mcpClients, mcpToolNames };
 
   const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
   await sessionManager.initialize();
@@ -381,6 +421,7 @@ export async function bootstrap() {
         grepSearchResultLimit: config.limits.grepSearchResultLimit,
         webSourceResultLimit: config.limits.webSourceResultLimit,
       },
+      extraToolNames: bootstrapState.mcpToolNames,
     });
 
     setDirector(director);
@@ -450,10 +491,34 @@ export async function reloadDirector(): Promise<void> {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
       },
+      extraToolNames: bootstrapState.mcpToolNames,
     });
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");
   } else {
     console.log("[Bootstrap] Prompts/skills/workflows reloaded (Director not yet initialized)");
+  }
+}
+
+/**
+ * Translate a validated McpServerConfig into the adapter's transport config.
+ * Returns null if required fields for the transport are missing (defensive —
+ * validateConfig already enforces these).
+ */
+function toMcpTransportConfig(
+  server: import("../config/FrameworkConfig.js").McpServerConfig,
+): McpTransportConfig | null {
+  switch (server.transport) {
+    case "stdio":
+      if (!server.command) return null;
+      return { transport: "stdio", command: server.command, args: server.args, env: server.env };
+    case "sse":
+      if (!server.url) return null;
+      return { transport: "sse", url: server.url, headers: server.headers };
+    case "http":
+      if (!server.url) return null;
+      return { transport: "http", url: server.url, headers: server.headers };
+    default:
+      return null;
   }
 }

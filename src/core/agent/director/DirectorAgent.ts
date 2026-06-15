@@ -82,6 +82,8 @@ export interface DirectorDeps {
     grepSearchResultLimit?: number;
     webSourceResultLimit?: number;
   };
+  /** Extra tool names (e.g. MCP-sourced tools) appended to the query agent's toolset. */
+  extraToolNames?: string[];
 }
 
 export class DirectorAgent {
@@ -439,6 +441,7 @@ export class DirectorAgent {
         "grep_search",
         "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
         "tavily_search", "tavily_extract",
+        ...(this.deps.extraToolNames ?? []),
       ],
       options: {},
     };
@@ -461,6 +464,7 @@ export class DirectorAgent {
         "grep_search",
         "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
         "tavily_search", "tavily_extract",
+        ...(this.deps.extraToolNames ?? []),
       ],
       options: {},
     };

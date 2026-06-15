@@ -54,6 +54,26 @@ export function validateConfig(config: FrameworkConfig, options: ConfigValidatio
     }
   }
 
+  if (config.mcp.enabled) {
+    config.mcp.servers.forEach((server, index) => {
+      const label = server.name || `#${index}`;
+      if (isBlank(server.name)) {
+        issues.push(`MCP server ${label}: name is required.`);
+      }
+      if (server.transport === "stdio") {
+        if (isBlank(server.command)) {
+          issues.push(`MCP server ${label}: command is required for stdio transport.`);
+        }
+      } else if (server.transport === "sse" || server.transport === "http") {
+        if (isBlank(server.url) || !parseUrl(server.url!)) {
+          issues.push(`MCP server ${label}: a valid url is required for ${server.transport} transport.`);
+        }
+      } else {
+        issues.push(`MCP server ${label}: transport must be one of stdio | sse | http.`);
+      }
+    });
+  }
+
   if (issues.length > 0) {
     throw new ConfigValidationError(issues);
   }
