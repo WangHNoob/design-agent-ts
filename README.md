@@ -151,25 +151,26 @@ cp .env.example .env
 # 至少配置：LLM_API_KEY / LLM_PROVIDER / LLM_MODEL
 # 如需多租户：USER_SYSTEM_ENABLED=true + PostgreSQL + Redis
 
-# 编译后端
-pnpm run build
+# 一键启动前后端（热重载，改代码即生效）
+pnpm dev:all
 
-# 启动后端（默认端口 4527，由 .env 的 PORT 决定）
-pnpm start
-
-# 另开终端启动前端（端口 4528）
-cd frontend && pnpm run dev
+# 或者分别启动：
+pnpm dev        # 后端（端口 4527，.env 的 PORT 决定）
+pnpm dev:web    # 前端（端口 4528）
 ```
 
 ### 常用命令
 
 ```bash
-pnpm run build          # TypeScript 编译
+pnpm dev:all            # 一键启动前后端（热重载）
+pnpm dev                # 后端 TS 热重载（tsx watch）
+pnpm dev:web            # 前端 Next.js 开发服务器
+pnpm run build          # TypeScript 编译（类型检查 + 产物）
+pnpm start              # 生产模式（需先 build）
 pnpm test               # 运行全部测试（vitest）
 pnpm run test:watch     # 测试监听模式
 pnpm run lint           # ESLint 检查
 pnpm run format         # Prettier 格式化
-pnpm run dev            # 后端 tsc --watch
 pnpm run db:generate    # 生成 Drizzle 迁移
 pnpm run db:migrate     # 执行数据库迁移
 ```

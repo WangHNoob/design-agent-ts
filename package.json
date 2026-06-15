@@ -15,8 +15,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "start": "node --env-file=.env dist/server/main.js",
-    "start:all": "node start-all.mjs",
-    "dev": "tsc --watch"
+    "dev": "tsx watch --env-file=.env src/server/main.ts",
+    "dev:web": "pnpm --filter game-designer-frontend dev",
+    "dev:all": "concurrently -n server,web -c cyan,magenta \"pnpm dev\" \"pnpm dev:web\""
   },
   "keywords": [
     "game-design",
@@ -45,10 +46,12 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.19.19",
     "@types/pg": "^8.20.0",
+    "concurrently": "^10.0.3",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.4",
     "globals": "^17.6.0",
     "prettier": "^3.8.3",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.60.1",
     "vitest": "^2.1.9"
