@@ -233,6 +233,9 @@ export class DirectorAgent {
 
     const completedCount = results.filter((r) => r.status === "success").length;
 
+    // Structured integration: field registry + conflict detection + per-agent docs.
+    const integration = await this.integrateAndPersist(results, sessionId);
+
     const fileList = results
       .filter((r) => r.status === "success")
       .map((r) => {
@@ -243,15 +246,47 @@ export class DirectorAgent {
       })
       .join("\n");
 
-    const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+    const conflictNote = integration.conflictCount > 0
+      ? `\n\n⚠️ 检测到 **${integration.conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
+      : "";
+
+    const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
 
     return {
       agentName: "Director",
       message: ChatMessage.text("assistant", "Director", summary),
-      metadata: { fileCount: completedCount },
+      metadata: { fileCount: completedCount, conflictCount: integration.conflictCount },
       success: true,
       errorMessage: null,
     };
+  }
+
+  /**
+   * Run structured integration over sub-agent results: populate a field
+   * registry, detect cross-agent conflicts, and persist synthesized documents
+   * (conflict report + field registry) into the workspace `final/` directory.
+   * Returns the conflict count and the list of extra files written.
+   */
+  private async integrateAndPersist(
+    results: TaskResult[],
+    sessionId: string,
+  ): Promise<{ conflictCount: number; extraFiles: string[] }> {
+    const integration = this.integrator.integrateStructured(results);
+    const extraFiles: string[] = [];
+
+    if (this.deps.workspace) {
+      for (const doc of integration.documents) {
+        // Only persist synthesized reports here; per-agent outputs are already
+        // written to each task dir as output.md during execution.
+        if (doc.taskId === "conflicts" || doc.taskId === "field_registry") {
+          const fileName = `final/${doc.fileName}.md`;
+          await this.deps.workspace.writeFile(sessionId, fileName, doc.markdownContent);
+          extraFiles.push(fileName);
+        }
+      }
+    }
+
+    return { conflictCount: integration.conflicts.length, extraFiles };
   }
 
   /**
@@ -699,6 +734,10 @@ export class DirectorAgent {
       }
 
       const completedCount = results.filter((r) => r.status === "success").length;
+
+      // Structured integration: field registry + conflict detection.
+      const integration = await this.integrateAndPersist(results, sessionId);
+
       const fileList = results
         .filter((r) => r.status === "success")
         .map((r) => {
@@ -709,9 +748,13 @@ export class DirectorAgent {
         })
         .join("\n");
 
-      const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+      const conflictNote = integration.conflictCount > 0
+        ? `\n\n⚠️ 检测到 **${integration.conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
+        : "";
 
-      yield { type: "integrate", data: { message: "汇总完成，产出已保存到工作空间" } };
+      const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+
+      yield { type: "integrate", data: { message: "汇总完成，产出已保存到工作空间", conflictCount: integration.conflictCount } };
       yield { type: "complete", data: { success: true, output: summary } };
     } catch (err) {
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
