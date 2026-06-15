@@ -1,9 +1,12 @@
 import { createAuthClient } from "better-auth/react";
+import { genericOAuthClient } from "better-auth/client/plugins";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3000";
-
+// Use relative path so auth requests go through Next.js API proxy
+// (frontend/app/api/auth/[...auth]/route.ts → backend /api/auth/*)
+// This avoids cross-origin cookie issues — Better Auth uses cookie-based sessions.
 export const authClient = createAuthClient({
-  baseURL: API_BASE,
+  baseURL: "",  // Same origin — requests go to /api/auth/*
+  plugins: [genericOAuthClient()],
 });
 
 export const {

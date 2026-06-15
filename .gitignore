@@ -36,6 +36,11 @@ coverage/
 *.swp
 *.swo
 *~
+.dream-temp*
+_distill_query.py
+
+# Codegraph runtime
+.codegraph/
 
 # Session data
 sessions/

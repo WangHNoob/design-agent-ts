@@ -4,12 +4,15 @@
  *
  * Key design decisions:
  * - Better Auth handles all auth (register, login, session, cookie)
+ * - DingTalk SSO via genericOAuth plugin for company login
+ * - Email+password login still available as fallback
  * - This adapter wraps Better Auth's API for session resolution
  * - Asset CRUD uses the shared PostgreSQL connection
- * - No JWT logic — Better Auth manages sessions via cookies
+ * - Admin role auto-assignment via ADMIN_EMAIL_DOMAINS config
  */
 
 import { betterAuth } from "better-auth";
+import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { Pool } from "pg";
 import type {
   UserPort,
@@ -28,6 +31,15 @@ export interface BetterAuthAdapterConfig {
   postgresUrl: string;
   betterAuthSecret: string;
   baseUrl?: string;
+  /** Comma-separated email domains that auto-assign admin role. e.g. "company.com,corp.cn" */
+  adminEmailDomains?: string;
+  /** DingTalk SSO configuration. */
+  dingtalk?: {
+    clientId: string;
+    clientSecret: string;
+  };
+  /** Whether to allow email+password registration (default: true). */
+  allowEmailPassword?: boolean;
 }
 
 /**
@@ -35,6 +47,7 @@ export interface BetterAuthAdapterConfig {
  *
  * Better Auth manages:
  * - User registration & login (via /api/auth/* endpoints)
+ * - DingTalk SSO (via genericOAuth plugin)
  * - Session management (cookie-based)
  * - Password hashing (bcrypt)
  *
@@ -42,23 +55,108 @@ export interface BetterAuthAdapterConfig {
  * - Session resolution from request headers (via auth.api.getSession)
  * - User CRUD (delegated to Better Auth's database)
  * - Asset ownership (stored in user_assets table)
+ * - Admin role auto-assignment based on email domain
  */
 export class BetterAuthAdapter implements UserPort {
   /** The Better Auth instance — mounted on Hono as /api/auth/* */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly auth: any;
   private pool: Pool;
+  private adminDomains: Set<string>;
 
   constructor(config: BetterAuthAdapterConfig, private readonly db: DatabasePort) {
     this.pool = new Pool({ connectionString: config.postgresUrl });
 
-    this.auth = betterAuth({
+    // Parse admin email domains
+    this.adminDomains = new Set<string>();
+    if (config.adminEmailDomains) {
+      config.adminEmailDomains.split(",").forEach((d) => {
+        const trimmed = d.trim().toLowerCase();
+        if (trimmed) this.adminDomains.add(trimmed);
+      });
+    }
+
+    const adapter = this;
+
+    // Build plugins list
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const plugins: any[] = [];
+
+    // DingTalk SSO via genericOAuth
+    if (config.dingtalk?.clientId && config.dingtalk?.clientSecret) {
+      plugins.push(
+        genericOAuth({
+          config: [
+            {
+              providerId: "dingtalk",
+              clientId: config.dingtalk.clientId,
+              clientSecret: config.dingtalk.clientSecret,
+              authorizationUrl: "https://login.dingtalk.com/oauth2/auth",
+              tokenUrl: "https://api.dingtalk.com/v1.0/oauth2/userAccessToken",
+              userInfoUrl: "https://api.dingtalk.com/v1.0/contact/users/me",
+              scopes: ["openid", "corpid"],
+              pkce: true,
+              // DingTalk uses a non-standard token exchange flow
+              getToken: async ({ code, redirectURI, codeVerifier }) => {
+                const tokenRes = await fetch("https://api.dingtalk.com/v1.0/oauth2/userAccessToken", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    clientId: config.dingtalk!.clientId,
+                    clientSecret: config.dingtalk!.clientSecret,
+                    code,
+                    grantType: "authorization_code",
+                    redirectUri: redirectURI,
+                    codeVerifier,
+                  }),
+                });
+                const tokenData = await tokenRes.json() as Record<string, unknown>;
+                return {
+                  accessToken: tokenData.accessToken as string,
+                  refreshToken: tokenData.refreshToken as string,
+                  expiresIn: tokenData.expireIn as number,
+                  tokenType: "Bearer",
+                };
+              },
+              getUserInfo: async (tokens) => {
+                const userRes = await fetch("https://api.dingtalk.com/v1.0/contact/users/me", {
+                  headers: {
+                    "x-acs-dingtalk-access-token": tokens.accessToken!,
+                  },
+                });
+                const userData = await userRes.json() as Record<string, unknown>;
+
+                return {
+                  id: (userData.unionId || userData.openId) as string,
+                  name: (userData.nick || userData.name || "DingTalk User") as string,
+                  email: (userData.email || `${userData.openId}@dingtalk`) as string,
+                  image: (userData.avatarUrl || undefined) as string | undefined,
+                  emailVerified: !!userData.email,
+                };
+              },
+              mapProfileToUser: (profile) => {
+                return {
+                  name: profile.name as string,
+                  email: profile.email as string,
+                  image: profile.image as string | undefined,
+                };
+              },
+            },
+          ],
+        }),
+      );
+      console.log("[BetterAuth] DingTalk SSO enabled");
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const authConfig: any = {
       database: this.pool,
       secret: config.betterAuthSecret,
       baseURL: config.baseUrl,
       emailAndPassword: {
-        enabled: true,
+        enabled: config.allowEmailPassword !== false,
         minPasswordLength: 8,
+        requireEmailVerification: false,
       },
       user: {
         additionalFields: {
@@ -73,7 +171,63 @@ export class BetterAuthAdapter implements UserPort {
         expiresIn: 60 * 60 * 24 * 7, // 7 days
         updateAge: 60 * 60 * 24,      // Refresh every 1 day
       },
-    });
+      plugins,
+      hooks: {
+        after: async (context: {
+          path: string;
+          body?: { email?: string };
+          context: { returned?: { user?: { id?: string; email?: string } } };
+        }) => {
+          if (context.path !== "/sign-up/email" && context.path !== "/oauth2/callback/dingtalk") {
+            return {};
+          }
+
+          // Auto-assign admin role based on email domain
+          const email = context.body?.email || context.context.returned?.user?.email;
+          if (email && adapter.isAdminEmail(email)) {
+            const userId = context.context.returned?.user?.id;
+            if (userId) {
+              try {
+                await adapter.pool.query(
+                  `UPDATE "user" SET role = 'admin' WHERE id = $1`,
+                  [userId],
+                );
+                console.log(`[BetterAuth] Auto-assigned admin role to ${email} (domain match)`);
+              } catch (err) {
+                console.error(`[BetterAuth] Failed to assign admin role to ${email}:`, err);
+              }
+            }
+          }
+
+          // For DingTalk SSO: auto-verify email
+          if (context.path === "/oauth2/callback/dingtalk") {
+            const userId = context.context.returned?.user?.id;
+            if (userId) {
+              try {
+                await adapter.pool.query(
+                  `UPDATE "user" SET "emailVerified" = true WHERE id = $1 AND "emailVerified" = false`,
+                  [userId],
+                );
+              } catch {
+                // Non-critical
+              }
+            }
+          }
+
+          return {};
+        },
+      },
+    };
+
+    this.auth = betterAuth(authConfig);
+  }
+
+  /**
+   * Check if an email address belongs to a configured admin domain.
+   */
+  isAdminEmail(email: string): boolean {
+    const domain = email.split("@")[1]?.toLowerCase();
+    return domain ? this.adminDomains.has(domain) : false;
   }
 
   // ─── User CRUD ────────────────────────────────────────────────

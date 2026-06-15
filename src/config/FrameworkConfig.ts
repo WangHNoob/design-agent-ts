@@ -42,6 +42,15 @@ export interface FrameworkConfig {
     postgresUrl: string;
     redisUrl: string;
     autoInitSchema: boolean;
+    /** Comma-separated email domains that auto-assign admin role */
+    adminEmailDomains: string;
+    /** DingTalk SSO configuration */
+    dingtalk: {
+      clientId: string;
+      clientSecret: string;
+    };
+    /** Whether to allow email+password login (default: true) */
+    allowEmailPassword: boolean;
   };
   messageQueue: {
     enabled: boolean;

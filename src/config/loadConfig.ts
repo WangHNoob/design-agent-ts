@@ -51,6 +51,12 @@ export function loadConfig(): FrameworkConfig {
       postgresUrl: process.env.POSTGRES_URL ?? "postgresql://localhost:5432/game_designer",
       redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
       autoInitSchema: process.env.AUTO_INIT_SCHEMA !== "false",
+      adminEmailDomains: process.env.ADMIN_EMAIL_DOMAINS ?? "",
+      dingtalk: {
+        clientId: process.env.DINGTALK_CLIENT_ID ?? "",
+        clientSecret: process.env.DINGTALK_CLIENT_SECRET ?? "",
+      },
+      allowEmailPassword: process.env.ALLOW_EMAIL_PASSWORD !== "false",
     },
     messageQueue: {
       enabled: process.env.MQ_ENABLED === "true",

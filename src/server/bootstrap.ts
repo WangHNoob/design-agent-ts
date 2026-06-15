@@ -39,7 +39,7 @@ import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
-import { setAuthAdapter, setTenantPort } from "./app.js";
+import { setAuthAdapter, setTenantPort, setDatabasePort } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 
 let bootstrapState: {
@@ -249,16 +249,31 @@ export async function bootstrap() {
       console.log("[Bootstrap] PostgreSQL schema initialized");
     }
 
-    // Better Auth (handles registration, login, sessions, password hashing)
+    // Better Auth (handles registration, login, sessions, DingTalk SSO)
+    const dingtalkConfig = config.userSystem.dingtalk.clientId
+      ? config.userSystem.dingtalk
+      : undefined;
     betterAuthAdapter = new BetterAuthAdapter(
       {
         postgresUrl: config.userSystem.postgresUrl,
         betterAuthSecret: config.userSystem.betterAuthSecret,
         baseUrl: config.userSystem.betterAuthBaseUrl,
+        adminEmailDomains: config.userSystem.adminEmailDomains,
+        dingtalk: dingtalkConfig,
+        allowEmailPassword: config.userSystem.allowEmailPassword,
       },
       dbAdapter,
     );
     console.log("[Bootstrap] Better Auth initialized");
+    if (config.userSystem.adminEmailDomains) {
+      console.log(`[Bootstrap] Admin email domains: ${config.userSystem.adminEmailDomains}`);
+    }
+    if (dingtalkConfig) {
+      console.log("[Bootstrap] DingTalk SSO enabled");
+    }
+    if (!config.userSystem.allowEmailPassword) {
+      console.log("[Bootstrap] Email+password login disabled (SSO only)");
+    }
 
     // Redis (tenant isolation: caching, locking, concurrency)
     redisAdapter = new RedisTenantIsolationAdapter(
@@ -318,6 +333,9 @@ export async function bootstrap() {
   }
   if (redisAdapter) {
     setTenantPort(redisAdapter);
+  }
+  if (dbAdapter) {
+    setDatabasePort(dbAdapter);
   }
 
   // If API key is available, initialize director immediately

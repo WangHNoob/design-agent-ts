@@ -15,6 +15,7 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,22 +27,47 @@ export default function LoginPage() {
       if (mode === "register") {
         const res = await signUp.email({ email, password, name });
         if (res.error) {
-          setError(res.error.message || "Registration failed");
+          setError(res.error.message || "注册失败");
           return;
         }
       }
 
       const res = await signIn.email({ email, password });
       if (res.error) {
-        setError(res.error.message || "Login failed");
+        setError(res.error.message || "登录失败");
         return;
       }
 
       router.push("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      setError(err instanceof Error ? err.message : "发生错误");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDingTalkLogin = async () => {
+    setError("");
+    setSsoLoading(true);
+
+    try {
+      // Better Auth genericOAuth signInWithOAuth2 endpoint
+      // This redirects the user to DingTalk's OAuth page
+      const res = await signIn.oauth2({
+        providerId: "dingtalk",
+        callbackURL: "/",
+      });
+
+      // If the response contains a redirect URL, navigate to it
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else if (res.error) {
+        setError(res.error.message || "钉钉登录失败");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "钉钉登录失败");
+    } finally {
+      setSsoLoading(false);
     }
   };
 
@@ -73,6 +99,31 @@ export default function LoginPage() {
 
         {/* Card */}
         <div className="rounded-2xl border border-ink/5 bg-white/80 p-8 shadow-lg backdrop-blur-sm">
+          {/* DingTalk SSO Button */}
+          <button
+            onClick={handleDingTalkLogin}
+            disabled={ssoLoading}
+            className="flex w-full items-center justify-center gap-3 rounded-xl bg-[#0089FF] py-3 text-sm font-semibold text-white shadow-md transition-all hover:bg-[#0078E7] hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {ssoLoading ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.14 3.62-2.98 6.82-6.68 6.82-1.36 0-2.62-.42-3.66-1.14 1.28.16 2.56-.2 3.56-1.02-1.06-.02-1.94-.72-2.24-1.68.38.06.76.04 1.12-.06-1.16-.24-2.02-1.26-2-2.46.34.18.72.3 1.12.32-1.08-.72-1.4-2.16-.76-3.26 1.22 1.5 3.06 2.48 5.12 2.58-.36-1.56.82-3.06 2.42-3.06.72 0 1.36.3 1.82.78.56-.1 1.1-.32 1.58-.6-.18.58-.58 1.06-1.08 1.36.5-.06.98-.2 1.42-.38-.34.5-.76.96-1.24 1.32.02.12.02.24.02.36z" opacity="0" />
+                <text x="4" y="16.5" fontSize="11" fontWeight="bold" fill="currentColor">钉</text>
+              </svg>
+            )}
+            钉钉登录
+          </button>
+
+          {/* Divider */}
+          <div className="my-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-ink/10" />
+            <span className="text-xs text-ink/30">或使用邮箱密码</span>
+            <div className="h-px flex-1 bg-ink/10" />
+          </div>
+
+          {/* Email/Password Form */}
           <AnimatePresence mode="wait">
             <motion.div
               key={mode}
@@ -94,7 +145,7 @@ export default function LoginPage() {
                     />
                     <input
                       type="text"
-                      placeholder="Display Name"
+                      placeholder="显示名称"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       required
@@ -110,7 +161,7 @@ export default function LoginPage() {
                   />
                   <input
                     type="email"
-                    placeholder="Email"
+                    placeholder="邮箱"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -125,7 +176,7 @@ export default function LoginPage() {
                   />
                   <input
                     type="password"
-                    placeholder="Password"
+                    placeholder="密码（至少8位）"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -187,10 +238,6 @@ export default function LoginPage() {
             )}
           </div>
         </div>
-
-        <p className="mt-6 text-center text-xs text-ink/30">
-          Powered by Better Auth
-        </p>
       </motion.div>
     </div>
   );
