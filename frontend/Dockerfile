@@ -25,6 +25,9 @@ COPY frontend/package.json ./frontend/package.json
 # Copy pre-built .next from local build
 COPY frontend/.next/ ./frontend/.next/
 
+# Standalone build doesn't include static/ — copy it into the standalone dir
+RUN cp -r ./frontend/.next/static ./frontend/.next/standalone/frontend/.next/static
+
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV API_BASE_URL=http://backend:3000
