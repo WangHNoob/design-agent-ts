@@ -1,9 +1,8 @@
-version: "3.8"
-
 services:
   # ─── Infrastructure ────────────────────────────────────────────
   postgres:
-    image: pgvector/pgvector:pg16
+    profiles: ["infra"]
+    image: pgvector/pgvector:pg18
     container_name: gdt-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-game_designer}
@@ -23,6 +22,7 @@ services:
 
   # PostgreSQL backup cron (runs daily at 2:00 AM)
   pg-backup:
+    profiles: ["infra"]
     image: postgres:16-alpine
     container_name: gdt-pg-backup
     environment:
@@ -47,6 +47,7 @@ services:
     restart: unless-stopped
 
   redis:
+    profiles: ["infra"]
     image: redis:7-alpine
     container_name: gdt-redis
     ports:
@@ -94,8 +95,8 @@ services:
       - USER_SYSTEM_ENABLED=${USER_SYSTEM_ENABLED:-true}
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-in-production}
       - BETTER_AUTH_BASE_URL=http://backend:3000
-      - POSTGRES_URL=postgresql://${POSTGRES_USER:-game_designer}:${POSTGRES_PASSWORD:-game_designer}@postgres:5432/${POSTGRES_DB:-game_designer}
-      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_URL=${POSTGRES_URL}
+      - REDIS_URL=${REDIS_URL}
       - MAX_CONCURRENT_PER_USER=${MAX_CONCURRENT_PER_USER:-3}
       - AUTO_INIT_SCHEMA=${AUTO_INIT_SCHEMA:-true}
       # Admin domains (comma-separated email domains for auto admin role)
@@ -117,8 +118,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
+        required: false
     restart: unless-stopped
 
   # ─── Frontend ──────────────────────────────────────────────────
@@ -138,6 +141,7 @@ services:
 
   # ─── Monitoring ────────────────────────────────────────────────
   prometheus:
+    profiles: ["infra"]
     image: prom/prometheus:latest
     container_name: gdt-prometheus
     ports:
@@ -151,6 +155,7 @@ services:
     restart: unless-stopped
 
   alertmanager:
+    profiles: ["infra"]
     image: prom/alertmanager:latest
     container_name: gdt-alertmanager
     ports:
@@ -160,6 +165,7 @@ services:
     restart: unless-stopped
 
   grafana:
+    profiles: ["infra"]
     image: grafana/grafana:latest
     container_name: gdt-grafana
     ports:
