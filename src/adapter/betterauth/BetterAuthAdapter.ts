@@ -40,6 +40,12 @@ export interface BetterAuthAdapterConfig {
   };
   /** Whether to allow email+password registration (default: true). */
   allowEmailPassword?: boolean;
+  /**
+   * Additional origins that Better Auth should trust (beyond baseUrl).
+   * Comma-separated, e.g. "http://localhost:3001,https://app.example.com".
+   * Include your frontend URL(s) here.
+   */
+  trustedOrigins?: string;
 }
 
 /**
@@ -153,6 +159,17 @@ export class BetterAuthAdapter implements UserPort {
       database: this.pool,
       secret: config.betterAuthSecret,
       baseURL: config.baseUrl,
+      trustedOrigins: (() => {
+        const origins: string[] = config.trustedOrigins
+          ? config.trustedOrigins.split(",").map((s) => s.trim()).filter(Boolean)
+          : [];
+        // Always include the base URL origin (Better Auth requires this)
+        try {
+          const baseOrigin = new URL(config.baseUrl!).origin;
+          if (!origins.includes(baseOrigin)) origins.push(baseOrigin);
+        } catch { /* ignore invalid baseUrl */ }
+        return origins;
+      })(),
       emailAndPassword: {
         enabled: config.allowEmailPassword !== false,
         minPasswordLength: 8,

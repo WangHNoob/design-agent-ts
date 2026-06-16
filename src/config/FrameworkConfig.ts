@@ -76,6 +76,12 @@ export interface FrameworkConfig {
     };
     /** Whether to allow email+password login (default: true) */
     allowEmailPassword: boolean;
+    /**
+     * Additional trusted origins for Better Auth CORS (comma-separated).
+     * Include your frontend URL(s) here. The base URL is always trusted automatically.
+     * e.g. "http://localhost:3001,https://app.example.com"
+     */
+    trustedOrigins: string;
   };
   messageQueue: {
     enabled: boolean;
