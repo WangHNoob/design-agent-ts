@@ -2,11 +2,21 @@ import type { FileSystemPort } from "../../port/fs/FileSystemPort.js";
 
 export class WorkspaceManager {
   private taskDirNames = new Map<string, string>();
+  private userId: string | null = null;
+  private baseDirName: string;
 
   constructor(
     private baseDir: string = "workspace",
     private fs: FileSystemPort
-  ) {}
+  ) {
+    this.baseDirName = baseDir;
+  }
+
+  /** Set the active user scope. When set, all paths are prefixed with `data/users/<userId>/`. */
+  setUserId(userId: string | null): void {
+    this.userId = userId;
+    this.baseDir = userId ? `data/users/${userId}/${this.baseDirName}` : this.baseDirName;
+  }
 
   async initialize(sessionId: string): Promise<void> {
     const dir = this.fs.join(this.baseDir, sessionId);

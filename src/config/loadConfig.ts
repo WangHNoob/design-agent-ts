@@ -88,6 +88,7 @@ export function loadConfig(): FrameworkConfig {
       maxConcurrentPerUser: Number(process.env.MAX_CONCURRENT_PER_USER ?? 3),
       postgresUrl: process.env.POSTGRES_URL ?? "postgresql://localhost:5432/game_designer",
       redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
+      redisEnabled: process.env.USER_SYSTEM_REDIS_ENABLED !== "false",
       autoInitSchema: process.env.AUTO_INIT_SCHEMA !== "false",
       adminEmailDomains: process.env.ADMIN_EMAIL_DOMAINS ?? "",
       dingtalk: {

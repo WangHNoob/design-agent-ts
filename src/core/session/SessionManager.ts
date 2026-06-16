@@ -18,14 +18,25 @@ export class SessionManager {
   private sessionsFile: string;
   private sessions: Map<string, SessionMeta> = new Map();
   private initialized = false;
+  private userId: string | null = null;
+  private baseDirName: string;
 
   constructor(
     private fs: FileSystemPort,
     baseDir = "sessions",
     private defaultListLimit = 100
   ) {
+    this.baseDirName = baseDir;
     this.sessionsDir = baseDir;
     this.sessionsFile = this.fs.join(baseDir, "sessions.jsonl");
+  }
+
+  /** Set the active user scope. When set, all storage paths are prefixed with `data/users/<userId>/`. Call with null to clear. */
+  setUserId(userId: string | null): void {
+    this.userId = userId;
+    const base = userId ? `data/users/${userId}/${this.baseDirName}` : this.baseDirName;
+    this.sessionsDir = base;
+    this.sessionsFile = this.fs.join(base, "sessions.jsonl");
   }
 
   async initialize(): Promise<void> {

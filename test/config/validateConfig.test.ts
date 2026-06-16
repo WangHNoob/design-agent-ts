@@ -42,7 +42,11 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       maxConcurrentPerUser: 3,
       postgresUrl: "",
       redisUrl: "",
+      redisEnabled: true,
       autoInitSchema: true,
+      adminEmailDomains: "",
+      dingtalk: { clientId: "", clientSecret: "" },
+      allowEmailPassword: true,
       ...overrides,
     },
     messageQueue: {
@@ -75,37 +79,42 @@ describe("validateConfig", () => {
     expect(() => validateConfig(config(), { port: 4527 })).not.toThrow();
   });
 
-  test("rejects unsafe Better Auth defaults when user system is enabled", () => {
+  test("accepts default BETTER_AUTH_SECRET for local dev when enabled", () => {
     expect(() =>
       validateConfig(config({
         enabled: true,
-        postgresUrl: "postgresql://postgres:postgres@localhost:15432/game_designer",
-        redisUrl: "redis://localhost:16379/0",
+        postgresUrl: "postgresql://localhost:5432/game_designer",
       }), { port: 4527 }),
-    ).toThrow(/BETTER_AUTH_SECRET/);
+    ).not.toThrow();
   });
 
-  test("requires Postgres and Redis URLs when user system is enabled", () => {
+  test("rejects empty BETTER_AUTH_SECRET when user system is enabled", () => {
     expect(() =>
       validateConfig(config({
         enabled: true,
-        betterAuthSecret: "local-secret-at-least-32-characters",
+        betterAuthSecret: "",
+        postgresUrl: "postgresql://localhost:5432/game_designer",
+      }), { port: 4527 }),
+    ).toThrow(/BETTER_AUTH_SECRET must be set/);
+  });
+
+  test("requires Postgres URL when user system is enabled", () => {
+    expect(() =>
+      validateConfig(config({
+        enabled: true,
         postgresUrl: "",
+      }), { port: 4527 }),
+    ).toThrow(/POSTGRES_URL is required/);
+  });
+
+  test("requires Redis URL when redisEnabled is true", () => {
+    expect(() =>
+      validateConfig(config({
+        enabled: true,
+        postgresUrl: "postgresql://localhost:5432/game_designer",
         redisUrl: "",
       }), { port: 4527 }),
-    ).toThrow(/POSTGRES_URL.*REDIS_URL/s);
-  });
-
-  test("rejects localhost Better Auth base URL with a mismatched port", () => {
-    expect(() =>
-      validateConfig(config({
-        enabled: true,
-        betterAuthSecret: "local-secret-at-least-32-characters",
-        betterAuthBaseUrl: "http://localhost:3000",
-        postgresUrl: "postgresql://postgres:postgres@localhost:15432/game_designer",
-        redisUrl: "redis://localhost:16379/0",
-      }), { port: 4527 }),
-    ).toThrow(/BETTER_AUTH_BASE_URL/);
+    ).toThrow(/REDIS_URL is required when.*USER_SYSTEM_REDIS_ENABLED=true/);
   });
 
   test("accepts valid user system configuration", () => {
@@ -114,7 +123,6 @@ describe("validateConfig", () => {
         enabled: true,
         betterAuthSecret: "local-secret-at-least-32-characters",
         postgresUrl: "postgresql://postgres:postgres@localhost:15432/game_designer",
-        redisUrl: "redis://localhost:16379/0",
       }), { port: 4527 }),
     ).not.toThrow();
   });

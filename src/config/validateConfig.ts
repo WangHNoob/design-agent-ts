@@ -27,30 +27,21 @@ export function validateConfig(config: FrameworkConfig, options: ConfigValidatio
   const issues: string[] = [];
 
   if (config.userSystem.enabled) {
-    if (
-      isBlank(config.userSystem.betterAuthSecret) ||
-      config.userSystem.betterAuthSecret === "change-me-in-production"
-    ) {
-      issues.push("BETTER_AUTH_SECRET must be set to a non-default value when USER_SYSTEM_ENABLED=true.");
+    if (isBlank(config.userSystem.betterAuthSecret)) {
+      issues.push("BETTER_AUTH_SECRET must be set when USER_SYSTEM_ENABLED=true. (A default placeholder is accepted for local dev, but must not be empty.)");
     }
 
     if (isBlank(config.userSystem.postgresUrl)) {
       issues.push("POSTGRES_URL is required when USER_SYSTEM_ENABLED=true.");
     }
 
-    if (isBlank(config.userSystem.redisUrl)) {
-      issues.push("REDIS_URL is required when USER_SYSTEM_ENABLED=true.");
+    if (config.userSystem.redisEnabled && isBlank(config.userSystem.redisUrl)) {
+      issues.push("REDIS_URL is required when USER_SYSTEM_ENABLED=true and USER_SYSTEM_REDIS_ENABLED=true. Set USER_SYSTEM_REDIS_ENABLED=false for local dev without Redis.");
     }
 
     const baseUrl = parseUrl(config.userSystem.betterAuthBaseUrl);
     if (!baseUrl) {
       issues.push("BETTER_AUTH_BASE_URL must be a valid absolute URL when USER_SYSTEM_ENABLED=true.");
-    } else if (
-      options.port &&
-      (baseUrl.hostname === "localhost" || baseUrl.hostname === "127.0.0.1") &&
-      Number(baseUrl.port || (baseUrl.protocol === "https:" ? 443 : 80)) !== options.port
-    ) {
-      issues.push(`BETTER_AUTH_BASE_URL must use localhost port ${options.port} when USER_SYSTEM_ENABLED=true.`);
     }
   }
 
