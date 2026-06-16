@@ -19,12 +19,22 @@ export class HITLManager {
   private checkpointDir: string;
   private checkpoints: Map<string, HITLCheckpoint> = new Map();
   private initialized = false;
+  private userId: string | null = null;
+  private baseDirName: string;
 
   constructor(
     private fs: FileSystemPort,
     baseDir = "sessions"
   ) {
+    this.baseDirName = baseDir;
     this.checkpointDir = this.fs.join(baseDir, "hitl-checkpoint");
+  }
+
+  /** Set the active user scope. When set, all paths are prefixed with `data/users/<userId>/`. */
+  setUserId(userId: string | null): void {
+    this.userId = userId;
+    const base = userId ? `data/users/${userId}/${this.baseDirName}` : this.baseDirName;
+    this.checkpointDir = this.fs.join(base, "hitl-checkpoint");
   }
 
   async initialize(): Promise<void> {

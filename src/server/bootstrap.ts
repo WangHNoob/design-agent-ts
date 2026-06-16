@@ -37,9 +37,12 @@ import { PostgresLongTermMemoryAdapter } from "../adapter/postgres/PostgresLongT
 import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
+import { InMemoryTenantIsolationAdapter } from "../core/user/InMemoryTenantIsolationAdapter.js";
+import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
 import { setAuthAdapter, setTenantPort, setDatabasePort } from "./app.js";
+import { setUserIdScopedStores } from "./middleware/auth.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
@@ -60,7 +63,7 @@ let bootstrapState: {
   userContextManager: UserContextManager | null;
   dbAdapter: PostgresDatabaseAdapter | null;
   betterAuthAdapter: BetterAuthAdapter | null;
-  redisAdapter: RedisTenantIsolationAdapter | null;
+  redisAdapter: TenantIsolationPort | null;
   mqAdapter: RedisMessageQueueAdapter | null;
   mcpClients: McpClientPort[];
   mcpToolNames: string[];
@@ -276,7 +279,7 @@ export async function bootstrap() {
   let userContextManager: UserContextManager | null = null;
   let dbAdapter: PostgresDatabaseAdapter | null = null;
   let betterAuthAdapter: BetterAuthAdapter | null = null;
-  let redisAdapter: RedisTenantIsolationAdapter | null = null;
+  let redisAdapter: TenantIsolationPort | null = null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
 
   if (config.userSystem.enabled) {
@@ -315,13 +318,18 @@ export async function bootstrap() {
       console.log("[Bootstrap] Email+password login disabled (SSO only)");
     }
 
-    // Redis (tenant isolation: caching, locking, concurrency)
-    redisAdapter = new RedisTenantIsolationAdapter(
-      config.userSystem.redisUrl,
-      betterAuthAdapter,
-    );
-    await redisAdapter.connect();
-    console.log("[Bootstrap] Redis connected");
+    // Tenant isolation: Redis (caching/locking/concurrency) or in-process fallback
+    if (config.userSystem.redisEnabled) {
+      redisAdapter = new RedisTenantIsolationAdapter(
+        config.userSystem.redisUrl,
+        betterAuthAdapter,
+      );
+      await (redisAdapter as RedisTenantIsolationAdapter).connect();
+      console.log("[Bootstrap] Redis connected (tenant isolation)");
+    } else {
+      redisAdapter = new InMemoryTenantIsolationAdapter(betterAuthAdapter);
+      console.log("[Bootstrap] Redis disabled — using in-process tenant isolation (single-instance)");
+    }
 
     // User context manager (core layer: tenant-scoped access)
     userContextManager = new UserContextManager(betterAuthAdapter, redisAdapter);
@@ -331,8 +339,8 @@ export async function bootstrap() {
       console.log("[Bootstrap] Long-term memory using PostgreSQL (user-scoped)");
     }
 
-    // Message Queue
-    if (config.messageQueue.enabled) {
+    // Message Queue (requires Redis)
+    if (config.messageQueue.enabled && config.userSystem.redisEnabled) {
       mqAdapter = new RedisMessageQueueAdapter(
         config.userSystem.redisUrl,
         new NodeIdGeneratorAdapter(),
@@ -341,6 +349,8 @@ export async function bootstrap() {
       await mqAdapter.connect();
       await mqAdapter.start();
       console.log("[Bootstrap] Message queue started");
+    } else if (config.messageQueue.enabled) {
+      console.log("[Bootstrap] Message queue disabled (requires Redis)");
     }
 
     console.log("[Bootstrap] User system enabled: multi-tenant mode with Better Auth");
@@ -354,6 +364,8 @@ export async function bootstrap() {
 
   const hitlManager = new HITLManager(fileSystem);
   await hitlManager.initialize();
+
+  setUserIdScopedStores(sessionManager, workspaceManager, hitlManager);
 
   setConsoleSessionManager(sessionManager);
   setConsoleHITLManager(hitlManager);

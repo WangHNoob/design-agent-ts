@@ -63,6 +63,9 @@ export interface FrameworkConfig {
     maxConcurrentPerUser: number;
     postgresUrl: string;
     redisUrl: string;
+    /** Whether Redis is required for tenant isolation (caching/locking/concurrency).
+     *  When false, an in-process fallback is used — sufficient for single-instance dev. */
+    redisEnabled: boolean;
     autoInitSchema: boolean;
     /** Comma-separated email domains that auto-assign admin role */
     adminEmailDomains: string;
