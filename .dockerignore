@@ -33,8 +33,7 @@ workspace
 
 # Frontend deps (not needed in backend image)
 frontend/node_modules
-# Note: frontend/.next is NOT ignored — the frontend Dockerfile
-# COPY's it as a pre-built artifact (output: 'standalone').
+frontend/.next
 
 # Env files (passed via docker-compose)
 .env
