@@ -304,6 +304,7 @@ export async function bootstrap() {
         adminEmailDomains: config.userSystem.adminEmailDomains,
         dingtalk: dingtalkConfig,
         allowEmailPassword: config.userSystem.allowEmailPassword,
+        trustedOrigins: config.userSystem.trustedOrigins,
       },
       dbAdapter,
     );

@@ -96,6 +96,7 @@ export function loadConfig(): FrameworkConfig {
         clientSecret: process.env.DINGTALK_CLIENT_SECRET ?? "",
       },
       allowEmailPassword: process.env.ALLOW_EMAIL_PASSWORD !== "false",
+      trustedOrigins: process.env.TRUSTED_ORIGINS ?? "http://localhost:3001",
     },
     messageQueue: {
       enabled: process.env.MQ_ENABLED === "true",
