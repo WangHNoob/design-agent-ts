@@ -66,8 +66,8 @@ export class PostgresDatabaseAdapter implements DatabasePort {
    * Initialize the database schema.
    * Called once at startup — idempotent (uses IF NOT EXISTS).
    *
-   * Note: The "user" and "session" tables are managed by Better Auth
-   * (via `npx auth migrate`). This method only creates application-specific tables.
+   * Note: Better Auth tables ("user", "session", "account", "verification")
+   * are also created here for convenience (idempotent via IF NOT EXISTS).
    */
   async initializeSchema(): Promise<void> {
     await this.pool.query(`
@@ -142,6 +142,56 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       DROP TRIGGER IF EXISTS trg_sessions_updated_at ON sessions;
       CREATE TRIGGER trg_sessions_updated_at BEFORE UPDATE ON sessions
         FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    `);
+
+    // ── Better Auth tables (idempotent via IF NOT EXISTS) ──────────
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS "user" (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+        image TEXT,
+        role TEXT NOT NULL DEFAULT 'user',
+        "is_active" BOOLEAN NOT NULL DEFAULT true,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS "session" (
+        id TEXT NOT NULL PRIMARY KEY,
+        "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        token TEXT NOT NULL UNIQUE,
+        "expiresAt" TIMESTAMPTZ NOT NULL,
+        "ipAddress" TEXT,
+        "userAgent" TEXT,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS "account" (
+        id TEXT NOT NULL PRIMARY KEY,
+        "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        "providerId" TEXT NOT NULL,
+        "accountId" TEXT NOT NULL,
+        "accessToken" TEXT,
+        "refreshToken" TEXT,
+        "accessTokenExpiresAt" TIMESTAMPTZ,
+        "refreshTokenExpiresAt" TIMESTAMPTZ,
+        "scope" TEXT,
+        "idToken" TEXT,
+        "password" TEXT,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS "verification" (
+        id TEXT NOT NULL PRIMARY KEY,
+        identifier TEXT NOT NULL,
+        value TEXT NOT NULL,
+        "expiresAt" TIMESTAMPTZ NOT NULL,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
     `);
 
     // Try to enable pgvector extension (optional — graceful degradation)
