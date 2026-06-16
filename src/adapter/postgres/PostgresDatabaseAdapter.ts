@@ -71,8 +71,6 @@ export class PostgresDatabaseAdapter implements DatabasePort {
    */
   async initializeSchema(): Promise<void> {
     await this.pool.query(`
-      CREATE EXTENSION IF NOT EXISTS vector;
-
       -- User assets table (polymorphic: stores all asset types)
       -- References Better Auth's "user" table
       CREATE TABLE IF NOT EXISTS user_assets (
