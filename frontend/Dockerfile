@@ -32,4 +32,4 @@ ENV API_BASE_URL=http://backend:3000
 EXPOSE 3001
 
 WORKDIR /app/frontend
-CMD ["npx", "next", "start", "--port", "3001"]
+CMD ["node", ".next/standalone/frontend/server.js"]
