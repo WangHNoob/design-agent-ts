@@ -8,10 +8,10 @@ RUN npm config set registry https://registry.npmmirror.com
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY frontend/package.json ./frontend/
 
-# Install dependencies (creates proper Linux symlinks)
+# Install dependencies
 RUN corepack enable && pnpm install --no-frozen-lockfile
 
-# Step 2: Copy frontend source (excluding node_modules via .dockerignore)
+# Step 2: Copy frontend source
 COPY frontend/app/ ./frontend/app/
 COPY frontend/components/ ./frontend/components/
 COPY frontend/lib/ ./frontend/lib/
@@ -22,10 +22,16 @@ COPY frontend/tailwind.config.ts ./frontend/tailwind.config.ts
 COPY frontend/postcss.config.js ./frontend/postcss.config.js
 COPY frontend/package.json ./frontend/package.json
 
-# Copy pre-built .next from local build
-COPY frontend/.next/ ./frontend/.next/
+# Copy root tsconfig (needed for Next.js build)
+COPY tsconfig.json ./tsconfig.json
 
-# Standalone build doesn't include static/ — copy it into the standalone dir
+# Step 3: Build Next.js inside Docker (Linux paths)
+ARG NEXT_PUBLIC_API_BASE=http://localhost:13000
+ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN cd frontend && npx next build
+
+# Copy static files into standalone directory (required for production)
 RUN cp -r ./frontend/.next/static ./frontend/.next/standalone/frontend/.next/static
 
 ENV NODE_ENV=production
