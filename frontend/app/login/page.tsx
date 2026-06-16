@@ -24,19 +24,9 @@ export default function LoginPage() {
 
     try {
       if (mode === "register") {
-        const res = await signUp.email({ email, password, name });
-        if (res.error) {
-          setError(res.error.message || "注册失败");
-          return;
-        }
+        await signUp(email, password, name);
       }
-
-      const res = await signIn.email({ email, password });
-      if (res.error) {
-        setError(res.error.message || "登录失败");
-        return;
-      }
-
+      await signIn(email, password);
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "发生错误");
