@@ -34,10 +34,18 @@ export function createApp() {
   const app = new Hono();
 
   app.use(cors({
-    origin: "*",
+    origin: (origin) => {
+      // Allow localhost on common dev/Docker ports, plus the configured trusted origins
+      const allowed = [
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+      ];
+      if (!origin || allowed.some((p) => p.test(origin))) return origin;
+      return "http://localhost:3001";
+    },
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["POST", "GET", "OPTIONS", "PUT", "DELETE"],
-    exposeHeaders: ["Content-Length"],
+    exposeHeaders: ["Content-Length", "Set-Cookie"],
     maxAge: 600,
     credentials: true,
   }));
