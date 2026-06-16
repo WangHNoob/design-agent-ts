@@ -1,17 +1,36 @@
-import { createAuthClient } from "better-auth/react";
-import { genericOAuthClient } from "better-auth/client/plugins";
+const API_BASE = "/api/auth";
 
-// Use relative path so auth requests go through Next.js API proxy
-// (frontend/app/api/auth/[...auth]/route.ts → backend /api/auth/*)
-// This avoids cross-origin cookie issues — Better Auth uses cookie-based sessions.
-export const authClient = createAuthClient({
-  baseURL: "",  // Same origin — requests go to /api/auth/*
-  plugins: [genericOAuthClient()],
-});
+export async function signIn(email: string, password: string) {
+  const res = await fetch(`${API_BASE}/sign-in/email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || "登录失败");
+  }
+  return res.json();
+}
 
-export const {
-  signIn,
-  signUp,
-  signOut,
-  useSession,
-} = authClient;
+export async function signUp(email: string, password: string, name: string) {
+  const res = await fetch(`${API_BASE}/sign-up/email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, password, name }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || "注册失败");
+  }
+  return res.json();
+}
+
+export async function signOut() {
+  await fetch(`${API_BASE}/sign-out`, {
+    method: "POST",
+    credentials: "include",
+  });
+}

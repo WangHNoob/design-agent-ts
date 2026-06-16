@@ -16,18 +16,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (!mounted || isLoading) return;
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
-    const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  // During SSR (not mounted), render children directly to avoid
+  // flashing a loading spinner on every page.
+  if (!mounted) {
+    return <>{children}</>;
+  }
 
-    if (!isAuthenticated && !isPublic) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, isLoading, pathname, router, mounted]);
-
-  // Show nothing while loading or redirecting
-  if (isLoading || !mounted) {
+  // Client-side: show loading while checking auth
+  if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-paper">
         <div className="flex flex-col items-center gap-3">
@@ -38,18 +36,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
-
-  // If not authenticated and not on a public path, show loading (redirect is happening)
   if (!isAuthenticated && !isPublic) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-paper">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-coral border-t-transparent" />
-          <p className="text-sm text-ink/50">Redirecting to login...</p>
-        </div>
-      </div>
-    );
+    router.replace("/login");
+    return null;
   }
 
   return <>{children}</>;
