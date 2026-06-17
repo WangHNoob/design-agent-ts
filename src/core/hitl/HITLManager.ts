@@ -35,6 +35,7 @@ export class HITLManager {
     this.userId = userId;
     const base = userId ? `data/users/${userId}/${this.baseDirName}` : this.baseDirName;
     this.checkpointDir = this.fs.join(base, "hitl-checkpoint");
+    this.initialized = false;
   }
 
   async initialize(): Promise<void> {
