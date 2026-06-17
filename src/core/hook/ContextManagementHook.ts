@@ -58,7 +58,7 @@ export class ContextManagementHook implements AgentHook {
     // If still too large, add a truncation notice
     if (result.length < messages.length) {
       result.splice(result.length - 1, 0, ChatMessage.text(
-        "system",
+        "user",
         "ContextManagementHook",
         `【上下文压缩】已截断 ${messages.length - result.length} 条较早的历史消息以节省 token。`
       ));
