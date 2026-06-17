@@ -14,7 +14,7 @@ export class OutputEnforcementHook implements AgentHook {
         context.messages = [
           ...context.messages,
           ChatMessage.text(
-            "system",
+            "user",
             "OutputEnforcementHook",
             "【系统提示】你已达到最大迭代次数。请立即输出完整的设计文档内容，使用 Markdown 格式，包含所有必要的章节和细节。禁止再发起工具调用。"
           ),

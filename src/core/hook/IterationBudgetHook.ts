@@ -30,7 +30,11 @@ export class IterationBudgetHook implements AgentHook {
 
       context.messages = [
         ...context.messages,
-        ChatMessage.text("system", "IterationBudgetHook", warning),
+        ChatMessage.text(
+          "user",
+          "IterationBudgetHook",
+          warning,
+        ),
       ];
     }
 
