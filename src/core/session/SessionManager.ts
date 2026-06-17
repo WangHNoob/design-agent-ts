@@ -37,8 +37,10 @@ export class SessionManager {
     const base = userId ? `data/users/${userId}/${this.baseDirName}` : this.baseDirName;
     this.sessionsDir = base;
     this.sessionsFile = this.fs.join(base, "sessions.jsonl");
-    // Reset initialized flag so the new user directory gets created on next access
+    // Reset initialized flag AND clear in-memory cache so the new user
+    // directory is created and re-read from disk on next access.
     this.initialized = false;
+    this.sessions.clear();
   }
 
   async initialize(): Promise<void> {
