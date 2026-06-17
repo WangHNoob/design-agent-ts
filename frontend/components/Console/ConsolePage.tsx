@@ -174,7 +174,11 @@ export default function ConsolePage({ mode }: Props) {
     if (!requirement.trim()) return;
     if (task?.loading) return;
 
-    const sid = store.createTask(mode, effectiveRole, requirement.trim());
+    // For query mode, reuse the active session so the conversation continues.
+    // For design/table mode, each run is a fresh task.
+    const sid = (mode === 'query' && activeSessionId)
+      ? activeSessionId
+      : store.createTask(mode, effectiveRole, requirement.trim());
     store.setActiveSession(mode, sid);
     resetTaskTracking(sid);
 
