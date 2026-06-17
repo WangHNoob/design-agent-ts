@@ -154,6 +154,7 @@ export class PostgresDatabaseAdapter implements DatabasePort {
         image TEXT,
         role TEXT NOT NULL DEFAULT 'user',
         "is_active" BOOLEAN NOT NULL DEFAULT true,
+        "lastLoginAt" TIMESTAMPTZ,
         "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
         "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
       );
