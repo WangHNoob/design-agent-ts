@@ -17,7 +17,8 @@
     "start": "node --env-file=.env dist/server/main.js",
     "dev": "tsx watch --env-file=.env src/server/main.ts",
     "dev:web": "pnpm --filter game-designer-frontend dev",
-    "dev:all": "concurrently -n server,web -c cyan,magenta \"pnpm dev\" \"pnpm dev:web\""
+    "dev:all": "concurrently -n server,web -c cyan,magenta \"pnpm dev\" \"pnpm dev:web\"",
+    "dev:local": "node scripts/start-local.mjs"
   },
   "keywords": [
     "game-design",
