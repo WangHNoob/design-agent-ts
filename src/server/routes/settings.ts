@@ -10,6 +10,23 @@ let settingsManagerInstance: SettingsManager | null = null;
 let containerInstance: Container | null = null;
 let tavilyToolInstance: TavilySearchTool | null = null;
 
+let mcpStatusInstance: MCPStatus | null = null;
+
+export interface MCPStatus {
+  enabled: boolean;
+  servers: Array<{
+    name: string;
+    transport: string;
+    enabled: boolean;
+  }>;
+  toolNames: string[];
+  toolCount: number;
+}
+
+export function setMCPStatus(status: MCPStatus) {
+  mcpStatusInstance = status;
+}
+
 export function setSettingsManager(sm: SettingsManager) {
   settingsManagerInstance = sm;
 }
@@ -108,8 +125,8 @@ settingsRoute.post("/", async (c) => {
 });
 
 settingsRoute.get("/mcp/status", async (c) => {
-  if (!settingsManagerInstance) {
-    return c.json({ error: "SettingsManager not initialized" }, 503);
+  if (!mcpStatusInstance) {
+    return c.json({ error: "MCP status not initialized" }, 503);
   }
-  return c.json(settingsManagerInstance.getTavilyStatus());
+  return c.json(mcpStatusInstance);
 });
