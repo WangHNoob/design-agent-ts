@@ -1,0 +1,1245 @@
+$ tsx watch --env-file=.env src/server/main.ts
+Failed to bootstrap: ConfigValidationError: Invalid configuration:
+- BETTER_AUTH_BASE_URL must use localhost port 4527 when USER_SYSTEM_ENABLED=true.
+    at validateConfig (D:\game-designer-ts\src\config\validateConfig.ts:78:11)
+    at loadConfig (D:\game-designer-ts\src\config\loadConfig.ts:122:3)
+    at bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:132:18)
+    at <anonymous> (D:\game-designer-ts\src\server\main.ts:6:1)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  issues: [
+    'BETTER_AUTH_BASE_URL must use localhost port 4527 when USER_SYSTEM_ENABLED=true.'
+  ]
+}
+10:40:56 [tsx] change in ./src\config\loadConfig.ts Rerunning...
+cFailed to bootstrap: ConfigValidationError: Invalid configuration:
+- BETTER_AUTH_BASE_URL must use localhost port 4527 when USER_SYSTEM_ENABLED=true.
+    at validateConfig (D:\game-designer-ts\src\config\validateConfig.ts:78:11)
+    at loadConfig (D:\game-designer-ts\src\config\loadConfig.ts:123:3)
+    at bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:132:18)
+    at <anonymous> (D:\game-designer-ts\src\server\main.ts:6:1)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  issues: [
+    'BETTER_AUTH_BASE_URL must use localhost port 4527 when USER_SYSTEM_ENABLED=true.'
+  ]
+}
+10:41:26 [tsx] change in ./src\config\validateConfig.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:288:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+10:52:53 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:289:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+10:53:26 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:289:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+10:54:08 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:290:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+10:55:51 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:290:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+10:56:03 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:290:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+10:56:30 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:290:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+11:00:41 [tsx] change in ./src\core\session\SessionManager.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:290:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+11:06:14 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+cD:\game-designer-ts\src\server\bootstrap.ts:44
+import { setAuthAdapter, setTenantPort, setDatabasePort, setUserIdScopedStores } from "./app.js";
+                                                         ^
+SyntaxError: The requested module './app.js' does not provide an export named 'setUserIdScopedStores'
+    at ModuleJob._instantiate (node:internal/modules/esm/module_job:226:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:335:5)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+
+Node.js v22.22.2
+11:07:17 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:16:35 [tsx] change in ./src\adapter\postgres\PostgresDatabaseAdapter.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+15:23:42 [tsx] change in ./src\adapter\betterauth\BetterAuthAdapter.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+15:23:51 [tsx] change in ./src\adapter\betterauth\BetterAuthAdapter.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+15:24:06 [tsx] change in ./src\config\loadConfig.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+15:24:17 [tsx] change in ./src\server\bootstrap.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+15:55:27 [tsx] change in ./src\adapter\postgres\PostgresDatabaseAdapter.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+15:55:35 [tsx] change in ./src\adapter\postgres\PostgresDatabaseAdapter.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+18:17:38 [tsx] change in ./src\server\app.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:14:53 [tsx] change in ./src\adapter\postgres\PostgresDatabaseAdapter.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:23:00 [tsx] change in ./src\core\session\SessionManager.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:23:13 [tsx] change in ./src\core\hitl\HITLManager.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:32:59 [tsx] change in ./src\core\hook\IterationBudgetHook.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:33:06 [tsx] change in ./src\core\hook\OutputEnforcementHook.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:33:28 [tsx] change in ./src\core\hook\IterationBudgetHook.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:33:31 [tsx] change in ./src\core\hook\OutputEnforcementHook.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:40:43 [tsx] change in ./src\core\hook\ContextManagementHook.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:56:21 [tsx] change in ./src\core\session\SessionManager.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:56:42 [tsx] change in ./src\core\hitl\HITLManager.ts Rerunning...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:291:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+14:36:00 [tsx] change in ./src\server\routes\settings.ts Rerunning...
+c14:36:11 [tsx] change in ./src\server\bootstrap.ts Restarting...
+c14:36:18 [tsx] change in ./src\server\bootstrap.ts Restarting...
+c[SkillLoader] Registered skill: combat-design
+[SkillLoader] Registered skill: executive-planning
+[SkillLoader] Registered skill: gameplay-design
+[SkillLoader] Registered skill: knowledge-query
+[SkillLoader] Registered skill: numerical-planning
+[SkillLoader] Registered skill: qa-review
+[SkillLoader] Registered skill: system-design
+[WorkflowLoader] Registered workflow: combat-design (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: cultivation-system (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: default-design (4 tasks, 5 keywords)
+[WorkflowLoader] Registered workflow: gameplay-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: hybrid-design (9 tasks, 6 keywords)
+[WorkflowLoader] Registered workflow: operation-activity (6 tasks, 10 keywords)
+[WorkflowLoader] Registered workflow: rpg-character-system (5 tasks, 9 keywords)
+[WorkflowLoader] Registered workflow: table-config-generation (2 tasks, 12 keywords)
+[WorkflowLoader] Registered workflow: universal-dimensions (5 tasks, 8 keywords)
+[WorkflowLoader] Loaded 9 workflow(s).
+[Bootstrap] Long-term memory enabled: storage=./data/long-term-memory, namespace=global
+[Bootstrap] Initializing user system (multi-tenant with Better Auth)...
+Failed to bootstrap: error: �û� "game_designer" Password ��֤ʧ��
+    at D:\game-designer-ts\node_modules\.pnpm\pg-pool@3.14.0_pg@8.21.0\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PostgresDatabaseAdapter.initializeSchema (D:\game-designer-ts\src\adapter\postgres\PostgresDatabaseAdapter.ts:73:5)
+    at async bootstrap (D:\game-designer-ts\src\server\bootstrap.ts:311:7) {
+  length: 95,
+  severity: '��������',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
