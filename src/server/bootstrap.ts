@@ -24,7 +24,7 @@ import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
 import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
-import { setSettingsManager, setSettingsContainer, setTavilyTool } from "./routes/settings.js";
+import { setSettingsManager, setSettingsContainer, setTavilyTool, setMCPStatus } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
 import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
@@ -221,7 +221,27 @@ export async function bootstrap() {
       for (const failed of failedServers) {
         console.warn(`[Bootstrap] MCP server "${failed.serverName}" failed to load: ${failed.error}`);
       }
+      setMCPStatus({
+        enabled: true,
+        servers: config.mcp.servers.map((s) => ({ name: s.name, transport: s.transport, enabled: s.enabled })),
+        toolNames,
+        toolCount: tools.length,
+      });
+    } else {
+      setMCPStatus({
+        enabled: false,
+        servers: config.mcp.servers.map((s) => ({ name: s.name, transport: s.transport, enabled: s.enabled })),
+        toolNames: [],
+        toolCount: 0,
+      });
     }
+  } else {
+    setMCPStatus({
+      enabled: false,
+      servers: [],
+      toolNames: [],
+      toolCount: 0,
+    });
   }
 
   // Configure sub-agent descriptors (tool names and prompts from composition root)
