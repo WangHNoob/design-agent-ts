@@ -93,9 +93,10 @@ async function main() {
 
   // 2. Game Designer Backend + Frontend
   log("system", "启动 Game Designer (backend + frontend)...");
-  // Fix: shell may have stale POSTGRES_* env vars from Docker runs.
-  // Explicitly set the correct ones from .env so --env-file values take effect.
+  // Fix: shell may have stale env vars from Docker runs.
+  // Explicitly set the correct ones so --env-file values take effect.
   const localPgUrl = "postgresql://postgres:whbwhb2026@localhost:5433/game_designer";
+  const mcpServers = '[{"name":"knowledge-hub","transport":"stdio","enabled":true,"command":"npx","args":["tsx","D:/knowledge-hub/src/server/mcpStdio.ts"],"env":{"DATABASE_URL":"postgres://postgres:whbwhb2026@127.0.0.1:5432/knowledge_hub","KH_JWT_SECRET":"dev-secret-change-me","KH_DATA_DIR":"D:/knowledge-hub/data"}}]';
   spawnProcess("all", "npx", ["concurrently", "-n", "backend,frontend", "-c", "cyan,magenta", "npm run dev", "npm run dev:web"], {
     cwd: ROOT,
     env: {
@@ -105,6 +106,7 @@ async function main() {
       POSTGRES_PASSWORD: "whbwhb2026",
       POSTGRES_DB: "game_designer",
       POSTGRES_PORT: "5433",
+      MCP_SERVERS: mcpServers,
     },
   });
 
