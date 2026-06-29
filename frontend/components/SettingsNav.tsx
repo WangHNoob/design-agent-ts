@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Settings, FileText, Zap, GitBranch } from 'lucide-react';
+import { Settings, FileText, Zap, GitBranch, Server } from 'lucide-react';
 
 const tabs = [
   { href: '/settings', label: '通用', icon: Settings },
   { href: '/settings/prompts', label: '提示词', icon: FileText },
   { href: '/settings/skills', label: '技能', icon: Zap },
   { href: '/settings/workflows', label: '工作流', icon: GitBranch },
+  { href: '/settings/mcp', label: 'MCP', icon: Server },
 ];
 
 export default function SettingsNav() {

@@ -92,6 +92,12 @@ export interface FrameworkConfig {
     enabled: boolean;
     servers: McpServerConfig[];
   };
+  /**
+   * Tool groups to enable. If empty, all groups are enabled.
+   * Groups are registered in bootstrap.ts using toolRegistry.registerToGroup().
+   * Example: ["knowledge", "web"] enables only tools in these groups.
+   */
+  enabledToolGroups: string[];
   limits: {
     subAgentMaxIterations: number;
     queryAgentMaxIterations: number;

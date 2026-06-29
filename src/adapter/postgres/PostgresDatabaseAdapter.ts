@@ -70,6 +70,13 @@ export class PostgresDatabaseAdapter implements DatabasePort {
    * are also created here for convenience (idempotent via IF NOT EXISTS).
    */
   async initializeSchema(): Promise<void> {
+    // Enable pgvector extension first (required for VECTOR type)
+    try {
+      await this.pool.query("CREATE EXTENSION IF NOT EXISTS vector");
+    } catch (err) {
+      console.warn("[PostgresDatabaseAdapter] pgvector extension not available, vector search disabled:", err);
+    }
+
     await this.pool.query(`
       -- User assets table (polymorphic: stores all asset types)
       -- References Better Auth's "user" table
@@ -194,13 +201,6 @@ export class PostgresDatabaseAdapter implements DatabasePort {
         "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
-
-    // Try to enable pgvector extension (optional — graceful degradation)
-    try {
-      await this.pool.query("CREATE EXTENSION IF NOT EXISTS vector");
-    } catch {
-      console.warn("[PostgresDatabaseAdapter] pgvector extension not available. Embedding search will be disabled.");
-    }
   }
 
   /**

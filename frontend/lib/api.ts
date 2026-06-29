@@ -216,8 +216,34 @@ export async function saveSettings(settings: Partial<AppSettingsResponse> & { ta
   return res.json();
 }
 
-export async function getTavilyStatus(): Promise<TavilyStatus> {
+export interface MCPToolInfo {
+  name: string;
+  description: string;
+  serverName: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface MCPServer {
+  name: string;
+  transport: string;
+  enabled: boolean;
+}
+
+export interface MCPStatus {
+  enabled: boolean;
+  servers: MCPServer[];
+  toolNames: string[];
+  toolCount: number;
+  tools: MCPToolInfo[];
+}
+
+export async function getMCPStatus(): Promise<MCPStatus> {
   const res = await apiFetch(`${API_BASE}/api/settings/mcp/status`);
+  return res.json();
+}
+
+export async function getTavilyStatus(): Promise<TavilyStatus> {
+  const res = await apiFetch(`${API_BASE}/api/settings/tavily/status`);
   return res.json();
 }
 

@@ -23,6 +23,7 @@ settings.json
 .vscode/
 .idea/
 *.iml
+.agents
 
 # OS files
 .DS_Store

@@ -282,7 +282,7 @@ export function handleStreamEvent(
 
     case 'knowledge_used': {
       const sourceType = d.sourceType as string;
-      const sources = d.sources as Array<{ type: string; id: string; title?: string }>;
+      const sources = d.sources as Array<import('@/lib/stores/taskStore').KnowledgeSource>;
 
       const task = store.getTask(sessionId);
       if (task) {
