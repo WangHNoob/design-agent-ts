@@ -107,6 +107,9 @@ export function loadConfig(): FrameworkConfig {
       enabled: process.env.MCP_ENABLED === "true",
       servers: parseMcpServers(process.env.MCP_SERVERS),
     },
+    enabledToolGroups: process.env.ENABLED_TOOL_GROUPS
+      ? process.env.ENABLED_TOOL_GROUPS.split(",").map((s) => s.trim()).filter(Boolean)
+      : [],
     limits: {
       subAgentMaxIterations: Number(process.env.SUB_AGENT_MAX_ITERATIONS) || 20,
       queryAgentMaxIterations: Number(process.env.QUERY_AGENT_MAX_ITERATIONS) || 20,

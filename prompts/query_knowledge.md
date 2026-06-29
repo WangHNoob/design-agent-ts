@@ -40,6 +40,9 @@
 - `kb_get_quality(component_id?)` — 获取质量摘要
 - `kb_get_evidence(component_id)` — 获取证据记录
 - `kb_get_release()` — 查看当前发布版本信息
+- `kb_report_gap(query_or_component_id, reason)` — 反馈知识缺口
+- `kb_report_bad_hit(query, component_id, reason)` — 反馈错误命中
+- `kb_report_stale(component_id, reason)` — 反馈内容过期
 
 ### 文件知识库（备用）
 - `wiki_lookup(topic)` — 在索引中查找主题
@@ -54,6 +57,18 @@
 ### 联网搜索
 - `tavily-search(query)` — 搜索互联网
 - `tavily-extract(urls)` — 抓取网页内容
+
+# 反馈策略
+
+在使用 Knowledge Hub 过程中发现以下问题时，必须调用对应的反馈工具：
+
+| 触发条件 | 反馈工具 | 说明 |
+|----------|----------|------|
+| `kb_search` 返回空或结果与查询明显不相关 | `kb_report_gap(query, reason)` | 知识缺口 |
+| 返回内容的可信度 < 0.5 或状态为 `needs_review` / `blocked` | `kb_report_gap(component_id, "low_trust")` | 低可信度 |
+| 返回内容与查询主题明显不匹配 | `kb_report_bad_hit(query, component_id, reason)` | 错误命中 |
+| 内容明显过期 | `kb_report_stale(component_id, reason)` | 内容过期 |
+| 证据数为 0 但用于关键回答 | `kb_report_gap(component_id, "no_evidence")` | 无证据支撑 |
 
 # 要求
 - 知识库为准，联网补充，不编造信息

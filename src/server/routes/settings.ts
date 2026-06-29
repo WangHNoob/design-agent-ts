@@ -12,6 +12,13 @@ let tavilyToolInstance: TavilySearchTool | null = null;
 
 let mcpStatusInstance: MCPStatus | null = null;
 
+export interface MCPToolInfo {
+  name: string;
+  description: string;
+  serverName: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface MCPStatus {
   enabled: boolean;
   servers: Array<{
@@ -21,6 +28,7 @@ export interface MCPStatus {
   }>;
   toolNames: string[];
   toolCount: number;
+  tools: MCPToolInfo[];
 }
 
 export function setMCPStatus(status: MCPStatus) {
@@ -129,4 +137,24 @@ settingsRoute.get("/mcp/status", async (c) => {
     return c.json({ error: "MCP status not initialized" }, 503);
   }
   return c.json(mcpStatusInstance);
+});
+
+settingsRoute.get("/mcp/tools", async (c) => {
+  if (!mcpStatusInstance) {
+    return c.json({ error: "MCP status not initialized" }, 503);
+  }
+  return c.json({
+    tools: mcpStatusInstance.tools,
+    total: mcpStatusInstance.toolCount,
+  });
+});
+
+settingsRoute.get("/mcp/servers", async (c) => {
+  if (!mcpStatusInstance) {
+    return c.json({ error: "MCP status not initialized" }, 503);
+  }
+  return c.json({
+    servers: mcpStatusInstance.servers,
+    enabled: mcpStatusInstance.enabled,
+  });
 });

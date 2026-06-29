@@ -14,6 +14,36 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export interface KnowledgeSource {
+  type: string;
+  id: string;
+  title?: string;
+  relevance?: string;
+  trust?: {
+    score: number;
+    status: 'trusted' | 'usable_with_risk' | 'needs_review' | 'blocked';
+    breakdown?: {
+      evidence?: number;
+      completeness?: number;
+      auditFreshness?: number;
+      consistency?: number;
+    };
+  };
+  evidence?: {
+    count: number;
+    evidenceIds?: string[];
+    hasEvidence: boolean;
+  };
+  release?: {
+    releaseId: string;
+    version: string;
+    publishedAt: string;
+  };
+  qualityFlags?: string[];
+  componentKind?: string;
+  artifactId?: string;
+}
+
 export interface TaskState {
   sessionId: string;
   mode: TaskMode;
@@ -22,7 +52,7 @@ export interface TaskState {
   messages: ChatMessage[];
   timeline: TimelineEntry[];
   logs: DetailedLog[];
-  knowledgeSources: Array<{ type: string; id: string; title?: string }>;
+  knowledgeSources: KnowledgeSource[];
   executionTime: string;
   status: 'idle' | 'working' | 'waiting' | 'error';
   statusText: string;

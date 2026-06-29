@@ -3,6 +3,7 @@ import type { HookPoint } from "../../port/hook/HookPoint.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import type { EventBus } from "../agent/director/EventBus.js";
 import type { KnowledgeSource } from "../agent/director/DirectorAgent.js";
+import { parseKnowledgeHubMetadata } from "../agent/director/KnowledgeSource.js";
 
 /**
  * Hook that emits fine-grained execution events to an EventBus for real-time SSE streaming.
@@ -144,6 +145,7 @@ export class StreamEmitterHook implements AgentHook {
   }
 
   private getSourceType(toolName: string): string {
+    if (toolName.startsWith("kb_")) return "knowledge_hub";
     if (toolName.startsWith("wiki_")) return "wiki";
     if (toolName.startsWith("kg_")) return "kg";
     if (toolName === "grep_search") return "grep";
@@ -156,6 +158,11 @@ export class StreamEmitterHook implements AgentHook {
     result: string,
     metadata?: Record<string, unknown>
   ): KnowledgeSource[] {
+    // kb_* 工具：从 structuredContent 解析知识来源
+    if (toolName.startsWith("kb_")) {
+      return parseKnowledgeHubMetadata(toolName, metadata || {});
+    }
+
     const sources: KnowledgeSource[] = [];
 
     if (toolName.startsWith("wiki_")) {

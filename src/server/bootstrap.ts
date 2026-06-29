@@ -165,7 +165,7 @@ export async function bootstrap() {
   loadSkills(skillRegistry);
   loadWorkflows(skillRegistry);
 
-  // Register knowledge tools
+  // Register knowledge tools (grouped for easy enable/disable)
   const wikiTool = new WikiPageTool(config.knowledge.wikiPath, fileSystem);
   const grepTool = new GrepSearchTool(config.knowledge.wikiPath, fileSystem);
   const kgTool = new KnowledgeGraphTool(
@@ -181,16 +181,34 @@ export async function bootstrap() {
     tavilyTool.setApiKey(tavilyApiKey);
   }
 
-  // Register with names matching prompt expectations
-  toolRegistry.register(new DelegatingTool("wiki_lookup", "在 Wiki 索引中查找主题对应的页面路径。参数: topic (string)", wikiTool, { action: "lookup" }));
-  toolRegistry.register(new DelegatingTool("wiki_read", "读取指定 Wiki 页面的完整内容。参数: pagePath (string)", wikiTool, { action: "read" }));
-  toolRegistry.register(new DelegatingTool("wiki_list", "列出指定分类下的所有 Wiki 页面。参数: category (string)", wikiTool, { action: "list" }));
-  toolRegistry.register(grepTool);
-  toolRegistry.register(new DelegatingTool("kg_query_node", "查询知识图谱中指定节点的信息。参数: node_id (string)", kgTool, { action: "query_node" }));
-  toolRegistry.register(new DelegatingTool("kg_query_neighbors", "查询知识图谱中指定节点的邻居关系。参数: node_id (string)", kgTool, { action: "query_neighbors" }));
-  toolRegistry.register(new DelegatingTool("kg_list_nodes", "列出知识图谱中指定类型的所有节点。参数: node_type (string, optional)", kgTool, { action: "list_nodes" }));
-  toolRegistry.register(new DelegatingTool("tavily_search", "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)", tavilyTool, { action: "search" }));
-  toolRegistry.register(new DelegatingTool("tavily_extract", "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)", tavilyTool, { action: "extract" }));
+  // Helper to check if a tool group should be registered
+  const shouldRegisterGroup = (groupName: string): boolean => {
+    if (config.enabledToolGroups.length === 0) return true; // empty = all enabled
+    return config.enabledToolGroups.includes(groupName);
+  };
+
+  // Register knowledge tools (group: "knowledge")
+  if (shouldRegisterGroup("knowledge")) {
+    toolRegistry.registerToGroup(new DelegatingTool("wiki_lookup", "在 Wiki 索引中查找主题对应的页面路径。参数: topic (string)", wikiTool, { action: "lookup" }), "knowledge");
+    toolRegistry.registerToGroup(new DelegatingTool("wiki_read", "读取指定 Wiki 页面的完整内容。参数: pagePath (string)", wikiTool, { action: "read" }), "knowledge");
+    toolRegistry.registerToGroup(new DelegatingTool("wiki_list", "列出指定分类下的所有 Wiki 页面。参数: category (string)", wikiTool, { action: "list" }), "knowledge");
+    toolRegistry.registerToGroup(grepTool, "knowledge");
+    toolRegistry.registerToGroup(new DelegatingTool("kg_query_node", "查询知识图谱中指定节点的信息。参数: node_id (string)", kgTool, { action: "query_node" }), "knowledge");
+    toolRegistry.registerToGroup(new DelegatingTool("kg_query_neighbors", "查询知识图谱中指定节点的邻居关系。参数: node_id (string)", kgTool, { action: "query_neighbors" }), "knowledge");
+    toolRegistry.registerToGroup(new DelegatingTool("kg_list_nodes", "列出知识图谱中指定类型的所有节点。参数: node_type (string, optional)", kgTool, { action: "list_nodes" }), "knowledge");
+    console.log(`[Bootstrap] Tool group "knowledge" enabled: ${toolRegistry.getGroupToolNames("knowledge").length} tools`);
+  } else {
+    console.log(`[Bootstrap] Tool group "knowledge" disabled (not in ENABLED_TOOL_GROUPS)`);
+  }
+
+  // Register web search tools (group: "web")
+  if (shouldRegisterGroup("web")) {
+    toolRegistry.registerToGroup(new DelegatingTool("tavily_search", "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)", tavilyTool, { action: "search" }), "web");
+    toolRegistry.registerToGroup(new DelegatingTool("tavily_extract", "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)", tavilyTool, { action: "extract" }), "web");
+    console.log(`[Bootstrap] Tool group "web" enabled: ${toolRegistry.getGroupToolNames("web").length} tools`);
+  } else {
+    console.log(`[Bootstrap] Tool group "web" disabled (not in ENABLED_TOOL_GROUPS)`);
+  }
 
   // ─── MCP (Model Context Protocol) tools ─────────────────────────
   // Connect to external MCP servers (e.g. Knowledge Hub) and register their
@@ -212,7 +230,7 @@ export async function bootstrap() {
     }
 
     if (entries.length > 0) {
-      const { tools, toolNames, failedServers } = await loadMcpTools(entries);
+      const { tools, toolNames, failedServers, serverResults } = await loadMcpTools(entries);
       for (const tool of tools) {
         toolRegistry.register(tool);
       }
@@ -221,11 +239,34 @@ export async function bootstrap() {
       for (const failed of failedServers) {
         console.warn(`[Bootstrap] MCP server "${failed.serverName}" failed to load: ${failed.error}`);
       }
+      
+      // Build toolName → serverName mapping from serverResults
+      const toolServerMap = new Map<string, string>();
+      for (const sr of serverResults) {
+        if (sr.connected) {
+          for (const tn of sr.toolNames) {
+            toolServerMap.set(tn, sr.serverName);
+          }
+        }
+      }
+      
+      // Collect tool descriptors for frontend
+      const toolInfos = tools.map((tool) => {
+        const descriptor = tool.getDescriptor();
+        return {
+          name: descriptor.name,
+          description: descriptor.description,
+          serverName: toolServerMap.get(descriptor.name) || "unknown",
+          parameters: descriptor.parameters,
+        };
+      });
+      
       setMCPStatus({
         enabled: true,
         servers: config.mcp.servers.map((s) => ({ name: s.name, transport: s.transport, enabled: s.enabled })),
         toolNames,
         toolCount: tools.length,
+        tools: toolInfos,
       });
     } else {
       setMCPStatus({
@@ -233,6 +274,7 @@ export async function bootstrap() {
         servers: config.mcp.servers.map((s) => ({ name: s.name, transport: s.transport, enabled: s.enabled })),
         toolNames: [],
         toolCount: 0,
+        tools: [],
       });
     }
   } else {
@@ -241,17 +283,29 @@ export async function bootstrap() {
       servers: [],
       toolNames: [],
       toolCount: 0,
+      tools: [],
     });
   }
 
   // Configure sub-agent descriptors (tool names and prompts from composition root)
-  const subAgentToolNames = [
-    "wiki_lookup", "wiki_read", "wiki_list",
-    "grep_search",
-    "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
-    "tavily_search", "tavily_extract",
-    "workspace_read", "workspace_list",
-  ];
+  // Build sub-agent tool names dynamically based on enabled groups
+  const subAgentToolNames: string[] = [];
+  
+  // Add tools from enabled groups
+  if (shouldRegisterGroup("knowledge")) {
+    subAgentToolNames.push(
+      "wiki_lookup", "wiki_read", "wiki_list",
+      "grep_search",
+      "kg_query_node", "kg_query_neighbors", "kg_list_nodes"
+    );
+  }
+  if (shouldRegisterGroup("web")) {
+    subAgentToolNames.push("tavily_search", "tavily_extract");
+  }
+  if (shouldRegisterGroup("workspace")) {
+    subAgentToolNames.push("workspace_read", "workspace_list");
+  }
+  
   // Grant MCP tools to all sub-agents (persists across hot-reload resets).
   setExtraSubAgentToolNames(mcpToolNames);
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations, config.limits.modelMaxTokens);

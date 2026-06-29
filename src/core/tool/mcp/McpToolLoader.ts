@@ -9,6 +9,19 @@ export interface McpClientEntry {
   readonly toolPrefix?: string;
 }
 
+/** Per-server load outcome — drives the frontend status panel. */
+export interface McpServerLoadResult {
+  readonly serverName: string;
+  /** The tool-name prefix applied to this server's tools (empty if none). */
+  readonly toolPrefix: string;
+  /** Whether the server connected and listed its tools successfully. */
+  readonly connected: boolean;
+  /** Failure reason when `connected` is false (degraded, not fatal). */
+  readonly error?: string;
+  /** Exposed (prefixed) names of the tools loaded from this server. */
+  readonly toolNames: string[];
+}
+
 /** Outcome of loading tools from all configured MCP servers. */
 export interface McpLoadResult {
   /** All successfully loaded tools, wrapped as ToolPorts. */
@@ -17,6 +30,8 @@ export interface McpLoadResult {
   readonly toolNames: string[];
   /** Names of servers that failed to connect or list tools (degraded, not fatal). */
   readonly failedServers: Array<{ serverName: string; error: string }>;
+  /** Per-server breakdown (connected/failed + each server's tools) for status reporting. */
+  readonly serverResults: McpServerLoadResult[];
 }
 
 /**
@@ -32,9 +47,11 @@ export async function loadMcpTools(entries: McpClientEntry[]): Promise<McpLoadRe
   const tools: ToolPort[] = [];
   const toolNames: string[] = [];
   const failedServers: Array<{ serverName: string; error: string }> = [];
+  const serverResults: McpServerLoadResult[] = [];
 
   for (const entry of entries) {
     const { client, toolPrefix = "" } = entry;
+    const serverToolNames: string[] = [];
     try {
       await client.connect();
       const definitions = await client.listTools();
@@ -42,10 +59,24 @@ export async function loadMcpTools(entries: McpClientEntry[]): Promise<McpLoadRe
         const adapter = new McpToolAdapter(client, definition, toolPrefix);
         tools.push(adapter);
         toolNames.push(adapter.name);
+        serverToolNames.push(adapter.name);
       }
+      serverResults.push({
+        serverName: client.serverName,
+        toolPrefix,
+        connected: true,
+        toolNames: serverToolNames,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       failedServers.push({ serverName: client.serverName, error: message });
+      serverResults.push({
+        serverName: client.serverName,
+        toolPrefix,
+        connected: false,
+        error: message,
+        toolNames: [],
+      });
       // Best-effort cleanup so a half-open connection doesn't leak.
       try {
         await client.disconnect();
@@ -55,5 +86,5 @@ export async function loadMcpTools(entries: McpClientEntry[]): Promise<McpLoadRe
     }
   }
 
-  return { tools, toolNames, failedServers };
+  return { tools, toolNames, failedServers, serverResults };
 }

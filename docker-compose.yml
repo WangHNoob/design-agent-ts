@@ -95,8 +95,8 @@ services:
       - USER_SYSTEM_ENABLED=${USER_SYSTEM_ENABLED:-true}
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-in-production}
       - BETTER_AUTH_BASE_URL=http://backend:3000
-      - POSTGRES_URL=${POSTGRES_URL}
-      - REDIS_URL=${REDIS_URL}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@host.docker.internal:5433/${POSTGRES_DB:-game_designer}
+      - REDIS_URL=redis://host.docker.internal:${REDIS_PORT:-6379}/0
       - MAX_CONCURRENT_PER_USER=${MAX_CONCURRENT_PER_USER:-3}
       - AUTO_INIT_SCHEMA=${AUTO_INIT_SCHEMA:-true}
       # Admin domains (comma-separated email domains for auto admin role)
