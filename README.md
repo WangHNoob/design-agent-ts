@@ -1,335 +1,282 @@
 # game-designer-ts
 
-> 多智能体游戏策划系统 —— TypeScript 版本｜与框架完全解耦的 Agent 基座
+> 与框架完全解耦的多智能体协作系统基座 —— 一个关于分层架构、智能体编排与可演进性的设计实验
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
 
-本项目是 [game-designer](https://github.com/WangHNoob/game-designer) 的 TypeScript 重构版本。核心业务层与任何 LLM 框架完全解耦，通过 **Port/Adapter** 分层让框架（LangGraph、Mock 等）成为可插拔的实现，同时内置一个完整的游戏策划多智能体系统：需求澄清 → 任务规划 → 路由分发 → 子 Agent 执行 → 整合产出，并支持人工介入（HITL）、长期记忆、知识库、技能/工作流、多租户与可观测性。
-
 ---
 
-## 目录
+## 设计出发点
 
-- [核心特性](#核心特性)
-- [架构设计](#架构设计)
-- [技术栈](#技术栈)
-- [快速开始](#快速开始)
-- [API 接口](#api-接口)
-- [项目结构](#项目结构)
-- [Docker 服务说明](#docker-服务说明)
-- [环境变量](#环境变量)
-- [开发规范](#开发规范)
-- [License](#license)
+构建一个**与具体 LLM 框架无关**的多智能体协作系统。核心命题不是"用 LangGraph 能做什么"，而是：
 
----
+> 如果把 Agent 框架视为可替换的实现细节，业务逻辑应该长什么样？
 
-## 核心特性
+这引出了三个设计目标：
 
-- **框架无关的核心层**：`core/` + `port/` 零框架依赖，`@langchain/*` 仅出现在 `adapter/langgraph/`。切换框架只需新增适配器，业务逻辑无需改动。
-- **多智能体编排（DirectorAgent）**：
-  - `TaskPlanner` 任务规划、`Router` 技能路由、`Integrator` 结果整合
-  - 内置 6 个子 Agent：`SystemDesigner` / `CombatDesigner` / `NumericalPlanner` / `GameplayDesigner` / `ExecutivePlanner` / `QAPlanner`
-  - 三种执行模式：`design`（完整设计流程）、`query`（知识库直答）、`table`（配表生成）
-- **知识库工具链**：Wiki 页面检索、知识图谱节点查询、Grep 全文搜索、Tavily 联网搜索，支持工作区文件读写。
-- **长期记忆（LTM）**：跨会话的语义 / 情节 / 程序 / 用户画像四类记忆，支持自动抽取、按重要性裁剪与上下文注入。
-- **Hooks 系统**：在 `pre/post_reasoning`、`pre/post_tool_execution`、`pre/post_agent_call`、`on_error`、`on_iteration_budget` 等关键阶段统一拦截，实现上下文管理、记忆注入/抽取、流式发射、输出校验等。
-- **HITL（Human-in-the-loop）**：标准审阅点 `hitl-1-task-plan` / `hitl-2-agent-output` / `hitl-3-final`，降级行为返回可审计的 `fallback` 标记，禁止静默通过。
-- **技能与工作流**：`prompts/*.md` 统一管理提示词，技能/工作流在组装根加载并通过端口注入，可在运行时增删。
-- **流式输出**：`query` 模式直传模型 token；`design` 模式发送结构化进度事件（`plan` / `route` / `task_start` / `task_complete` / `integrate` / `chunk`）。
-- **多租户用户系统**：Better Auth（邮箱密码 + 钉钉 SSO）鉴权，所有业务数据（会话、记忆、设置、技能、工作流）按用户隔离，支持并发限制与自动管理员域名。
-- **可观测性**：`/health` 健康检查、`/metrics` Prometheus 指标端点，配合 Prometheus + Grafana + Alertmanager 实现监控告警。
-- **生产就绪**：PostgreSQL（pgvector）+ Redis 双持久化、每日自动备份、Docker Compose 一键编排。
+1. **框架可替换**：今天用 LangGraph，明天可以换成 CrewAI、AutoGen 或自研运行时，核心代码一行不改。
+2. **架构可验证**：分层边界不是靠文档约束，而是靠编译器和静态分析强制——`core/` 目录里找不到任何 `@langchain/*` 的 import。
+3. **系统可演进**：新增一个子 Agent、一种记忆策略、一个审阅点，不需要触碰已有业务逻辑。
 
 ---
 
 ## 架构设计
 
+### 分层模型
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  业务核心层 (src/core/)                        │
-│  DirectorAgent · Pipeline · Hooks · LTM · Skill · Workspace   │
-├─────────────────────────────────────────────────────────────┤
-│                  Port 接口层 (src/port/)                      │
-│  Agent · Model · Tool · Memory · Session · Skill · Hook ·     │
-│  User · Queue · Tracing · FileSystem · Infra                  │
-├─────────────────────────────────────────────────────────────┤
-│               Adapter 实现层 (src/adapter/)                   │
-│  ┌────────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐ │
-│  │ langgraph  │ │  mock    │ │ postgres │ │ redis         │ │
-│  │ (LangChain)│ │ (测试用) │ │ (+LTM/   │ │ (MQ/租户隔离) │ │
-│  │            │ │          │ │  Session)│ │               │ │
-│  └────────────┘ └──────────┘ └──────────┘ └───────────────┘ │
-│  ┌────────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐ │
-│  │ betterauth │ │ tavily   │ │   fs     │ │    infra      │ │
-│  │ (鉴权)     │ │ (联网)   │ │ (文件)   │ │ (Id/Context)  │ │
-│  └────────────┘ └──────────┘ └──────────┘ └───────────────┘ │
-├─────────────────────────────────────────────────────────────┤
-│          组装根 / HTTP 服务 (src/server/)                      │
-│  bootstrap.ts · Container.ts · routes/* · middleware/*        │
-├─────────────────────────────────────────────────────────────┤
-│                  配置层 (src/config/)                         │
-│  FrameworkConfig · loadConfig · validateConfig               │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│              Port 接口层 (src/port/)               │
+│  纯 TypeScript 接口，零外部依赖                      │
+│  Agent · Model · Tool · Memory · Hook · Skill ·    │
+│  Session · User · Queue · FileSystem · MCP · ...   │
+├──────────────────────────────────────────────────┤
+│              Core 业务层 (src/core/)                │
+│  框架无关的纯业务逻辑，仅依赖 port/                    │
+│  DirectorAgent · Pipeline · HITL · Hooks ·         │
+│  LTM · Skill · Schema · Workspace · ...            │
+├──────────────────────────────────────────────────┤
+│            Adapter 适配层 (src/adapter/)            │
+│  框架与基础设施的具体实现，可依赖 port/ + core/        │
+│  langgraph · postgres · redis · betterauth ·       │
+│  tavily · fs · mock · ...                          │
+├──────────────────────────────────────────────────┤
+│           组装根 (src/server/)                      │
+│  Composition Root：依赖注入、路由、中间件              │
+│  bootstrap.ts · Container.ts · routes/*            │
+├──────────────────────────────────────────────────┤
+│           配置层 (src/config/)                      │
+│  仅负责类型定义与环境变量读取，不实例化任何 Adapter      │
+└──────────────────────────────────────────────────┘
 ```
 
-**核心原则**（详见 [AGENTS.md](./AGENTS.md)）：
+### 核心约束
 
-- `core/` 与 `port/` **零框架依赖**，禁止 `import` 任何 `adapter/`、禁止使用 `fs`/`path`/`fetch` 等基础设施 API
-- 所有基础设施能力（文件、网络、数据库、第三方服务）通过 Port 抽象，由 Adapter 实现，在组装根注入
-- `config/` 只负责读取与类型定义，**不得**实例化任何 Adapter 具体类；依赖注入容器放在 `server/`
+三条红线，由 `AGENTS.md` 强制执行：
+
+| 规则 | 说明 |
+|------|------|
+| **core 不依赖 adapter** | `core/` 中禁止静态或动态 `import` 任何 `adapter/` 文件 |
+| **core 不操作基础设施** | `core/` 中禁止使用 `fs`、`path`、`fetch` 等 API，一切通过 Port 抽象 |
+| **config 不实例化 Adapter** | `config/` 只读取配置，依赖注入容器放在 `server/` |
+
+这三条规则确保了依赖方向永远向内：`adapter → core → port`，不会出现反向依赖。
+
+### Port 层设计
+
+`src/port/` 定义了 14 个接口族，覆盖智能体系统的全部横切关注点：
+
+| 接口族 | 核心契约 | 职责 |
+|--------|---------|------|
+| `agent/` | `AgentPort`, `AgentFactory`, `AgentDescriptor` | Agent 生命周期与工厂模式 |
+| `model/` | `ChatModelPort` | LLM 调用抽象 |
+| `tool/` | `ToolPort`, `ToolRegistry` | 工具注册与执行 |
+| `memory/` | `MemoryPort`, `LongTermMemoryPort` | 会话记忆与长期记忆 |
+| `hook/` | `AgentHook`, `HookPoint` | 生命周期拦截点 |
+| `skill/` | `SkillPort`, `SkillRegistry` | 技能与工作流匹配 |
+| `session/` | Session 管理 | 会话持久化 |
+| `user/` | `TenantIsolationPort`, `UserPort` | 多租户与鉴权 |
+| `fs/` | `FileSystemPort` | 文件系统抽象 |
+| `mcp/` | `McpClientPort` | MCP 协议客户端 |
+| `queue/` | `MessageQueuePort` | 消息队列 |
+| `infra/` | `IdGeneratorPort` | ID 生成 |
+| `tracing/` | 链路追踪 | 可观测性 |
+| `message/` | `ChatMessage` | 消息数据结构 |
+
+每个 Port 只定义"需要什么能力"，不关心"谁来提供"。Adapter 层负责填空。
+
+---
+
+## 多智能体编排
+
+### DirectorAgent：中央编排器
+
+`DirectorAgent` 是系统的指挥中心，支持三种执行模式：
+
+```
+design 模式（完整流程）
+  Requirement → Skill 匹配 → Task 规划 → HITL 审阅
+  → Router 路由 → Pipeline 执行 → Integrator 整合 → 产出
+
+query 模式（直答）
+  Requirement → 知识库工具注入 → 模型直答
+
+table 模式（配表）
+  复用 design 流程，产出为结构化配表数据
+```
+
+### 子 Agent 体系
+
+系统内置 6 个领域子 Agent，每个拥有独立的 system prompt、工具集和执行边界：
+
+| Agent | 职责域 |
+|-------|--------|
+| SystemDesigner | 系统架构设计 |
+| CombatDesigner | 战斗系统设计 |
+| NumericalPlanner | 数值规划 |
+| GameplayDesigner | 玩法设计 |
+| ExecutivePlanner | 执行规划 |
+| QAPlanner | 质量审查 |
+
+子 Agent 通过 `AgentFactory` 模式创建——编排器只知道工厂接口，不知道具体实现是 LangGraph 还是 Mock。
+
+### Pipeline：依赖感知的并行执行
+
+`PlanPipeline` 将任务按依赖关系拓扑排序，分层并行执行：
+
+```
+Layer 0: [Task A] [Task B]        ← 无依赖，并行
+Layer 1: [Task C]                 ← 依赖 A、B，等它们完成
+Layer 2: [Task D] [Task E]        ← 依赖 C，并行
+```
+
+每层内任务并行执行（`Promise.all`），层间串行。前置任务的输出自动注入为后继任务的上下文。支持 `AbortSignal` 优雅取消。
+
+### Integrator：跨 Agent 冲突检测
+
+不只是拼接输出。`Integrator` 提取各 Agent 产出的字段定义，检测跨域冲突（如同一属性被不同 Agent 赋予不同值），生成冲突报告，确保最终产出一致。
+
+---
+
+## 关键设计模式
+
+### HITL（Human-in-the-Loop）
+
+三个标准审阅点嵌入执行流程：
+
+```
+hitl-1-task-plan    → 任务规划完成后，人工确认/修改
+hitl-2-agent-output → 单个 Agent 产出后，人工审阅
+hitl-3-final        → 最终整合结果，人工验收
+```
+
+每个审阅点可独立开关，降级时返回 `fallback: true` 标记，**禁止静默通过**——所有自动化决策必须可审计。
+
+### Hooks 系统
+
+在 Agent 执行的关键阶段插入拦截点：
+
+```
+pre_reasoning  → post_reasoning
+pre_tool_exec  → post_tool_exec
+pre_agent_call → post_agent_call
+on_error
+on_iteration_budget
+```
+
+Hooks 实现上下文管理、记忆注入/抽取、流式事件发射、输出格式校验等横切关注点，与业务逻辑完全解耦。
+
+### 长期记忆（LTM）
+
+四类记忆独立管理：
+
+| 类型 | 内容 | 策略 |
+|------|------|------|
+| 语义记忆 | 领域知识、概念 | 按相关性检索 |
+| 情节记忆 | 历史会话摘要 | 按时间/重要性裁剪 |
+| 程序记忆 | 工作流、方法论 | 按任务类型匹配 |
+| 用户画像 | 偏好、习惯 | 持续更新 |
+
+记忆的抽取和注入通过 Hooks 自动完成，对 Agent 透明。
+
+### 流式输出
+
+- **query 模式**：直接转发模型 token 流，零延迟
+- **design 模式**：发送结构化进度事件（`plan` → `route` → `task_start` → `task_complete` → `integrate` → `chunk`），前端可渲染实时进度条
+
+通过 `EventBus` + `concurrentDrain` 模式实现，每 200ms 轮询事件总线，**禁止**执行完成后伪分块模拟流式。
 
 ---
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 语言 | TypeScript 5.9（Node.js >= 20，ESM） |
-| Agent 框架 | LangGraph TypeScript（可替换适配器） |
-| LLM | OpenAI / Anthropic / OpenAI 兼容协议 |
-| HTTP 服务 | Hono |
-| 数据库 | PostgreSQL 16 + pgvector（Drizzle ORM） |
-| 缓存 / 消息队列 | Redis 7（消息队列基于 Redis Streams） |
-| 鉴权 | Better Auth（邮箱密码 + 钉钉 SSO） |
-| 前端 | Next.js 16 · React 19 · TailwindCSS · Zustand |
-| 监控 | Prometheus · Grafana · Alertmanager |
-| 测试 | Vitest |
-| Lint / Format | ESLint · typescript-eslint · Prettier |
-| 包管理 | pnpm（Workspace） |
-
----
-
-## 快速开始
-
-### 前置准备
-
-1. Node.js >= 20、pnpm
-2. 一个可用的 LLM API Key（OpenAI / Anthropic / 兼容协议）
-3. 生产/多租户部署还需 PostgreSQL 与 Redis（本地开发可不启用用户系统）
-
-### 方式一：Docker Compose（推荐，生产部署）
-
-`docker-compose.yml` 编排了 postgres、redis、backend、frontend、prometheus、alertmanager、grafana 与 pg-backup 备份服务。
-
-```bash
-# 1. 复制环境变量模板并填写（LLM_API_KEY、BETTER_AUTH_SECRET、POSTGRES_PASSWORD 等必改项）
-cp .env.example .env
-
-# 2. （可选）本地预编译后打包进镜像，避免镜像内联网安装
-pnpm install
-pnpm run build
-(cd frontend && pnpm install && pnpm run build)
-
-# 3. 一键启动全部服务
-docker compose up -d
-
-# 4. 查看日志 / 健康检查
-docker compose logs -f backend
-curl http://localhost:13000/health
-```
-
-也可使用封装脚本：
-
-```bash
-node docker-start.mjs            # 启动已有镜像
-node docker-start.mjs --rebuild  # 本地编译 → 打包进 Docker → 启动
-node docker-start.mjs --down     # 停止并移除所有服务
-node docker-start.mjs --logs     # 查看所有服务日志
-```
-
-> 完整的云服务器部署（含 HTTPS、Nginx 反代、Grafana、备份恢复、安全清单）请见 [DEPLOY.md](./DEPLOY.md)。
-
-### 方式二：本地开发
-
-```bash
-# 安装依赖（含 workspace 前端）
-pnpm install
-
-# 复制并填写环境变量
-cp .env.example .env
-# 至少配置：LLM_API_KEY / LLM_PROVIDER / LLM_MODEL
-# 如需多租户：USER_SYSTEM_ENABLED=true + PostgreSQL + Redis
-
-# 一键启动前后端（热重载，改代码即生效）
-pnpm dev:all
-
-# 或者分别启动：
-pnpm dev        # 后端（端口 4527，.env 的 PORT 决定）
-pnpm dev:web    # 前端（端口 4528）
-```
-
-### 常用命令
-
-```bash
-pnpm dev:all            # 一键启动前后端（热重载）
-pnpm dev                # 后端 TS 热重载（tsx watch）
-pnpm dev:web            # 前端 Next.js 开发服务器
-pnpm run build          # TypeScript 编译（类型检查 + 产物）
-pnpm start              # 生产模式（需先 build）
-pnpm test               # 运行全部测试（vitest）
-pnpm run test:watch     # 测试监听模式
-pnpm run lint           # ESLint 检查
-pnpm run format         # Prettier 格式化
-pnpm run db:generate    # 生成 Drizzle 迁移
-pnpm run db:migrate     # 执行数据库迁移
-```
-
----
-
-## API 接口
-
-所有业务接口默认位于 `/api/*` 下，启用用户系统后需要携带 Better Auth 的 Cookie 会话。
-
-### POST `/api/console/execute`
-
-同步执行一次策划任务。
-
-请求体：
-
-```json
-{
-  "requirement": "设计一个 RPG 游戏的核心战斗系统",
-  "sessionId": "optional-session-id",
-  "mode": "design",
-  "role": "chief_designer",
-  "history": [
-    { "role": "user", "content": "之前的需求上下文（可选）" }
-  ]
-}
-```
-
-模式说明：
-
-- `design`：完整设计流程（技能匹配 → 任务规划 → 子 Agent 执行 → 整合）
-- `query`：知识库查询，直接返回模型流式响应
-- `table`：配表生成（复用 design 流程）
-
-### POST `/api/console/execute/stream`
-
-SSE 流式版本，事件类型包括：`start` · `plan` · `route` · `task_start` · `task_complete` · `integrate` · `chunk` · `thinking` · `tool_start` · `tool_complete` · `knowledge_used` · `complete` · `error`。客户端断开会自动取消后端执行。
-
-### POST `/api/console/cancel`
-
-取消指定 session 正在执行的请求。
-
-### 其他路由
-
-| 路由 | 说明 |
-|------|------|
-| `/api/auth/*` | Better Auth 鉴权（注册 / 登录 / 登出 / 会话 / 钉钉 SSO） |
-| `/api/sessions/*` | 会话管理（列表 / 详情 / 删除） |
-| `/api/hitl/*` | 人工审阅交互 |
-| `/api/settings/*` | 运行时配置（修改需校验无活跃执行） |
-| `/api/prompts/*` | 提示词管理 |
-| `/api/skills/*` | 技能管理 |
-| `/api/workflows/*` | 工作流管理 |
-| `/api/users/*` | 用户与租户信息 |
-| `/health` | 健康检查（postgres / redis） |
-| `/metrics` | Prometheus 指标 |
+| 层 | 选型 | 可替换性 |
+|----|------|---------|
+| 语言 | TypeScript 5.9, Node.js >= 20, ESM | — |
+| Agent 运行时 | LangGraph TS（通过 adapter） | 新增 adapter 即可切换 |
+| LLM | OpenAI / Anthropic / 兼容协议 | 通过 `ChatModelPort` 抽象 |
+| HTTP | Hono | 轻量，可替换为 Express/Fastify |
+| 数据库 | PostgreSQL 16 + pgvector | 通过 `DatabasePort` 抽象 |
+| 缓存/队列 | Redis 7 | 通过 `MessageQueuePort` 抽象 |
+| 鉴权 | Better Auth | 通过 `UserPort` 抽象 |
+| 前端 | Next.js 16 · React 19 · TailwindCSS · Zustand | — |
+| 测试 | Vitest | — |
 
 ---
 
 ## 项目结构
 
 ```
-game-designer-ts/
-├── src/
-│   ├── port/              # 框架无关核心接口（Agent/Model/Tool/Memory/Session/...）
-│   ├── core/              # 业务核心层（仅依赖 port/）
-│   │   ├── agent/         #   DirectorAgent + 6 个子 Agent
-│   │   ├── pipeline/      #   PlanPipeline 规划流水线
-│   │   ├── hitl/          #   人工介入管理
-│   │   ├── hook/          #   Hooks 实现（流式/记忆/校验/上下文...）
-│   │   ├── memory/        #   上下文管理 + 长期记忆
-│   │   ├── schema/        #   领域模型（Role/TaskPlan/RouteDecision...）
-│   │   ├── session/       #   会话管理
-│   │   ├── settings/      #   运行时设置
-│   │   ├── skill/         #   技能 / 工作流
-│   │   ├── tool/          #   业务工具（知识库/工作区/DelegatingTool）
-│   │   ├── user/          #   用户上下文
-│   │   └── workspace/     #   工作区管理
-│   ├── adapter/           # 框架与基础设施适配器
-│   │   ├── langgraph/     #   LangGraph TS 适配（Agent/Model/Tool/Hook/Session...）
-│   │   ├── mock/          #   测试用 Mock 适配
-│   │   ├── betterauth/    #   Better Auth 鉴权
-│   │   ├── postgres/      #   PostgreSQL（Database/LTM/Session + schema）
-│   │   ├── redis/         #   Redis（消息队列 / 租户隔离）
-│   │   ├── tavily/        #   Tavily 联网搜索
-│   │   ├── memory/        #   文件型长期记忆
-│   │   ├── fs/            #   Node 文件系统
-│   │   └── infra/         #   Id 生成 / 上下文存储
-│   ├── config/            # 配置加载与类型（不含实例化）
-│   └── server/            # 组装根 + HTTP 服务
-│       ├── bootstrap.ts   #   依赖组装 / 工具注册 / 启动
-│       ├── Container.ts   #   依赖注入容器
-│       ├── app.ts         #   Hono 应用与路由挂载
-│       ├── middleware/    #   鉴权中间件
-│       ├── routes/        #   各业务路由
-│       ├── PromptLoader.ts
-│       ├── SkillLoader.ts
-│       └── WorkflowLoader.ts
-├── frontend/              # 主前端（Next.js 16）
-├── prompts/               # 所有提示词（*.md，子 Agent / Planner / Router）
-├── knowledge/             # 知识库（wiki / processed 图谱 / gamedata / table_schemas）
-├── config/                # 监控与缓存配置（prometheus / alertmanager / redis.conf）
-├── scripts/               # 运维脚本（pg-backup.sh / pg-restore.sh）
-├── drizzle/               # 数据库迁移
-├── test/                  # 测试（port / core / adapter / integration）
-├── docs/                  # 项目文档
-├── docker-compose.yml     # 一键编排
-├── Dockerfile             # 后端镜像（本地预编译模式）
-└── AGENTS.md              # Agent 开发规范（架构红线 / Checklist）
+src/
+├── port/          # 纯接口定义（14 个接口族）
+├── core/          # 框架无关业务逻辑
+│   ├── agent/     #   DirectorAgent + 子 Agent
+│   ├── pipeline/  #   依赖感知的任务流水线
+│   ├── hitl/      #   人工介入管理
+│   ├── hook/      #   生命周期拦截
+│   ├── memory/    #   长期记忆
+│   ├── schema/    #   领域模型
+│   ├── session/   #   会话管理
+│   ├── skill/     #   技能/工作流
+│   ├── tool/      #   业务工具
+│   ├── user/      #   用户上下文
+│   └── workspace/ #   工作区管理
+├── adapter/       # 框架与基础设施适配器
+│   ├── langgraph/ #   LangGraph 适配
+│   ├── mock/      #   测试 Mock
+│   ├── postgres/  #   PostgreSQL
+│   ├── redis/     #   Redis
+│   ├── betterauth/#   鉴权
+│   ├── tavily/    #   联网搜索
+│   ├── memory/    #   文件型记忆
+│   ├── fs/        #   文件系统
+│   └── infra/     #   基础设施
+├── config/        # 配置加载（类型 + 读取，不实例化）
+└── server/        # 组装根 + HTTP 服务
+    ├── bootstrap.ts   # 依赖注入与启动
+    ├── Container.ts   # DI 容器
+    ├── app.ts         # Hono 应用
+    ├── middleware/    # 鉴权中间件
+    └── routes/        # 业务路由
+prompts/           # 所有提示词（*.md）
+test/              # 测试
 ```
 
 ---
 
-## Docker 服务说明
+## 快速开始
 
-| 服务 | 容器名 | 主机端口 | 说明 |
-|------|--------|----------|------|
-| postgres | gdt-postgres | 5432 | PostgreSQL 16 + pgvector |
-| pg-backup | gdt-pg-backup | — | 每日 2:00 自动备份（保留天数由 `BACKUP_RETENTION` 控制） |
-| redis | gdt-redis | 6379 | Redis 7（AOF + RDB 双持久化） |
-| backend | gdt-backend | 13000 | 主后端 API（容器内 3000） |
-| frontend | gdt-frontend | 3001 | 主前端（Next.js） |
-| prometheus | gdt-prometheus | 9090 | 指标采集 |
-| alertmanager | gdt-alertmanager | 9093 | 告警分发（飞书 / 钉钉 / 邮件） |
-| grafana | gdt-grafana | 3002 | 监控面板 |
+```bash
+# 安装依赖
+pnpm install
 
----
+# 配置环境变量
+cp .env.example .env
+# 至少填写：LLM_API_KEY、LLM_PROVIDER、LLM_MODEL
 
-## 环境变量
+# 开发模式（热重载）
+pnpm dev:all
 
-完整字段见 [.env.example](./.env.example)，关键分组：
+# 运行测试
+pnpm test
 
-| 分组 | 关键变量 |
-|------|---------|
-| LLM | `LLM_PROVIDER` · `LLM_MODEL` · `LLM_API_KEY` · `LLM_BASE_URL` |
-| 框架 | `AGENT_FRAMEWORK`（langgraph / mock） |
-| HITL | `HITL_ENABLED` · `HITL_MAX_REVISIONS` · `HITL_TIMEOUT` · `HITL_AUTO_CONTINUE` |
-| 知识库 | `KNOWLEDGE_WIKI_PATH` · `KNOWLEDGE_GRAPH_PATH` |
-| 联网搜索 | `TAVILY_ENABLED` · `TAVILY_API_KEY` |
-| 长期记忆 | `LTM_ENABLED` · `LTM_STORAGE_PATH` · `LTM_*`（抽取/裁剪/重要性阈值） |
-| 用户系统 | `USER_SYSTEM_ENABLED` · `BETTER_AUTH_SECRET` · `BETTER_AUTH_BASE_URL` · `MAX_CONCURRENT_PER_USER` · `ADMIN_EMAIL_DOMAINS` |
-| 钉钉 SSO | `DINGTALK_CLIENT_ID` · `DINGTALK_CLIENT_SECRET` · `ALLOW_EMAIL_PASSWORD` |
-| 数据库 | `POSTGRES_URL` · `POSTGRES_USER/PASSWORD/DB` · `AUTO_INIT_SCHEMA` |
-| Redis / 消息队列 | `REDIS_URL` · `MQ_ENABLED` · `MQ_CONSUMER_GROUP` |
-| 服务端口 | `PORT` · `BACKEND_PORT` · `FRONTEND_PORT` · `API_BASE_URL` |
-| 监控 | `GRAFANA_ADMIN_USER/PASSWORD` · `PROMETHEUS/ALERTMANAGER/GRAFANA_PORT` |
+# 构建
+pnpm run build
+```
 
-> 新增配置项必须同步修改 3 处：`src/config/FrameworkConfig.ts`、`src/config/loadConfig.ts`、`.env.example`。
+Docker 部署详见 [DEPLOY.md](./DEPLOY.md)。
 
 ---
 
 ## 开发规范
 
-架构红线与提交自查清单详见 [AGENTS.md](./AGENTS.md)，要点：
+架构红线与提交自查清单详见 [AGENTS.md](./AGENTS.md)，核心要点：
 
-- **依赖方向**：`core/` 不得静态或动态 `import` 任何 `adapter/`；不得使用 `fs`/`path`/`fetch`
-- **配置注入**：提示词在 `bootstrap.ts` 统一加载后注入；新工具必须在组装根注册且名称与提示词一致
-- **降级可审计**：Adapter 不得静默破坏 Port 契约，降级行为必须返回 `fallback` 标记
-- **验证标准**：`pnpm run build` + `pnpm test` 通过，且能跑完 design / query / table 各一条 happy path
+- **依赖方向**：`core/` 不得依赖 `adapter/`，不得使用基础设施 API
+- **配置注入**：提示词在组装根加载后注入，不在 core 层读取文件
+- **降级可审计**：Adapter 降级行为必须返回可验证标记
+- **验证标准**：`pnpm run build` + `pnpm test` 全部通过
 
 ---
 
