@@ -23,6 +23,10 @@ import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
 import { SessionToolRegistry } from "../../tool/SessionToolRegistry.js";
 import { WorkspaceReadTool } from "../../tool/workspace/WorkspaceReadTool.js";
 import { WorkspaceListTool } from "../../tool/workspace/WorkspaceListTool.js";
+import { DelegatingTool } from "../../tool/DelegatingTool.js";
+import { BlackboardTool } from "../../tool/BlackboardTool.js";
+import { CachingToolRegistry } from "../../tool/CachingToolRegistry.js";
+import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPort.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -107,6 +111,16 @@ export interface DirectorDeps {
   };
   /** Extra tool names (e.g. MCP-sourced tools) appended to the query agent's toolset. */
   extraToolNames?: string[];
+  /** 会话级共享黑板仓库（缺省时禁用黑板）。 */
+  blackboardStore?: BlackboardStorePort;
+  /** 黑板行为配置（缺省或 enabled=false 时退回无缓存行为）。 */
+  blackboardConfig?: {
+    enabled: boolean;
+    defaultTtlSeconds: number;
+    webTtlSeconds: number;
+    recentInjectCount: number;
+    cachedTools: string[];
+  };
 }
 
 export class DirectorAgent {
@@ -357,7 +371,7 @@ export class DirectorAgent {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
 
       // Build session-scoped tool registry with workspace tools
-      const toolRegistry = this.buildSessionToolRegistry(sessionId);
+      const toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
 
       // Inject matched skill content into the sub-agent's system prompt
       const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment);
@@ -417,7 +431,7 @@ export class DirectorAgent {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
 
-      const toolRegistry = this.buildSessionToolRegistry(sessionId);
+      const toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
 
       // Inject matched skill content into the sub-agent's system prompt
       const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment);
@@ -453,18 +467,54 @@ export class DirectorAgent {
     }
   }
 
-  private buildSessionToolRegistry(sessionId: string): ToolRegistry {
-    if (!this.deps.workspace) {
-      return this.deps.toolRegistry;
+  private buildSessionToolRegistry(sessionId: string, agentType: string): ToolRegistry {
+    let registry: ToolRegistry = this.deps.toolRegistry;
+    if (this.deps.workspace) {
+      const wsReadTool = new WorkspaceReadTool(this.deps.workspace, sessionId);
+      const wsListTool = new WorkspaceListTool(this.deps.workspace, sessionId);
+      registry = new SessionToolRegistry(registry, [wsReadTool, wsListTool]);
     }
-    const wsReadTool = new WorkspaceReadTool(this.deps.workspace, sessionId);
-    const wsListTool = new WorkspaceListTool(this.deps.workspace, sessionId);
-    return new SessionToolRegistry(this.deps.toolRegistry, [wsReadTool, wsListTool]);
+    return this.wrapWithBlackboard(registry, sessionId, agentType);
+  }
+
+  /**
+   * 为指定会话叠加共享黑板能力：
+   * 1) 注入 4 个 session-scoped 的 blackboard_* 工具（绑定该会话黑板）；
+   * 2) 对白名单工具套上透明读穿缓存（{@link CachingToolRegistry}）。
+   * 黑板禁用时原样返回 base，零侵入。
+   */
+  private wrapWithBlackboard(base: ToolRegistry, sessionId: string, agentType: string): ToolRegistry {
+    const cfg = this.deps.blackboardConfig;
+    if (!cfg?.enabled || !this.deps.blackboardStore) {
+      return base;
+    }
+    const bb = this.deps.blackboardStore.getOrCreate(sessionId);
+
+    // 1) session-scoped blackboard_* 工具
+    const bbTool = new BlackboardTool(bb, agentType, cfg.defaultTtlSeconds);
+    const withBbTools = new SessionToolRegistry(base, [
+      new DelegatingTool("blackboard_write", "向团队共享黑板写入一条关键要点。参数: key (string), value (string), ttl_seconds (number, optional)", bbTool, { action: "write" }),
+      new DelegatingTool("blackboard_read", "按 key 读取黑板中的要点。参数: key (string)", bbTool, { action: "read" }),
+      new DelegatingTool("blackboard_search", "按关键字检索黑板中的要点。参数: keyword (string)", bbTool, { action: "search" }),
+      new DelegatingTool("blackboard_recent", "列出黑板中最近写入的要点。参数: limit (number, optional, default 5)", bbTool, { action: "recent" }),
+    ]);
+
+    // 2) 透明缓存：联网类工具用 webTtl，其余用 defaultTtl
+    const cachedTools = new Set(cfg.cachedTools);
+    const ttlOverrides = new Map<string, number>();
+    for (const name of cfg.cachedTools) {
+      if (name.startsWith("tavily") || name.startsWith("kb_")) {
+        ttlOverrides.set(name, cfg.webTtlSeconds);
+      }
+    }
+    return new CachingToolRegistry(withBbTools, bb, cachedTools, cfg.defaultTtlSeconds, ttlOverrides, agentType);
   }
 
   private async injectPredecessorContext(task: TaskAssignment, sessionId: string): Promise<string> {
+    const blackboardBlock = this.buildBlackboardContext(sessionId);
+
     if (!this.deps.workspace || !task.dependencies || task.dependencies.length === 0) {
-      return task.assignment;
+      return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
     }
 
     const sections: string[] = [];
@@ -483,13 +533,33 @@ export class DirectorAgent {
     }
 
     if (sections.length === 0) {
-      return task.assignment;
+      return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
     }
 
-    return `${task.assignment}\n\n---\n## 前驱任务产出（摘要）\n\n${sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
+    return `${task.assignment}${blackboardBlock}\n\n---\n## 前驱任务产出（摘要）\n\n${sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
   }
 
-  private async createQueryAgent() {
+  /**
+   * 构造注入子任务的近期黑板要点摘要块。无要点 / 黑板禁用时返回空串。
+   * 每条仅取前 80 字，最多 recentInjectCount 条，避免膨胀 prompt。
+   */
+  private buildBlackboardContext(sessionId: string): string {
+    const cfg = this.deps.blackboardConfig;
+    if (!cfg?.enabled || !this.deps.blackboardStore) {
+      return "";
+    }
+    const recent = this.deps.blackboardStore.getOrCreate(sessionId).listRecent(cfg.recentInjectCount);
+    if (recent.length === 0) {
+      return "";
+    }
+    const lines = recent.map((e) => {
+      const preview = e.value.length > 80 ? e.value.slice(0, 80) + "…" : e.value;
+      return `- [${e.agentType}] ${e.key}: ${preview}`;
+    });
+    return `\n\n---\n## 团队共享黑板（近期要点，避免重复搜索）\n\n${lines.join("\n")}\n\n> 可用 blackboard_read/blackboard_search 获取完整内容，或 blackboard_write 记录新要点。`;
+  }
+
+  private async createQueryAgent(sessionId: string) {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
       systemPrompt: this.querySystemPrompt,
@@ -499,6 +569,7 @@ export class DirectorAgent {
         "grep_search",
         "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
         "tavily_search", "tavily_extract",
+        ...this.blackboardToolNames(),
         ...(this.deps.extraToolNames ?? []),
       ],
       options: {},
@@ -506,13 +577,13 @@ export class DirectorAgent {
     const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
     return this.deps.agentFactory.createAgent(
       queryDescriptor,
-      this.deps.toolRegistry,
+      this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
       new InMemoryMemoryPort(),
       this.deps.hooks
     );
   }
 
-  private async createQueryAgentWithHooks(hooks: AgentHook[]) {
+  private async createQueryAgentWithHooks(hooks: AgentHook[], sessionId: string) {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
       systemPrompt: this.querySystemPrompt,
@@ -522,6 +593,7 @@ export class DirectorAgent {
         "grep_search",
         "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
         "tavily_search", "tavily_extract",
+        ...this.blackboardToolNames(),
         ...(this.deps.extraToolNames ?? []),
       ],
       options: {},
@@ -529,10 +601,18 @@ export class DirectorAgent {
     const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
     return this.deps.agentFactory.createAgent(
       queryDescriptor,
-      this.deps.toolRegistry,
+      this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
       new InMemoryMemoryPort(),
       hooks
     );
+  }
+
+  /** 黑板启用时返回 4 个 blackboard_* 工具名，供 Agent 描述符引用。 */
+  private blackboardToolNames(): string[] {
+    if (!this.deps.blackboardConfig?.enabled || !this.deps.blackboardStore) {
+      return [];
+    }
+    return ["blackboard_write", "blackboard_read", "blackboard_search", "blackboard_recent"];
   }
 
   /**
@@ -561,7 +641,7 @@ export class DirectorAgent {
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     signal?: AbortSignal
   ): Promise<AgentResponse> {
-    const agent = await this.createQueryAgent();
+    const agent = await this.createQueryAgent(sessionId);
 
     const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
     if (history?.length) {
@@ -598,7 +678,7 @@ export class DirectorAgent {
     const hooksWithEmitter = [...this.deps.hooks, streamEmitterHook];
 
     try {
-      const agent = await this.createQueryAgentWithHooks(hooksWithEmitter);
+      const agent = await this.createQueryAgentWithHooks(hooksWithEmitter, sessionId);
 
       const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
       if (history?.length) {
