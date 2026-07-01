@@ -123,6 +123,22 @@ export function loadConfig(): FrameworkConfig {
       hitlMaxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS) || 10,
       modelMaxTokens: Number(process.env.MODEL_MAX_TOKENS) || 65536,
     },
+    blackboard: {
+      enabled: process.env.BLACKBOARD_ENABLED !== "false",
+      defaultTtlSeconds: Number(process.env.BLACKBOARD_DEFAULT_TTL) || 300,
+      webTtlSeconds: Number(process.env.BLACKBOARD_WEB_TTL) || 600,
+      recentInjectCount: Number(process.env.BLACKBOARD_RECENT_INJECT) || 5,
+      cachedTools: process.env.BLACKBOARD_CACHED_TOOLS
+        ? process.env.BLACKBOARD_CACHED_TOOLS.split(",").map((s) => s.trim()).filter(Boolean)
+        : [
+            "tavily_search",
+            "tavily_extract",
+            "grep_search",
+            "kg_query_node",
+            "kg_query_neighbors",
+            "kg_list_nodes",
+          ],
+    },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
   return config;

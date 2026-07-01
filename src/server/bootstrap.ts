@@ -22,6 +22,7 @@ import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
 import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
+import { BlackboardStore } from "../core/blackboard/BlackboardStore.js";
 import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool, setMCPStatus } from "./routes/settings.js";
@@ -67,6 +68,7 @@ let bootstrapState: {
   mqAdapter: RedisMessageQueueAdapter | null;
   mcpClients: McpClientPort[];
   mcpToolNames: string[];
+  blackboardStore: BlackboardStore;
 } | null = null;
 
 export function getBootstrapState() {
@@ -125,6 +127,8 @@ export async function lateBootstrapDirector(): Promise<void> {
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
     },
     extraToolNames: bootstrapState.mcpToolNames,
+    blackboardStore: bootstrapState.blackboardStore,
+    blackboardConfig: bootstrapState.config.blackboard,
   });
 
   setDirector(director);
@@ -305,7 +309,21 @@ export async function bootstrap() {
   if (shouldRegisterGroup("workspace")) {
     subAgentToolNames.push("workspace_read", "workspace_list");
   }
-  
+  // Grant shared-blackboard tools to all sub-agents when enabled.
+  if (config.blackboard.enabled) {
+    subAgentToolNames.push("blackboard_write", "blackboard_read", "blackboard_search", "blackboard_recent");
+    // MCP knowledge-hub tools (kb_*) are external/expensive → cache them too.
+    for (const name of mcpToolNames) {
+      if (!config.blackboard.cachedTools.includes(name)) {
+        config.blackboard.cachedTools.push(name);
+      }
+    }
+  }
+
+  // Shared blackboard: session-scoped tool-result cache for multi-agent collaboration.
+  const blackboardStore = new BlackboardStore();
+  setInterval(() => blackboardStore.evictAll(), 60_000).unref?.();
+
   // Grant MCP tools to all sub-agents (persists across hot-reload resets).
   setExtraSubAgentToolNames(mcpToolNames);
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations, config.limits.modelMaxTokens);
@@ -432,7 +450,7 @@ export async function bootstrap() {
   }
 
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, mcpClients, mcpToolNames };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, mcpClients, mcpToolNames, blackboardStore };
 
   const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
   await sessionManager.initialize();
@@ -509,6 +527,8 @@ export async function bootstrap() {
         webSourceResultLimit: config.limits.webSourceResultLimit,
       },
       extraToolNames: bootstrapState.mcpToolNames,
+      blackboardStore: bootstrapState.blackboardStore,
+      blackboardConfig: bootstrapState.config.blackboard,
     });
 
     setDirector(director);
@@ -579,6 +599,8 @@ export async function reloadDirector(): Promise<void> {
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
       },
       extraToolNames: bootstrapState.mcpToolNames,
+      blackboardStore: bootstrapState.blackboardStore,
+      blackboardConfig: bootstrapState.config.blackboard,
     });
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");

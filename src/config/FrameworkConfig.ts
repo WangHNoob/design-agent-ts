@@ -111,4 +111,19 @@ export interface FrameworkConfig {
     hitlMaxRevisionRounds: number;
     modelMaxTokens: number;
   };
+  /**
+   * 共享黑板：多 Agent 协作时缓存工具/联网调用结果，避免重复调用。
+   */
+  blackboard: {
+    /** 总开关；false 时退回无缓存行为。 */
+    enabled: boolean;
+    /** 默认 TTL（秒），用于检索类工具与 blackboard_write。 */
+    defaultTtlSeconds: number;
+    /** 联网类工具（tavily / kb_*）的 TTL（秒）。 */
+    webTtlSeconds: number;
+    /** 每个子任务启动时注入的近期黑板要点条数。 */
+    recentInjectCount: number;
+    /** 启用透明缓存的工具名白名单（kb_* MCP 工具在 bootstrap 运行时追加）。 */
+    cachedTools: string[];
+  };
 }
