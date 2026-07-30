@@ -18,6 +18,7 @@ class FakeRedisClient implements RedisMessageQueueClient {
   readonly pending = new Map<string, Map<string, PendingEntry>>();
   readonly readCalls: RedisArgument[][] = [];
   readonly claimCalls: RedisArgument[][] = [];
+  readonly heartbeatCalls: RedisArgument[][] = [];
   readonly deleteCalls: string[][] = [];
   connectCalls = 0;
   quitCalls = 0;
@@ -99,6 +100,18 @@ class FakeRedisClient implements RedisMessageQueueClient {
       return ["0-0", [item.entry]];
     }
     return ["0-0", []];
+  }
+
+  async xclaim(...args: RedisArgument[]): Promise<string[]> {
+    this.heartbeatCalls.push(args);
+    const streamKey = String(args[0]);
+    const consumer = String(args[2]);
+    const entryId = String(args[4]);
+    const item = this.pending.get(streamKey)?.get(entryId);
+    if (!item) return [];
+    item.consumer = consumer;
+    item.idleMs = 0;
+    return [entryId];
   }
 
   async xack(...args: RedisArgument[]): Promise<number> {
@@ -330,6 +343,30 @@ describe("RedisMessageQueueAdapter", () => {
     expect(firstRead[firstRead.indexOf("STREAMS") + 1]).toBe("mq:idle");
     expect(client.maxConcurrentReads).toBe(1);
     expect(Date.now() - startedAt).toBeLessThan(100);
+  });
+
+  test("refreshes PEL ownership while a long-running handler is active", async () => {
+    const client = new FakeRedisClient();
+    const adapter = createAdapter(client, { visibilityTimeoutMs: 30 });
+    await adapter.subscribe("slow", async () => {
+      await sleep(45);
+      return { success: true };
+    });
+    await adapter.publish("slow", "payload");
+
+    await adapter.start();
+    await waitFor(() => client.heartbeatCalls.length > 0);
+    await waitFor(() => client.streams.get("mq:slow")?.length === 0);
+    await adapter.stop();
+
+    expect(client.heartbeatCalls[0]?.slice(0, 6)).toEqual([
+      "mq:slow",
+      "gd-workers",
+      expect.stringContaining("-instance-id"),
+      0,
+      expect.any(String),
+      "JUSTID",
+    ]);
   });
 
   test("reads all subscribed queues in one fair multi-stream call", async () => {
