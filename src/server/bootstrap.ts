@@ -9,7 +9,8 @@ import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { setDirector, setConsoleExecutionDependencies, hasActiveExecutions } from "./routes/console.js";
 import { setSessionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
-import { setHITLRepositoryFactory } from "./routes/hitl.js";
+import { setHITLRouteDependencies } from "./routes/hitl.js";
+import { DurableHumanReviewGateway } from "../core/hitl/DurableHumanReviewGateway.js";
 import { LoggingHook } from "../core/hook/LoggingHook.js";
 import { ValidationHook } from "../core/hook/ValidationHook.js";
 import { IterationBudgetHook } from "../core/hook/IterationBudgetHook.js";
@@ -33,6 +34,7 @@ import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
 import { MemoryManager } from "../core/memory/MemoryManager.js";
 import { PostgresDatabaseAdapter } from "../adapter/postgres/PostgresDatabaseAdapter.js";
 import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
+import { PostgresExecutionRepository } from "../adapter/postgres/PostgresExecutionRepository.js";
 import { PostgresHITLRepository } from "../adapter/postgres/PostgresHITLRepository.js";
 import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
@@ -40,7 +42,9 @@ import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolati
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
 import type { TenantContext } from "../port/user/TenantIsolationPort.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
+import { RedisExecutionEventStoreAdapter } from "../adapter/redis/RedisExecutionEventStoreAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
+import { ExecutionWorker } from "./worker/ExecutionWorker.js";
 import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
@@ -64,6 +68,9 @@ let bootstrapState: {
   betterAuthAdapter: BetterAuthAdapter | null;
   redisAdapter: TenantIsolationPort | null;
   mqAdapter: RedisMessageQueueAdapter | null;
+  eventStore: RedisExecutionEventStoreAdapter | null;
+  executionWorker: ExecutionWorker | null;
+  durableHitlGateway: DurableHumanReviewGateway | null;
   mcpClients: McpClientPort[];
   mcpToolNames: string[];
   blackboardStore: BlackboardStore;
@@ -98,24 +105,12 @@ export async function lateBootstrapDirector(): Promise<void> {
   const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
   bootstrapState.container = container;
 
-  if (container.humanReviewGateway.configure && config.hitl.enabled) {
-    container.humanReviewGateway.configure(
-      Object.fromEntries(
-        Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
-          k,
-          { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
-        ])
-      ),
-      config.limits.hitlMaxRevisionRounds
-    );
-  }
-
   const director = new DirectorAgent({
     model: container.model,
     agentFactory: container.agentFactory,
     toolRegistry,
     skillRegistry,
-    humanReviewGateway: container.humanReviewGateway,
+    humanReviewGateway: bootstrapState.durableHitlGateway ?? container.humanReviewGateway,
     hooks,
     prompts: directorPrompts,
     idGenerator: new NodeIdGeneratorAdapter(),
@@ -130,6 +125,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   });
 
   setDirector(director);
+  await bootstrapState.executionWorker?.start();
   setSettingsContainer(container);
 }
 
@@ -347,14 +343,19 @@ export async function bootstrap() {
   let betterAuthAdapter: BetterAuthAdapter | null = null;
   let redisAdapter: TenantIsolationPort | null = null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
+  let eventStore: RedisExecutionEventStoreAdapter | null = null;
+  let executionWorker: ExecutionWorker | null = null;
 
   {
     console.log("[Bootstrap] Initializing user system (multi-tenant with Better Auth)...");
 
     // PostgreSQL
     dbAdapter = new PostgresDatabaseAdapter(config.userSystem.postgresUrl);
-    await dbAdapter.initializeSchema();
-    console.log("[Bootstrap] PostgreSQL schema initialized");
+    // Schema is owned by drizzle migrations (`pnpm db:migrate`). Startup only verifies connectivity.
+    if (!(await dbAdapter.healthCheck())) {
+      throw new Error("PostgreSQL health check failed; apply migrations with `pnpm db:migrate`");
+    }
+    console.log("[Bootstrap] PostgreSQL connected (schema managed by drizzle migrations)");
 
     // Better Auth (handles registration, login, sessions, DingTalk SSO)
     const dingtalkConfig = config.userSystem.dingtalk.clientId
@@ -420,28 +421,79 @@ export async function bootstrap() {
       },
     );
     await mqAdapter.connect();
-    await mqAdapter.start();
-    console.log("[Bootstrap] Message queue started");
+    console.log("[Bootstrap] Message queue connected");
+
+    eventStore = new RedisExecutionEventStoreAdapter(
+      config.userSystem.redisUrl,
+      { maxLength: config.execution.eventMaxLength },
+    );
+    await eventStore.connect();
+    console.log("[Bootstrap] Execution event store connected");
 
     console.log("[Bootstrap] User system enabled: multi-tenant mode with Better Auth");
   }
 
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, mcpClients, mcpToolNames, blackboardStore };
-
+  const idGenerator = new NodeIdGeneratorAdapter();
   const sessionRepositoryFactory = (userId: string) =>
     new PostgresSessionRepository(dbAdapter!, userId);
+  const executionRepositoryFactory = (userId: string) =>
+    new PostgresExecutionRepository(dbAdapter!, userId);
+  executionWorker = new ExecutionWorker({
+    queue: mqAdapter!,
+    eventStore: eventStore!,
+    executionRepositoryFactory,
+    sessionRepositoryFactory,
+    userContextManager: userContextManager!,
+    contextStorage,
+    idGenerator,
+    maxConcurrentPerUser: config.userSystem.maxConcurrentPerUser,
+    pollIntervalMs: config.execution.pollIntervalMs,
+    taskTimeoutMs: config.execution.taskTimeoutMs,
+  });
+
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore };
+
   const hitlRepositoryFactory = (userId: string) =>
     new PostgresHITLRepository(dbAdapter!, userId);
+  const durableHitlGateway = new DurableHumanReviewGateway({
+    repositoryFactory: hitlRepositoryFactory,
+    contextStorage,
+    idGenerator,
+  });
+  if (config.hitl.enabled) {
+    durableHitlGateway.configure(
+      Object.fromEntries(
+        Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
+          k,
+          { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
+        ]),
+      ),
+      config.limits.hitlMaxRevisionRounds,
+    );
+  }
+  bootstrapState.durableHitlGateway = durableHitlGateway;
 
-  setConsoleExecutionDependencies(
+  setConsoleExecutionDependencies({
     sessionRepositoryFactory,
-    userContextManager!,
-    config.userSystem.maxConcurrentPerUser,
-  );
+    executionRepositoryFactory,
+    queue: mqAdapter!,
+    eventStore: eventStore!,
+    idGenerator,
+    worker: executionWorker,
+    maxRetries: config.messageQueue.maxRetries,
+  });
   setSessionRepositoryFactory(sessionRepositoryFactory);
   setWorkspaceManager(workspaceManager);
-  setHITLRepositoryFactory(hitlRepositoryFactory);
+  setHITLRouteDependencies({
+    repositoryFactory: hitlRepositoryFactory,
+    executionRepositoryFactory,
+    sessionRepositoryFactory,
+    queue: mqAdapter!,
+    tenantPort: redisAdapter!,
+    idGenerator,
+    maxRetries: config.messageQueue.maxRetries,
+  });
   setSettingsManager(settingsManager);
   setTavilyTool(tavilyTool);
 
@@ -476,24 +528,12 @@ export async function bootstrap() {
     const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
     bootstrapState.container = container;
 
-    if (container.humanReviewGateway.configure && config.hitl.enabled) {
-      container.humanReviewGateway.configure(
-        Object.fromEntries(
-          Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
-            k,
-            { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
-          ])
-        ),
-        config.limits.hitlMaxRevisionRounds
-      );
-    }
-
     const director = new DirectorAgent({
       model: container.model,
       agentFactory: container.agentFactory,
       toolRegistry,
       skillRegistry,
-      humanReviewGateway: container.humanReviewGateway,
+      humanReviewGateway: durableHitlGateway,
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),
@@ -510,6 +550,7 @@ export async function bootstrap() {
     });
 
     setDirector(director);
+    await executionWorker.start();
     setSettingsContainer(container);
   } else {
     console.warn("[Bootstrap] No API key configured. Director not initialized. Configure via /api/settings.");
@@ -567,7 +608,8 @@ export async function reloadDirector(): Promise<void> {
       agentFactory: bootstrapState.container.agentFactory,
       toolRegistry,
       skillRegistry,
-      humanReviewGateway: bootstrapState.container.humanReviewGateway,
+      humanReviewGateway: bootstrapState.durableHitlGateway
+        ?? bootstrapState.container.humanReviewGateway,
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),

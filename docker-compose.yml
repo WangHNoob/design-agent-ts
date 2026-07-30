@@ -113,7 +113,27 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+
+  migrate:
+    image: postgres:16-alpine
+    container_name: gdt-migrate
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-game_designer}
+    volumes:
+      - ./drizzle:/migrations:ro
+      - ./scripts/apply-drizzle-migrations.sh:/apply-drizzle-migrations.sh:ro
+    entrypoint: ["/bin/sh", "/apply-drizzle-migrations.sh"]
+    command:
+      - ${POSTGRES_USER:-game_designer}
+      - postgres
+      - ${POSTGRES_DB:-game_designer}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # ─── Frontend ──────────────────────────────────────────────────
   frontend:

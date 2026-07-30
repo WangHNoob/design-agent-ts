@@ -307,7 +307,7 @@ workflowsRoute.delete("/:name", requireAdmin(), async (c) => {
  * POST /api/workflows/validate
  * Validate a workflow definition without saving.
  */
-workflowsRoute.post("/validate", async (c) => {
+workflowsRoute.post("/validate", requireAdmin(), async (c) => {
   const body = await c.req.json();
 
   if (typeof body.content === "string") {
@@ -339,7 +339,7 @@ workflowsRoute.post("/validate", async (c) => {
  * Use the configured LLM to assist with workflow content generation.
  * Body: { prompt: string, context?: string }
  */
-workflowsRoute.post("/llm-generate", async (c) => {
+workflowsRoute.post("/llm-generate", requireAdmin(), async (c) => {
   const state = getBootstrapState();
   if (!state?.container) {
     return c.json({ error: "LLM not configured. Set up API key in settings first." }, 503);

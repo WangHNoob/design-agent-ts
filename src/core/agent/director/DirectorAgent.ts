@@ -15,8 +15,10 @@ import { TaskPlanner } from "./TaskPlanner.js";
 import { Router } from "./Router.js";
 import { Integrator } from "./Integrator.js";
 import { PlanPipeline } from "../../pipeline/PlanPipeline.js";
+import { ErrorClassifier } from "../../execution/ErrorClassifier.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
+import type { TaskPlan } from "../../schema/TaskPlan.js";
 import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
 import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
@@ -48,13 +50,18 @@ const AGENT_NAME_TO_ROLE: Record<string, string> = {
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error"
-    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched";
+    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl";
   data: Record<string, unknown>;
 }
 
 export interface DirectorStreamOptions {
   /** AbortSignal to cancel the execution. When aborted, all LLM calls stop and the stream ends gracefully. */
   signal?: AbortSignal;
+  taskTimeoutMs?: number;
+  resumePlan?: TaskPlan;
+  initialTaskResults?: readonly TaskResult[];
+  /** Durable HITL requires the owning execution id for pause/resume. */
+  executionId?: string;
 }
 
 export interface KnowledgeSource {
@@ -148,13 +155,13 @@ export class DirectorAgent {
       let result: AgentResponse;
       switch (mode) {
         case "design":
-          result = await this.executeDesignFlow(requirement, sessionId, role, undefined, options?.signal);
+          result = await this.executeDesignFlow(requirement, sessionId, role, undefined, options);
           break;
         case "query":
           result = await this.executeQueryFlow(requirement, sessionId, undefined, history, options?.signal);
           break;
         case "table":
-          result = await this.executeTableFlow(requirement, sessionId, role, undefined, options?.signal);
+          result = await this.executeTableFlow(requirement, sessionId, role, undefined, options);
           break;
       }
       return result;
@@ -178,7 +185,7 @@ export class DirectorAgent {
         break;
       case "design":
       case "table":
-        yield* this.executeDesignStream(requirement, sessionId, role, signal);
+        yield* this.executeDesignStream(requirement, sessionId, role, options);
         break;
     }
   }
@@ -188,8 +195,9 @@ export class DirectorAgent {
     sessionId: string,
     role: string,
     traceId?: string,
-    signal?: AbortSignal
+    options?: DirectorStreamOptions,
   ): Promise<AgentResponse> {
+    const signal = options?.signal;
     if (role !== "chief_designer") {
       return this.executeSingleRoleFlow(requirement, sessionId, role, traceId, signal);
     }
@@ -203,8 +211,37 @@ export class DirectorAgent {
     const plan = await this.taskPlanner.plan(requirement, role, skill);
 
     const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
-      sessionId, "hitl-1-task-plan", plan
+      sessionId,
+      "hitl-1-task-plan",
+      plan,
+      { executionId: options?.executionId, resumeCursor: "after_plan" },
     );
+    if (reviewedPlan.decision === "pending") {
+      return {
+        agentName: "Director",
+        message: ChatMessage.text(
+          "assistant",
+          "Director",
+          `等待人工审阅任务计划（checkpoint=${reviewedPlan.checkpointId ?? "unknown"}）`,
+        ),
+        metadata: {
+          waitingHitl: true,
+          checkpointId: reviewedPlan.checkpointId ?? null,
+          plan,
+        },
+        success: true,
+        errorMessage: null,
+      };
+    }
+    if (reviewedPlan.decision === "rejected") {
+      return {
+        agentName: "Director",
+        message: ChatMessage.text("assistant", "Director", reviewedPlan.feedback ?? "任务计划被驳回"),
+        metadata: { rejected: true },
+        success: false,
+        errorMessage: reviewedPlan.feedback ?? "任务计划被驳回",
+      };
+    }
 
     const routing = await this.router.route(reviewedPlan.modifications ?? plan, role);
 
@@ -403,6 +440,9 @@ export class DirectorAgent {
         status: response.success ? "success" : "error",
         output,
         errorMessage: response.errorMessage,
+        errorClass: response.success
+          ? undefined
+          : ErrorClassifier.classify(response.errorMessage ?? "Agent execution failed"),
       };
     } catch (err) {
       throw err;
@@ -461,6 +501,9 @@ export class DirectorAgent {
         status: response.success ? "success" : "error",
         output,
         errorMessage: response.errorMessage,
+        errorClass: response.success
+          ? undefined
+          : ErrorClassifier.classify(response.errorMessage ?? "Agent execution failed"),
       };
     } catch (err) {
       throw err;
@@ -689,33 +732,42 @@ export class DirectorAgent {
       messages.push(ChatMessage.text("user", "user", requirement));
 
       let finalOutput = "";
-
-      // Run agent.process() with concurrent event drain so SSE clients
-      // receive thinking/tool events in real-time instead of after completion.
-      const done = { value: false };
-      const processPromise = agent.process(sessionId, messages, signal ? { signal } : undefined).finally(() => { done.value = true; });
-
-      for await (const event of this.concurrentDrain(eventBus, done)) {
-        yield event;
+      if (agent.processStream) {
+        for await (const response of agent.processStream(
+          sessionId,
+          messages,
+          signal ? { signal } : undefined,
+        )) {
+          for (const event of eventBus.drain()) {
+            yield event;
+          }
+          if (!response.success) {
+            yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
+            return;
+          }
+          const text = response.message ? ChatMessage.textContent(response.message) : "";
+          if (text) {
+            finalOutput += text;
+            yield { type: "chunk", data: { text } };
+          }
+        }
+      } else {
+        const response = await agent.process(sessionId, messages, signal ? { signal } : undefined);
+        for (const event of eventBus.drain()) {
+          yield event;
+        }
+        if (!response.success) {
+          yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
+          return;
+        }
+        finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
+        if (finalOutput) {
+          yield { type: "chunk", data: { text: finalOutput } };
+        }
       }
-      const response = await processPromise;
 
-      // Final drain for any events emitted between the last check and completion
       for (const event of eventBus.drain()) {
         yield event;
-      }
-
-      if (!response.success) {
-        yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
-        return;
-      }
-
-      finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
-
-      // Simulate streaming by yielding chunks
-      const chunkSize = 20;
-      for (let i = 0; i < finalOutput.length; i += chunkSize) {
-        yield { type: "chunk", data: { text: finalOutput.substring(i, i + chunkSize) } };
       }
 
       yield { type: "complete", data: { success: true, output: finalOutput } };
@@ -724,7 +776,13 @@ export class DirectorAgent {
     }
   }
 
-  private async *executeDesignStream(requirement: string, sessionId: string, role: string, signal?: AbortSignal): AsyncIterable<StreamEvent> {
+  private async *executeDesignStream(
+    requirement: string,
+    sessionId: string,
+    role: string,
+    options?: DirectorStreamOptions,
+  ): AsyncIterable<StreamEvent> {
+    const signal = options?.signal;
     if (role !== "chief_designer") {
       yield* this.executeSingleRoleStream(requirement, sessionId, role, signal);
       return;
@@ -746,13 +804,51 @@ export class DirectorAgent {
 
       const skill = this.deps.skillRegistry.matchSkill(requirement, role);
       console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
-      yield { type: "plan", data: { message: "Planning tasks...", matchedSkill: skill?.getName() ?? null } };
-      const plan = await this.taskPlanner.plan(requirement, role, skill);
-      yield { type: "plan", data: { message: `Planned ${plan.subTasks.length} tasks`, plan, matchedSkill: skill?.getName() ?? null } };
+      let plan = options?.resumePlan;
+      if (plan) {
+        yield { type: "plan", data: { message: `Resuming ${plan.subTasks.length} tasks`, plan, resumed: true } };
+      } else {
+        yield { type: "plan", data: { message: "Planning tasks...", matchedSkill: skill?.getName() ?? null } };
+        plan = await this.taskPlanner.plan(requirement, role, skill);
+        yield { type: "plan", data: { message: `Planned ${plan.subTasks.length} tasks`, plan, matchedSkill: skill?.getName() ?? null } };
+      }
 
-      const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
-        sessionId, "hitl-1-task-plan", plan
-      );
+      const reviewedPlan = options?.resumePlan
+        ? { decision: "approved" as const, modifications: undefined }
+        : await this.deps.humanReviewGateway.requestReview(
+          sessionId,
+          "hitl-1-task-plan",
+          plan,
+          { executionId: options?.executionId, resumeCursor: "after_plan" },
+        );
+
+      if (reviewedPlan.decision === "pending") {
+        yield {
+          type: "hitl",
+          data: {
+            checkpointId: reviewedPlan.checkpointId,
+            reviewPoint: "hitl-1-task-plan",
+            status: "waiting_review",
+            resumeCursor: "after_plan",
+            plan,
+            feedback: reviewedPlan.feedback,
+          },
+        };
+        return;
+      }
+
+      if (reviewedPlan.decision === "rejected") {
+        yield {
+          type: "error",
+          data: {
+            error: reviewedPlan.feedback ?? "任务计划被驳回",
+            errorClass: "permanent",
+            rejected: true,
+            fallback: reviewedPlan.fallback === true,
+          },
+        };
+        return;
+      }
 
       yield { type: "route", data: { message: "Routing tasks to agents..." } };
       const routing = await this.router.route(reviewedPlan.modifications ?? plan, role);
@@ -779,7 +875,7 @@ export class DirectorAgent {
         }
       }
 
-      const mergedPlan = {
+      const mergedPlan: TaskPlan = {
         planId: plan.planId,
         requirement,
         subTasks: assignments.map((a) => {
@@ -794,46 +890,74 @@ export class DirectorAgent {
           };
         }),
       };
+      yield { type: "plan", data: { message: "Executable plan ready", plan: mergedPlan, executable: true } };
 
-      const results: TaskResult[] = [];
-      for (const task of mergedPlan.subTasks) {
-        // Check abort between sub-tasks
-        if (signal?.aborted) {
-          console.log(`[DirectorAgent] Stream aborted, skipping remaining tasks`);
-          yield { type: "error", data: { error: "任务已被取消" } };
-          return;
-        }
-
-        yield { type: "task_start", data: { taskId: task.id, domain: task.domain, description: task.description } };
-
-        // Run task with concurrent event drain for real-time SSE progress
-        const done = { value: false };
-        const taskPromise = this.executeSingleTaskWithHooks(
+      const pipeline = new PlanPipeline(
+        mergedPlan,
+        (task, taskSignal) => this.executeSingleTaskWithHooks(
           {
             taskId: task.id,
             domain: task.domain,
             assignment: task.description,
-            agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor ?? getSubAgentDescriptor("SystemDesigner")!,
+            agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor
+              ?? getSubAgentDescriptor("SystemDesigner")!,
             dependencies: task.dependencies,
           },
           sessionId,
           undefined,
           streamEmitterHook,
-          signal
-        ).finally(() => { done.value = true; });
+          taskSignal,
+        ),
+        {
+          signal,
+          taskTimeoutMs: options?.taskTimeoutMs,
+          initialResults: options?.initialTaskResults,
+          onTaskStart: (task) => eventBus.emit({
+            type: "task_start",
+            data: {
+              taskId: task.id,
+              domain: task.domain,
+              description: task.description,
+              agentName: assignments.find((assignment) => assignment.taskId === task.id)
+                ?.agentDescriptor.name,
+            },
+          }),
+          onTaskResult: (task, result) => eventBus.emit({
+            type: "task_complete",
+            data: {
+              taskId: task.id,
+              domain: task.domain,
+              status: result.status,
+              output: result.output,
+              errorMessage: result.errorMessage,
+              errorClass: result.errorClass,
+            },
+          }),
+        },
+      );
+      const done = { value: false };
+      const pipelinePromise = pipeline.execute().finally(() => { done.value = true; });
+      for await (const event of this.concurrentDrain(eventBus, done)) {
+        yield event;
+      }
+      const results = await pipelinePromise;
+      for (const event of eventBus.drain()) {
+        yield event;
+      }
 
-        for await (const event of this.concurrentDrain(eventBus, done)) {
-          yield event;
-        }
-        const result = await taskPromise;
-
-        // Final drain for events emitted between the last check and completion
-        for (const event of eventBus.drain()) {
-          yield event;
-        }
-
-        results.push(result);
-        yield { type: "task_complete", data: { taskId: task.id, status: result.status } };
+      const failedResult = results.find(
+        (result) => result.status === "error" || result.status === "cancelled",
+      );
+      if (failedResult) {
+        yield {
+          type: "error",
+          data: {
+            error: failedResult.errorMessage ?? `Task ${failedResult.taskId} failed`,
+            taskId: failedResult.taskId,
+            errorClass: failedResult.errorClass,
+          },
+        };
+        return;
       }
 
       const completedCount = results.filter((r) => r.status === "success").length;
@@ -1029,8 +1153,8 @@ export class DirectorAgent {
     sessionId: string,
     role: string,
     traceId?: string,
-    signal?: AbortSignal
+    options?: DirectorStreamOptions,
   ): Promise<AgentResponse> {
-    return this.executeDesignFlow(requirement, sessionId, role, traceId, signal);
+    return this.executeDesignFlow(requirement, sessionId, role, traceId, options);
   }
 }

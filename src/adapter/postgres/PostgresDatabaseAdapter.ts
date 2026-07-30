@@ -63,11 +63,8 @@ export class PostgresDatabaseAdapter implements DatabasePort {
   }
 
   /**
-   * Initialize the database schema.
-   * Called once at startup — idempotent (uses IF NOT EXISTS).
-   *
-   * Note: Better Auth tables ("user", "session", "account", "verification")
-   * are also created here for convenience (idempotent via IF NOT EXISTS).
+   * @deprecated Prefer drizzle migrations (`pnpm db:migrate`).
+   * Kept only for emergency local bootstraps; production bootstrap must not call this.
    */
   async initializeSchema(): Promise<void> {
     // Enable pgvector extension first (required for VECTOR type)

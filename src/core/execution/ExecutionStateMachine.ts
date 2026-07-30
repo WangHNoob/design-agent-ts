@@ -9,8 +9,8 @@ const TERMINAL_STATUSES = new Set<ExecutionStatus>([
 
 const ALLOWED_TRANSITIONS: Readonly<Record<ExecutionStatus, readonly ExecutionStatus[]>> = {
   queued: ["running", "cancelled", "timed_out"],
-  running: ["waiting_hitl", "completed", "failed", "cancelled", "timed_out"],
-  waiting_hitl: ["queued", "cancelled", "timed_out"],
+  running: ["queued", "waiting_hitl", "completed", "failed", "cancelled", "timed_out"],
+  waiting_hitl: ["queued", "failed", "cancelled", "timed_out"],
   completed: [],
   failed: [],
   cancelled: [],
