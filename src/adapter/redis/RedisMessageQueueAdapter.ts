@@ -20,6 +20,7 @@ export interface RedisMessageQueueClient {
   xadd(...args: RedisArgument[]): Promise<unknown>;
   xreadgroup(...args: RedisArgument[]): Promise<unknown>;
   xautoclaim(...args: RedisArgument[]): Promise<unknown>;
+  xclaim(...args: RedisArgument[]): Promise<unknown>;
   xack(...args: RedisArgument[]): Promise<unknown>;
   xdel(key: string, ...ids: string[]): Promise<number>;
   xpending(...args: RedisArgument[]): Promise<unknown>;
@@ -270,6 +271,7 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
     const inFlightKey = `${streamKey}:${entryId}`;
     if (this.inFlight.has(inFlightKey)) return;
     this.inFlight.add(inFlightKey);
+    const stopHeartbeat = this.startEntryHeartbeat(streamKey, entryId);
     try {
       const data = fields.data;
       if (!data) {
@@ -312,8 +314,34 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
         result.retry === true,
       );
     } finally {
+      stopHeartbeat();
       this.inFlight.delete(inFlightKey);
     }
+  }
+
+  private startEntryHeartbeat(streamKey: string, entryId: string): () => void {
+    const intervalMs = Math.max(10, Math.min(10_000, Math.trunc(this.visibilityTimeoutMs / 3)));
+    let refreshing = false;
+    const timer = setInterval(async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        await this.redis.xclaim(
+          streamKey,
+          this.consumerGroup,
+          this.consumerName,
+          0,
+          entryId,
+          "JUSTID",
+        );
+      } catch (error) {
+        console.error(`[RedisMessageQueue] Failed to refresh pending entry ${entryId}:`, error);
+      } finally {
+        refreshing = false;
+      }
+    }, intervalMs);
+    timer.unref?.();
+    return () => clearInterval(timer);
   }
 
   private async handleFailure(
