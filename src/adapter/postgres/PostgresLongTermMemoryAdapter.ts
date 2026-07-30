@@ -34,7 +34,7 @@ export class PostgresLongTermMemoryAdapter implements LongTermMemoryPort {
         5: params.key,
         6: params.content,
         7: params.importance ?? 0.5,
-        8: params.tags ? JSON.stringify(params.tags) : null,
+        8: params.tags ?? null,
         9: params.ttlMs ?? null,
         10: now,
         11: now,
