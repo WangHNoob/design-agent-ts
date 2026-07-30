@@ -80,6 +80,11 @@ export class RedisExecutionEventStoreAdapter implements ExecutionEventStore {
     this.keyPrefix = options.keyPrefix ?? "execution-events:";
   }
 
+  async connect(): Promise<void> {
+    this.assertOpen();
+    await this.writer.connect();
+  }
+
   async append(
     userId: string,
     executionId: string,

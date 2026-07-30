@@ -84,6 +84,11 @@ export interface FrameworkConfig {
     blockMs: number;
     maxRetries: number;
   };
+  execution: {
+    taskTimeoutMs: number;
+    pollIntervalMs: number;
+    eventMaxLength: number;
+  };
   mcp: {
     enabled: boolean;
     servers: McpServerConfig[];

@@ -101,6 +101,11 @@ export function loadConfig(): FrameworkConfig {
       blockMs: Number(process.env.MQ_BLOCK_MS ?? 1000),
       maxRetries: Number(process.env.MQ_MAX_RETRIES ?? 3),
     },
+    execution: {
+      taskTimeoutMs: Number(process.env.EXECUTION_TASK_TIMEOUT_MS ?? 300000),
+      pollIntervalMs: Number(process.env.EXECUTION_POLL_INTERVAL_MS ?? 1000),
+      eventMaxLength: Number(process.env.EXECUTION_EVENT_MAX_LENGTH ?? 10000),
+    },
     mcp: {
       enabled: process.env.MCP_ENABLED === "true",
       servers: parseMcpServers(process.env.MCP_SERVERS),
