@@ -86,7 +86,7 @@ describe("PlanPipeline", () => {
     const results = await pipeline.execute();
 
     expect(calls).toEqual(["A"]);
-    expect(callbacks).toEqual(["start:A", "result:A"]);
+    expect(callbacks).toEqual(["start:A", "result:A", "result:B"]);
     expect(results.find((result) => result.taskId === "B")).toMatchObject({
       status: "skipped",
       errorMessage: expect.stringContaining("A"),
