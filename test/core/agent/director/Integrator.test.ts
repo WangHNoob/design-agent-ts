@@ -32,6 +32,26 @@ describe("Integrator", () => {
     expect(documents.filter((d) => d.taskId.startsWith("t")).map((d) => d.taskId)).toEqual(["t1"]);
   });
 
+  it("应仅整合 success 结果", () => {
+    const integrator = new Integrator();
+    const failed: TaskResult = {
+      taskId: "failed",
+      domain: "combat_design",
+      status: "error",
+      output: "不应进入最终文档",
+      errorMessage: "failed",
+    };
+
+    const { documents } = integrator.integrateStructured([
+      result("success", "system_design", "有效产出"),
+      failed,
+    ]);
+
+    expect(documents.some((document) => document.taskId === "success")).toBe(true);
+    expect(documents.some((document) => document.taskId === "failed")).toBe(false);
+    expect(integrator.integrate([failed])).not.toContain("不应进入最终文档");
+  });
+
   it("应从 key:value 抽取数值字段并检测跨 Agent 冲突", () => {
     const integrator = new Integrator();
     const results = [

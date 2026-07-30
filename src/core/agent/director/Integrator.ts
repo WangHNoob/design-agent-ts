@@ -43,16 +43,17 @@ export class Integrator {
    */
   integrateStructured(results: TaskResult[], fieldRegistry?: FieldRegistry): IntegrationResult {
     const registry = fieldRegistry ?? new FieldRegistry();
+    const successfulResults = results.filter((result) => result.status === "success");
 
-    for (const result of results) {
+    for (const result of successfulResults) {
       if (!result.output || result.output.trim().length === 0) continue;
       this.extractAndRegister(registry, result);
     }
 
-    const conflicts = this.detectConflictsStructured(results, registry);
+    const conflicts = this.detectConflictsStructured(successfulResults, registry);
     const documents: DocumentResult[] = [];
 
-    for (const result of results) {
+    for (const result of successfulResults) {
       if (!result.output || result.output.trim().length === 0) continue;
       const fileName = `${result.taskId}_${domainDisplayName(result.domain)}`;
       documents.push({ fileName, markdownContent: result.output, domain: result.domain, taskId: result.taskId });
@@ -143,10 +144,9 @@ export class Integrator {
 
   /** Legacy: produce a single combined markdown report. */
   integrate(results: TaskResult[]): string {
-    const sections = results.map((r) => {
-      const status = r.status === "success" ? "✓" : "✗";
-      return `## ${domainDisplayName(r.domain)} ${status}\n\n${r.output}\n`;
-    });
+    const sections = results
+      .filter((result) => result.status === "success")
+      .map((result) => `## ${domainDisplayName(result.domain)} ✓\n\n${result.output}\n`);
     return `# 整合报告\n\n${sections.join("\n")}`;
   }
 
@@ -154,6 +154,7 @@ export class Integrator {
   detectConflicts(results: TaskResult[]): string[] {
     const registry = new FieldRegistry();
     for (const result of results) {
+      if (result.status !== "success") continue;
       if (!result.output || result.output.trim().length === 0) continue;
       this.extractAndRegister(registry, result);
     }
