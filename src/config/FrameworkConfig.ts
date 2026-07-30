@@ -47,7 +47,6 @@ export interface FrameworkConfig {
   };
   longTermMemory: {
     enabled: boolean;
-    storagePath: string;
     defaultNamespace: string;
     maxContextMemories: number;
     minImportanceForContext: number;
@@ -57,16 +56,11 @@ export interface FrameworkConfig {
     pruneBelowImportance: number;
   };
   userSystem: {
-    enabled: boolean;
     betterAuthSecret: string;
     betterAuthBaseUrl: string;
     maxConcurrentPerUser: number;
     postgresUrl: string;
     redisUrl: string;
-    /** Whether Redis is required for tenant isolation (caching/locking/concurrency).
-     *  When false, an in-process fallback is used — sufficient for single-instance dev. */
-    redisEnabled: boolean;
-    autoInitSchema: boolean;
     /** Comma-separated email domains that auto-assign admin role */
     adminEmailDomains: string;
     /** DingTalk SSO configuration */

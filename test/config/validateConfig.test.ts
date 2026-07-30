@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 import type { FrameworkConfig } from "../../src/config/FrameworkConfig.js";
 import { validateConfig } from "../../src/config/validateConfig.js";
 
-function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): FrameworkConfig {
+function config(
+  overrides: Partial<FrameworkConfig["userSystem"]> = {},
+  messageQueueEnabled = true,
+): FrameworkConfig {
   return {
     framework: "mock",
     model: {
@@ -26,7 +29,6 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
     },
     longTermMemory: {
       enabled: false,
-      storagePath: "./data/long-term-memory",
       defaultNamespace: "global",
       maxContextMemories: 10,
       minImportanceForContext: 0.4,
@@ -36,21 +38,19 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       pruneBelowImportance: 0.3,
     },
     userSystem: {
-      enabled: false,
-      betterAuthSecret: "change-me-in-production",
+      betterAuthSecret: "local-development-secret-32-characters",
       betterAuthBaseUrl: "http://localhost:4527",
       maxConcurrentPerUser: 3,
-      postgresUrl: "",
-      redisUrl: "",
-      redisEnabled: true,
-      autoInitSchema: true,
+      postgresUrl: "postgresql://postgres:postgres@localhost:15432/game_designer",
+      redisUrl: "redis://localhost:16379/0",
       adminEmailDomains: "",
       dingtalk: { clientId: "", clientSecret: "" },
       allowEmailPassword: true,
+      trustedOrigins: "http://localhost:3001",
       ...overrides,
     },
     messageQueue: {
-      enabled: false,
+      enabled: messageQueueEnabled,
       consumerGroup: "gd-workers",
       pollIntervalMs: 100,
     },
@@ -58,6 +58,7 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       enabled: false,
       servers: [],
     },
+    enabledToolGroups: [],
     limits: {
       subAgentMaxIterations: 20,
       queryAgentMaxIterations: 20,
@@ -71,60 +72,72 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       hitlMaxRevisionRounds: 10,
       modelMaxTokens: 65536,
     },
+    blackboard: {
+      enabled: true,
+      defaultTtlSeconds: 300,
+      webTtlSeconds: 600,
+      recentInjectCount: 5,
+      cachedTools: [],
+    },
   };
 }
 
 describe("validateConfig", () => {
-  test("allows default local mode when user system is disabled", () => {
+  test("accepts an explicit local development configuration", () => {
     expect(() => validateConfig(config(), { port: 4527 })).not.toThrow();
   });
 
-  test("accepts default BETTER_AUTH_SECRET for local dev when enabled", () => {
+  test("rejects empty BETTER_AUTH_SECRET", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
-        postgresUrl: "postgresql://localhost:5432/game_designer",
-      }), { port: 4527 }),
-    ).not.toThrow();
-  });
-
-  test("rejects empty BETTER_AUTH_SECRET when user system is enabled", () => {
-    expect(() =>
-      validateConfig(config({
-        enabled: true,
         betterAuthSecret: "",
-        postgresUrl: "postgresql://localhost:5432/game_designer",
       }), { port: 4527 }),
-    ).toThrow(/BETTER_AUTH_SECRET must be set/);
+    ).toThrow(/BETTER_AUTH_SECRET is required/);
   });
 
-  test("requires Postgres URL when user system is enabled", () => {
+  test("rejects placeholder BETTER_AUTH_SECRET", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
+        betterAuthSecret: "change-me-in-production-change-me",
+      }), { port: 4527 }),
+    ).toThrow(/must not be a placeholder/);
+  });
+
+  test("requires POSTGRES_URL", () => {
+    expect(() =>
+      validateConfig(config({
         postgresUrl: "",
       }), { port: 4527 }),
     ).toThrow(/POSTGRES_URL is required/);
   });
 
-  test("requires Redis URL when redisEnabled is true", () => {
+  test("rejects invalid POSTGRES_URL", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
-        postgresUrl: "postgresql://localhost:5432/game_designer",
-        redisUrl: "",
+        postgresUrl: "http://localhost:5432/game_designer",
       }), { port: 4527 }),
-    ).toThrow(/REDIS_URL is required when.*USER_SYSTEM_REDIS_ENABLED=true/);
+    ).toThrow(/POSTGRES_URL must be a valid/);
   });
 
-  test("accepts valid user system configuration", () => {
+  test("requires REDIS_URL", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
-        betterAuthSecret: "local-secret-at-least-32-characters",
-        postgresUrl: "postgresql://postgres:postgres@localhost:15432/game_designer",
+        redisUrl: "",
       }), { port: 4527 }),
-    ).not.toThrow();
+    ).toThrow(/REDIS_URL is required/);
+  });
+
+  test("rejects invalid REDIS_URL", () => {
+    expect(() =>
+      validateConfig(config({
+        redisUrl: "http://localhost:6379",
+      }), { port: 4527 }),
+    ).toThrow(/REDIS_URL must be a valid/);
+  });
+
+  test("requires the message queue", () => {
+    expect(() => validateConfig(config({}, false), { port: 4527 }))
+      .toThrow(/MQ_ENABLED must be true/);
   });
 
   test("rejects stdio MCP server without command", () => {
