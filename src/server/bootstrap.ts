@@ -29,16 +29,11 @@ import { setSettingsManager, setSettingsContainer, setTavilyTool, setMCPStatus }
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
 import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
-import { FileBasedLongTermMemoryAdapter } from "../adapter/memory/FileBasedLongTermMemoryAdapter.js";
 import { MemoryManager } from "../core/memory/MemoryManager.js";
-import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
-import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
 import { PostgresDatabaseAdapter } from "../adapter/postgres/PostgresDatabaseAdapter.js";
-import { PostgresLongTermMemoryAdapter } from "../adapter/postgres/PostgresLongTermMemoryAdapter.js";
 import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
-import { InMemoryTenantIsolationAdapter } from "../core/user/InMemoryTenantIsolationAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
@@ -337,33 +332,8 @@ export async function bootstrap() {
     new ContextManagementHook(config.limits.contextCompressionThreshold, config.limits.contextMaxTokens),
   ];
 
-  // Initialize long-term memory (composition root: wire adapter → core)
+  // Long-term memory is PostgreSQL-backed and scoped per authenticated user.
   let memoryManager: MemoryManager | null = null;
-  if (config.longTermMemory.enabled) {
-    const ltmAdapter = new FileBasedLongTermMemoryAdapter(
-      config.longTermMemory.storagePath,
-      fileSystem,
-      new NodeIdGeneratorAdapter(),
-    );
-    memoryManager = new MemoryManager(ltmAdapter, {
-      defaultNamespace: config.longTermMemory.defaultNamespace,
-      maxContextMemories: config.longTermMemory.maxContextMemories,
-      minImportanceForContext: config.longTermMemory.minImportanceForContext,
-      autoExtract: config.longTermMemory.autoExtract,
-      autoPrune: config.longTermMemory.autoPrune,
-      maxAgeMs: config.longTermMemory.maxAgeMs,
-      pruneBelowImportance: config.longTermMemory.pruneBelowImportance,
-    });
-
-    // Memory injection hook runs at pre_reasoning (priority 60, before compression)
-    hooks.push(new MemoryInjectionHook(memoryManager, config.longTermMemory.defaultNamespace));
-    // Memory extraction hook runs at post_agent_call (priority 200, after other hooks)
-    if (config.longTermMemory.autoExtract) {
-      hooks.push(new MemoryExtractionHook(memoryManager, config.longTermMemory.defaultNamespace));
-    }
-
-    console.log(`[Bootstrap] Long-term memory enabled: storage=${config.longTermMemory.storagePath}, namespace=${config.longTermMemory.defaultNamespace}`);
-  }
 
   const workspaceManager = new WorkspaceManager("workspace", fileSystem);
 
@@ -374,15 +344,13 @@ export async function bootstrap() {
   let redisAdapter: TenantIsolationPort | null = null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
 
-  if (config.userSystem.enabled) {
+  {
     console.log("[Bootstrap] Initializing user system (multi-tenant with Better Auth)...");
 
     // PostgreSQL
     dbAdapter = new PostgresDatabaseAdapter(config.userSystem.postgresUrl);
-    if (config.userSystem.autoInitSchema) {
-      await dbAdapter.initializeSchema();
-      console.log("[Bootstrap] PostgreSQL schema initialized");
-    }
+    await dbAdapter.initializeSchema();
+    console.log("[Bootstrap] PostgreSQL schema initialized");
 
     // Better Auth (handles registration, login, sessions, DingTalk SSO)
     const dingtalkConfig = config.userSystem.dingtalk.clientId
@@ -411,40 +379,30 @@ export async function bootstrap() {
       console.log("[Bootstrap] Email+password login disabled (SSO only)");
     }
 
-    // Tenant isolation: Redis (caching/locking/concurrency) or in-process fallback
-    if (config.userSystem.redisEnabled) {
-      redisAdapter = new RedisTenantIsolationAdapter(
-        config.userSystem.redisUrl,
-        betterAuthAdapter,
-      );
-      await (redisAdapter as RedisTenantIsolationAdapter).connect();
-      console.log("[Bootstrap] Redis connected (tenant isolation)");
-    } else {
-      redisAdapter = new InMemoryTenantIsolationAdapter(betterAuthAdapter);
-      console.log("[Bootstrap] Redis disabled — using in-process tenant isolation (single-instance)");
-    }
+    // Tenant isolation always uses Redis.
+    redisAdapter = new RedisTenantIsolationAdapter(
+      config.userSystem.redisUrl,
+      betterAuthAdapter,
+    );
+    await (redisAdapter as RedisTenantIsolationAdapter).connect();
+    console.log("[Bootstrap] Redis connected (tenant isolation)");
 
     // User context manager (core layer: tenant-scoped access)
     userContextManager = new UserContextManager(betterAuthAdapter, redisAdapter);
 
-    // Replace file-based LTM with PostgreSQL-backed LTM per user
     if (config.longTermMemory.enabled) {
-      console.log("[Bootstrap] Long-term memory using PostgreSQL (user-scoped)");
+      console.log("[Bootstrap] Long-term memory configured for PostgreSQL (user-scoped)");
     }
 
-    // Message Queue (requires Redis)
-    if (config.messageQueue.enabled && config.userSystem.redisEnabled) {
-      mqAdapter = new RedisMessageQueueAdapter(
-        config.userSystem.redisUrl,
-        new NodeIdGeneratorAdapter(),
-        { consumerGroup: config.messageQueue.consumerGroup, pollIntervalMs: config.messageQueue.pollIntervalMs },
-      );
-      await mqAdapter.connect();
-      await mqAdapter.start();
-      console.log("[Bootstrap] Message queue started");
-    } else if (config.messageQueue.enabled) {
-      console.log("[Bootstrap] Message queue disabled (requires Redis)");
-    }
+    // Message queue is a required Redis-backed service.
+    mqAdapter = new RedisMessageQueueAdapter(
+      config.userSystem.redisUrl,
+      new NodeIdGeneratorAdapter(),
+      { consumerGroup: config.messageQueue.consumerGroup, pollIntervalMs: config.messageQueue.pollIntervalMs },
+    );
+    await mqAdapter.connect();
+    await mqAdapter.start();
+    console.log("[Bootstrap] Message queue started");
 
     console.log("[Bootstrap] User system enabled: multi-tenant mode with Better Auth");
   }
@@ -468,7 +426,7 @@ export async function bootstrap() {
   setSettingsManager(settingsManager);
   setTavilyTool(tavilyTool);
 
-  // Wire user context manager (if user system is enabled)
+  // Wire required user infrastructure.
   if (userContextManager) {
     setUserContextManager(userContextManager);
   }
