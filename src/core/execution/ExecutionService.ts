@@ -102,6 +102,18 @@ export class ExecutionService {
     );
   }
 
+  requeue(executionId: string, error?: unknown): Promise<Execution> {
+    return this.transition(
+      executionId,
+      "running",
+      "queued",
+      {
+        errorClass: error === undefined ? null : ErrorClassifier.classify(error),
+        errorMessage: error === undefined ? null : ErrorClassifier.message(error),
+      },
+    );
+  }
+
   complete(executionId: string, command: CompleteExecutionCommand = {}): Promise<Execution> {
     return this.transition(
       executionId,
@@ -124,6 +136,20 @@ export class ExecutionService {
     }
     if (errorClass === "timeout") {
       return this.timeout(executionId, ErrorClassifier.message(error));
+    }
+    const current = await this.requireExecution(executionId);
+    if (current.status === "waiting_hitl") {
+      return this.transition(
+        executionId,
+        "waiting_hitl",
+        "failed",
+        {
+          errorClass,
+          errorMessage: ErrorClassifier.message(error),
+          completedAt: this.timestamp(),
+        },
+        true,
+      );
     }
     return this.transitionToTerminal(executionId, "failed", errorClass, ErrorClassifier.message(error));
   }
