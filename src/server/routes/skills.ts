@@ -4,6 +4,7 @@ import path from "path";
 import { SKILLS_DIR, parseFrontmatter } from "../SkillLoader.js";
 import { reloadDirector } from "../bootstrap.js";
 import { hasActiveExecutions } from "./console.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 export const skillsRoute = new Hono();
 
@@ -43,7 +44,7 @@ skillsRoute.get("/", (c) => {
  * Get full content of a specific skill.
  */
 skillsRoute.get("/:name", (c) => {
-  const name = c.req.param("name");
+  const name = c.req.param("name")!;
   const skillPath = path.join(SKILLS_DIR, name, "SKILL.md");
 
   if (!fs.existsSync(skillPath)) {
@@ -64,12 +65,12 @@ skillsRoute.get("/:name", (c) => {
  * PUT /api/skills/:name
  * Create or update a skill. Body: { content: string } or { name, description, body }
  */
-skillsRoute.put("/:name", async (c) => {
+skillsRoute.put("/:name", requireAdmin(), async (c) => {
   if (hasActiveExecutions()) {
     return c.json({ success: false, error: "无法在任务执行中修改配置" }, 409);
   }
 
-  const dirName = c.req.param("name");
+  const dirName = c.req.param("name")!;
   if (!/^[a-zA-Z0-9_-]+$/.test(dirName)) {
     return c.json({ success: false, error: "Invalid skill name" }, 400);
   }
@@ -123,12 +124,12 @@ skillsRoute.put("/:name", async (c) => {
  * DELETE /api/skills/:name
  * Delete a skill (move to trash).
  */
-skillsRoute.delete("/:name", async (c) => {
+skillsRoute.delete("/:name", requireAdmin(), async (c) => {
   if (hasActiveExecutions()) {
     return c.json({ success: false, error: "无法在任务执行中修改配置" }, 409);
   }
 
-  const name = c.req.param("name");
+  const name = c.req.param("name")!;
   const skillDir = path.join(SKILLS_DIR, name);
 
   if (!fs.existsSync(skillDir)) {

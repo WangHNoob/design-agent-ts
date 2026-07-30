@@ -6,6 +6,7 @@ import { reloadDirector, getBootstrapState } from "../bootstrap.js";
 import { hasActiveExecutions } from "./console.js";
 import type { Domain, OutputType } from "../../core/schema/TaskPlan.js";
 import { ChatMessage } from "../../port/message/ChatMessage.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 export const workflowsRoute = new Hono();
 
@@ -167,7 +168,7 @@ workflowsRoute.get("/", (c) => {
  * Get full parsed definition and raw content of a specific workflow.
  */
 workflowsRoute.get("/:name", (c) => {
-  const name = c.req.param("name");
+  const name = c.req.param("name")!;
   const skillPath = path.join(WORKFLOWS_DIR, name, "SKILL.md");
 
   if (!fs.existsSync(skillPath)) {
@@ -195,12 +196,12 @@ workflowsRoute.get("/:name", (c) => {
  *   - { content: string }  — raw SKILL.md content
  *   - { name, description, keywords, tasks, body? }  — structured definition
  */
-workflowsRoute.put("/:name", async (c) => {
+workflowsRoute.put("/:name", requireAdmin(), async (c) => {
   if (hasActiveExecutions()) {
     return c.json({ success: false, error: "无法在任务执行中修改配置" }, 409);
   }
 
-  const dirName = c.req.param("name");
+  const dirName = c.req.param("name")!;
   if (!/^[a-zA-Z0-9_-]+$/.test(dirName)) {
     return c.json({ success: false, error: "Invalid workflow name" }, 400);
   }
@@ -275,12 +276,12 @@ workflowsRoute.put("/:name", async (c) => {
  * DELETE /api/workflows/:name
  * Delete a workflow (move to trash).
  */
-workflowsRoute.delete("/:name", async (c) => {
+workflowsRoute.delete("/:name", requireAdmin(), async (c) => {
   if (hasActiveExecutions()) {
     return c.json({ success: false, error: "无法在任务执行中修改配置" }, 409);
   }
 
-  const name = c.req.param("name");
+  const name = c.req.param("name")!;
   const workflowDir = path.join(WORKFLOWS_DIR, name);
 
   if (!fs.existsSync(workflowDir)) {

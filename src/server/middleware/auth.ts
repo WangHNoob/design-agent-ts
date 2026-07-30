@@ -1,23 +1,6 @@
 import type { Context, Next } from "hono";
 import type { TenantContext, TenantIsolationPort } from "../../port/user/TenantIsolationPort.js";
-import type { SessionManager } from "../../core/session/SessionManager.js";
-import type { WorkspaceManager } from "../../core/workspace/WorkspaceManager.js";
-import type { HITLManager } from "../../core/hitl/HITLManager.js";
-
-/** Storage managers to scope by userId (set by bootstrap). */
-let sessionManagerInstance: SessionManager | null = null;
-let workspaceManagerInstance: WorkspaceManager | null = null;
-let hitlManagerInstance: HITLManager | null = null;
-
-export function setUserIdScopedStores(
-  sessionManager: SessionManager,
-  workspaceManager: WorkspaceManager,
-  hitlManager: HITLManager,
-): void {
-  sessionManagerInstance = sessionManager;
-  workspaceManagerInstance = workspaceManager;
-  hitlManagerInstance = hitlManager;
-}
+import type { ContextStoragePort } from "../../port/infra/ContextStoragePort.js";
 
 /**
  * Hono middleware that resolves the tenant context from Better Auth session.
@@ -30,8 +13,15 @@ export function setUserIdScopedStores(
  *   // In route handlers:
  *   const ctx = c.get("tenant") as TenantContext;
  */
-export function authMiddleware(tenantPort: TenantIsolationPort) {
+export function authMiddleware(
+  tenantPort: TenantIsolationPort,
+  contextStorage: ContextStoragePort<TenantContext>,
+) {
   return async (c: Context, next: Next) => {
+    if (c.req.path.startsWith("/api/auth/")) {
+      return next();
+    }
+
     // Convert Hono headers to plain record for TenantIsolationPort
     const headers: Record<string, string | undefined> = {};
     c.req.raw.headers.forEach((value, key) => {
@@ -42,17 +32,11 @@ export function authMiddleware(tenantPort: TenantIsolationPort) {
 
     if (!tenantCtx) {
       c.set("tenant", null);
-      sessionManagerInstance?.setUserId(null);
-      workspaceManagerInstance?.setUserId(null);
-      hitlManagerInstance?.setUserId(null);
       return next();
     }
 
     c.set("tenant", tenantCtx);
-    sessionManagerInstance?.setUserId(tenantCtx.userId);
-    workspaceManagerInstance?.setUserId(tenantCtx.userId);
-    hitlManagerInstance?.setUserId(tenantCtx.userId);
-    await next();
+    return contextStorage.run(tenantCtx, () => next());
   };
 }
 
@@ -62,6 +46,9 @@ export function authMiddleware(tenantPort: TenantIsolationPort) {
  */
 export function requireAuth() {
   return async (c: Context, next: Next) => {
+    if (c.req.path.startsWith("/api/auth/")) {
+      return next();
+    }
     const tenant = c.get("tenant") as TenantContext | null;
     if (!tenant) {
       return c.json({ error: "Unauthorized" }, 401);

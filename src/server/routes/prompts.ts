@@ -4,6 +4,7 @@ import path from "path";
 import { loadPrompt, clearPromptCache } from "../PromptLoader.js";
 import { reloadDirector } from "../bootstrap.js";
 import { hasActiveExecutions } from "./console.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 const PROMPTS_DIR = path.resolve("prompts");
 
@@ -58,7 +59,7 @@ promptsRoute.get("/", (c) => {
  * Get full content of a specific prompt.
  */
 promptsRoute.get("/:name", (c) => {
-  const name = c.req.param("name");
+  const name = c.req.param("name")!;
   const filePath = path.join(PROMPTS_DIR, `${name}.md`);
 
   if (!fs.existsSync(filePath)) {
@@ -77,12 +78,12 @@ promptsRoute.get("/:name", (c) => {
  * PUT /api/prompts/:name
  * Create or update a prompt file.
  */
-promptsRoute.put("/:name", async (c) => {
+promptsRoute.put("/:name", requireAdmin(), async (c) => {
   if (hasActiveExecutions()) {
     return c.json({ success: false, error: "无法在任务执行中修改配置" }, 409);
   }
 
-  const name = c.req.param("name");
+  const name = c.req.param("name")!;
   // Sanitize name: only allow alphanumeric, underscore, hyphen
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
     return c.json({ success: false, error: "Invalid prompt name" }, 400);
@@ -116,12 +117,12 @@ promptsRoute.put("/:name", async (c) => {
  * DELETE /api/prompts/:name
  * Delete a prompt file. Protected prompts cannot be deleted.
  */
-promptsRoute.delete("/:name", async (c) => {
+promptsRoute.delete("/:name", requireAdmin(), async (c) => {
   if (hasActiveExecutions()) {
     return c.json({ success: false, error: "无法在任务执行中修改配置" }, 409);
   }
 
-  const name = c.req.param("name");
+  const name = c.req.param("name")!;
   const filePath = path.join(PROMPTS_DIR, `${name}.md`);
 
   if (!fs.existsSync(filePath)) {
