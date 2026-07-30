@@ -52,7 +52,9 @@ function config(
     messageQueue: {
       enabled: messageQueueEnabled,
       consumerGroup: "gd-workers",
-      pollIntervalMs: 100,
+      visibilityTimeoutMs: 30000,
+      blockMs: 1000,
+      maxRetries: 3,
     },
     mcp: {
       enabled: false,

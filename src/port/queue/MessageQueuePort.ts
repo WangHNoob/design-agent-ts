@@ -18,7 +18,6 @@ export interface QueueMessage<T = unknown> {
   readonly payload: T;
   readonly priority: MessagePriority;
   readonly createdAt: string;
-  readonly scheduledAt?: string;
   readonly maxRetries: number;
   readonly retryCount: number;
   readonly userId?: string;
@@ -38,7 +37,6 @@ export interface MessageResult {
 /** Options for publishing a message. */
 export interface PublishOptions {
   readonly priority?: MessagePriority;
-  readonly delayMs?: number;
   readonly maxRetries?: number;
   readonly userId?: string;
 }
@@ -73,7 +71,7 @@ export interface MessageQueuePort {
   /** Get statistics for a queue. */
   getStats(queue: string): Promise<QueueStats>;
 
-  /** Purge all pending messages from a queue. */
+  /** Purge the queue stream and its dead-letter queue. */
   purge(queue: string): Promise<number>;
 
   /** Start processing messages (begins consuming from subscribed queues). */

@@ -412,7 +412,12 @@ export async function bootstrap() {
     mqAdapter = new RedisMessageQueueAdapter(
       config.userSystem.redisUrl,
       new NodeIdGeneratorAdapter(),
-      { consumerGroup: config.messageQueue.consumerGroup, pollIntervalMs: config.messageQueue.pollIntervalMs },
+      {
+        consumerGroup: config.messageQueue.consumerGroup,
+        visibilityTimeoutMs: config.messageQueue.visibilityTimeoutMs,
+        blockMs: config.messageQueue.blockMs,
+        maxRetries: config.messageQueue.maxRetries,
+      },
     );
     await mqAdapter.connect();
     await mqAdapter.start();

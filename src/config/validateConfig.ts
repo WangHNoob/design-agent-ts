@@ -71,6 +71,22 @@ export function validateConfig(config: FrameworkConfig, options: ConfigValidatio
   if (!config.messageQueue.enabled) {
     issues.push("MQ_ENABLED must be true; the Redis message queue is required.");
   }
+  if (
+    !Number.isInteger(config.messageQueue.visibilityTimeoutMs) ||
+    config.messageQueue.visibilityTimeoutMs <= 0
+  ) {
+    issues.push("MQ_VISIBILITY_TIMEOUT_MS must be a positive integer.");
+  }
+  if (
+    !Number.isInteger(config.messageQueue.blockMs) ||
+    config.messageQueue.blockMs <= 0 ||
+    config.messageQueue.blockMs > 2000
+  ) {
+    issues.push("MQ_BLOCK_MS must be an integer between 1 and 2000.");
+  }
+  if (!Number.isInteger(config.messageQueue.maxRetries) || config.messageQueue.maxRetries < 0) {
+    issues.push("MQ_MAX_RETRIES must be a non-negative integer.");
+  }
 
   if (config.mcp.enabled) {
     config.mcp.servers.forEach((server, index) => {

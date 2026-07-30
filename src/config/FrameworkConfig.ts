@@ -80,7 +80,9 @@ export interface FrameworkConfig {
   messageQueue: {
     enabled: boolean;
     consumerGroup: string;
-    pollIntervalMs: number;
+    visibilityTimeoutMs: number;
+    blockMs: number;
+    maxRetries: number;
   };
   mcp: {
     enabled: boolean;
