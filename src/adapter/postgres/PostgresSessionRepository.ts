@@ -78,19 +78,22 @@ export class PostgresSessionRepository implements SessionRepository {
     return this.rowToMeta(result.rows[0]!);
   }
 
-  async list(): Promise<SessionMeta[]> {
+  async list(limit = 50, offset = 0): Promise<SessionMeta[]> {
+    const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+    const safeOffset = Math.max(0, Math.trunc(offset));
     const result = await this.db.query(
-      `SELECT * FROM sessions WHERE user_id = $1 ORDER BY updated_at DESC`,
-      { 1: this.userId }
+      `SELECT * FROM sessions WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+      { 1: this.userId, 2: safeLimit, 3: safeOffset }
     );
     return result.rows.map((r) => this.rowToMeta(r));
   }
 
-  async delete(id: string): Promise<void> {
-    await this.db.query(
+  async delete(id: string): Promise<boolean> {
+    const result = await this.db.query(
       `DELETE FROM sessions WHERE id = $1 AND user_id = $2`,
       { 1: id, 2: this.userId }
     );
+    return result.rowCount > 0;
   }
 
   private rowToMeta(row: Record<string, unknown>): SessionMeta {
@@ -100,11 +103,23 @@ export class PostgresSessionRepository implements SessionRepository {
       mode: row.mode as "design" | "query" | "table",
       role: row.role as string,
       status: row.status as SessionMeta["status"],
-      createdAt: row.created_at as string,
-      updatedAt: row.updated_at as string,
-      output: row.output as string | undefined,
-      error: row.error as string | undefined,
-      hitlCheckpointId: row.hitl_checkpoint_id as string | undefined,
+      createdAt: this.toIso(row.created_at),
+      updatedAt: this.toIso(row.updated_at),
+      output: this.optionalString(row.output),
+      error: this.optionalString(row.error),
+      hitlCheckpointId: this.optionalString(row.hitl_checkpoint_id),
     };
+  }
+
+  private toIso(value: unknown): string {
+    const date = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(date.getTime())) {
+      throw new TypeError(`Invalid database timestamp: ${String(value)}`);
+    }
+    return date.toISOString();
+  }
+
+  private optionalString(value: unknown): string | undefined {
+    return value === null || value === undefined ? undefined : String(value);
   }
 }
