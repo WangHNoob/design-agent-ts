@@ -3,12 +3,63 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
 describe("Postgres Drizzle migrations", () => {
-  test("enable extensions before creating application tables", () => {
+  test("enables extensions before creating application tables in 0000", () => {
     const migration = readFileSync(resolve("drizzle/0000_complex_anita_blake.sql"), "utf8");
     const vectorExtensionOffset = migration.indexOf('CREATE EXTENSION IF NOT EXISTS "vector"');
     const longTermMemoryOffset = migration.indexOf('CREATE TABLE "long_term_memory"');
 
     expect(vectorExtensionOffset).toBeGreaterThanOrEqual(0);
     expect(vectorExtensionOffset).toBeLessThan(longTermMemoryOffset);
+  });
+
+  test("adds durable execution and HITL tables without replacing 0000", () => {
+    const migration = readFileSync(
+      resolve("drizzle/0001_execution_persistence.sql"),
+      "utf8",
+    );
+
+    expect(migration).toContain('CREATE TABLE "executions"');
+    expect(migration).toContain('CREATE TABLE "execution_tasks"');
+    expect(migration).toContain('CREATE TABLE "execution_attempts"');
+    expect(migration).toContain('CREATE TABLE "hitl_checkpoints"');
+    expect(migration).toContain(
+      'ALTER TABLE "sessions" ALTER COLUMN "user_id" SET NOT NULL',
+    );
+    expect(migration).toContain(
+      'CONSTRAINT "executions_user_idempotency_unique" UNIQUE("user_id","idempotency_key")',
+    );
+    expect(migration).toContain(
+      'CONSTRAINT "execution_attempts_error_class_check"',
+    );
+    expect(migration).toContain(
+      'CREATE INDEX "idx_hitl_checkpoints_user_status_created"',
+    );
+  });
+
+  test("keeps the migration journal and snapshot in sync", () => {
+    const journal = JSON.parse(
+      readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const snapshot = JSON.parse(
+      readFileSync(resolve("drizzle/meta/0001_snapshot.json"), "utf8"),
+    ) as {
+      tables: Record<string, {
+        columns: Record<string, { notNull: boolean }>;
+      }>;
+    };
+
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 1,
+      tag: "0001_execution_persistence",
+    });
+    expect(Object.keys(snapshot.tables)).toEqual(
+      expect.arrayContaining([
+        "public.executions",
+        "public.execution_tasks",
+        "public.execution_attempts",
+        "public.hitl_checkpoints",
+      ]),
+    );
+    expect(snapshot.tables["public.sessions"]?.columns.user_id?.notNull).toBe(true);
   });
 });
