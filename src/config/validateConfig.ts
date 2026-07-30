@@ -87,6 +87,19 @@ export function validateConfig(config: FrameworkConfig, options: ConfigValidatio
   if (!Number.isInteger(config.messageQueue.maxRetries) || config.messageQueue.maxRetries < 0) {
     issues.push("MQ_MAX_RETRIES must be a non-negative integer.");
   }
+  if (!Number.isInteger(config.execution.taskTimeoutMs) || config.execution.taskTimeoutMs <= 0) {
+    issues.push("EXECUTION_TASK_TIMEOUT_MS must be a positive integer.");
+  }
+  if (
+    !Number.isInteger(config.execution.pollIntervalMs)
+    || config.execution.pollIntervalMs < 500
+    || config.execution.pollIntervalMs > 2000
+  ) {
+    issues.push("EXECUTION_POLL_INTERVAL_MS must be an integer between 500 and 2000.");
+  }
+  if (!Number.isInteger(config.execution.eventMaxLength) || config.execution.eventMaxLength <= 0) {
+    issues.push("EXECUTION_EVENT_MAX_LENGTH must be a positive integer.");
+  }
 
   if (config.mcp.enabled) {
     config.mcp.servers.forEach((server, index) => {

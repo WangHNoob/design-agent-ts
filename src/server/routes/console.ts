@@ -1,391 +1,289 @@
 import { Hono } from "hono";
 import type { DirectorAgent } from "../../core/agent/director/DirectorAgent.js";
-import { AgentResponse as AR } from "../../port/agent/AgentResponse.js";
+import { ExecutionService } from "../../core/execution/ExecutionService.js";
+import { ExecutionStateMachine } from "../../core/execution/ExecutionStateMachine.js";
+import type { ExecutionEvent, ExecutionEventStore } from "../../port/execution/ExecutionEventStore.js";
+import type { ExecutionRepository } from "../../port/execution/ExecutionRepository.js";
+import type { IdGeneratorPort } from "../../port/infra/IdGeneratorPort.js";
+import type { MessageQueuePort } from "../../port/queue/MessageQueuePort.js";
 import type { SessionMeta, SessionRepository } from "../../port/session/SessionRepository.js";
 import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
-import type { UserContextManager } from "../../core/user/UserContextManager.js";
+import {
+  EXECUTION_QUEUE,
+  type ExecutionWorker,
+} from "../worker/ExecutionWorker.js";
 
 interface ExecuteRequest {
   requirement: string;
   sessionId?: string;
+  idempotencyKey?: string;
   mode: "design" | "query" | "table";
   role?: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
-interface ExecuteResponse {
-  success: boolean;
-  output: string | null;
-  error: string | null;
-  sessionId: string;
+export interface ConsoleExecutionDependencies {
+  sessionRepositoryFactory: (userId: string) => SessionRepository;
+  executionRepositoryFactory: (userId: string) => ExecutionRepository;
+  queue: MessageQueuePort;
+  eventStore: ExecutionEventStore;
+  idGenerator: IdGeneratorPort;
+  worker: ExecutionWorker;
+  maxRetries: number;
 }
 
-let directorInstance: DirectorAgent | null = null;
-let sessionRepositoryFactory: ((userId: string) => SessionRepository) | null = null;
-let userContextManagerInstance: UserContextManager | null = null;
-let maxConcurrentPerUser = 1;
+let dependencies: ConsoleExecutionDependencies | null = null;
+let directorConfigured = false;
 
-export function setDirector(director: DirectorAgent) {
-  directorInstance = director;
+export function setDirector(director: DirectorAgent): void {
+  directorConfigured = true;
+  dependencies?.worker?.setDirector(director);
 }
 
-export function setConsoleExecutionDependencies(
-  factory: (userId: string) => SessionRepository,
-  userContextManager: UserContextManager,
-  maxConcurrent: number,
-) {
-  sessionRepositoryFactory = factory;
-  userContextManagerInstance = userContextManager;
-  maxConcurrentPerUser = maxConcurrent;
+export function setConsoleExecutionDependencies(next: ConsoleExecutionDependencies): void {
+  dependencies = next;
+}
+
+export function hasActiveExecutions(): boolean {
+  return dependencies?.worker.hasActiveExecutions() ?? false;
 }
 
 export const consoleRoute = new Hono();
-
-/** Active AbortControllers per session — used to cancel running executions. */
-const activeControllers = new Map<string, AbortController>();
-
-function executionKey(userId: string, sessionId: string): string {
-  return `${userId}:${sessionId}`;
-}
-
-function runningSession(
-  sessionId: string,
-  body: ExecuteRequest,
-  role: string,
-): SessionMeta {
-  const now = new Date().toISOString();
-  return {
-    id: sessionId,
-    requirement: body.requirement,
-    mode: body.mode,
-    role,
-    status: "running",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-/** Check whether any execution is currently running. Used by settings to prevent mid-session config changes. */
-export function hasActiveExecutions(): boolean {
-  return activeControllers.size > 0;
-}
 
 function validateExecuteRequest(body: ExecuteRequest): string | null {
   if (!body.requirement || body.requirement.trim().length === 0) {
     return "Requirement cannot be empty";
   }
-  if (body.requirement.trim().length > 50000) {
+  if (body.requirement.trim().length > 50_000) {
     return "Requirement too long (max 50000 characters)";
+  }
+  if (!["design", "query", "table"].includes(body.mode)) {
+    return "Mode must be design, query or table";
   }
   return null;
 }
 
+function queuedSession(
+  id: string,
+  body: ExecuteRequest,
+  role: string,
+): SessionMeta {
+  const now = new Date().toISOString();
+  return {
+    id,
+    requirement: body.requirement,
+    mode: body.mode,
+    role,
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function createExecution(
+  body: ExecuteRequest,
+  tenant: TenantContext,
+  idempotencyHeader?: string,
+) {
+  if (!dependencies) throw new Error("not_initialized");
+  const requestedSessionId = body.sessionId ?? crypto.randomUUID();
+  const role = body.role ?? "chief_designer";
+  const sessionRepository = dependencies.sessionRepositoryFactory(tenant.userId);
+  if (!await sessionRepository.get(requestedSessionId)) {
+    await sessionRepository.create(queuedSession(requestedSessionId, body, role));
+  }
+
+  const service = new ExecutionService(
+    dependencies.executionRepositoryFactory(tenant.userId),
+    dependencies.idGenerator,
+  );
+  const result = await service.create({
+    sessionId: requestedSessionId,
+    idempotencyKey: idempotencyHeader?.trim()
+      || body.idempotencyKey?.trim()
+      || requestedSessionId,
+    requestPayload: {
+      requirement: body.requirement,
+      mode: body.mode,
+      role,
+      history: body.history ?? [],
+    },
+  });
+  if (result.created) {
+    await dependencies.queue.publish(
+      EXECUTION_QUEUE,
+      { executionId: result.entity.id, userId: tenant.userId },
+      { userId: tenant.userId, maxRetries: dependencies.maxRetries },
+    );
+  }
+  return {
+    execution: result.entity,
+    sessionId: result.entity.sessionId,
+    created: result.created,
+  };
+}
+
 consoleRoute.post("/execute", async (c) => {
   const body = await c.req.json<ExecuteRequest>();
-  const sessionId = body.sessionId ?? crypto.randomUUID();
-  const role = body.role ?? "chief_designer";
-  const tenant = c.get("tenant") as TenantContext;
-
   const validationError = validateExecuteRequest(body);
   if (validationError) {
-    return c.json<ExecuteResponse>({
-      success: false,
-      output: null,
-      error: validationError,
-      sessionId,
-    }, 400);
+    return c.json({ error: "validation_error", message: validationError }, 400);
   }
-
-  if (!directorInstance) {
-    return c.json<ExecuteResponse>({
-      success: false,
-      output: null,
-      error: "not_configured",
-      sessionId,
-    }, 409);
+  if (!directorConfigured || !dependencies?.worker.hasDirector()) {
+    return c.json({ error: "not_configured", message: "Director is not configured" }, 409);
   }
-
-  if (!sessionRepositoryFactory || !userContextManagerInstance) {
-    return c.json<ExecuteResponse>({
-      success: false,
-      output: null,
-      error: "Tenant execution dependencies not initialized",
-      sessionId,
-    }, 503);
+  if (!dependencies) {
+    return c.json({ error: "not_initialized" }, 503);
   }
-
-  const repository = sessionRepositoryFactory(tenant.userId);
-  const key = executionKey(tenant.userId, sessionId);
-
-  // Concurrent execution guard
-  if (activeControllers.has(key)) {
-    return c.json<ExecuteResponse>({
-      success: false,
-      output: null,
-      error: "Session already has an active execution",
-      sessionId,
-    }, 409);
-  }
-
-  const slotAcquired = await userContextManagerInstance.acquireConcurrencySlot(
-    tenant,
-    maxConcurrentPerUser,
-  );
-  if (!slotAcquired) {
-    return c.json<ExecuteResponse>({
-      success: false,
-      output: null,
-      error: "Tenant concurrent execution limit reached",
-      sessionId,
-    }, 429);
-  }
-  if (activeControllers.has(key)) {
-    await userContextManagerInstance.releaseConcurrencySlot(tenant);
-    return c.json<ExecuteResponse>({
-      success: false,
-      output: null,
-      error: "Session already has an active execution",
-      sessionId,
-    }, 409);
-  }
-
-  const abortController = new AbortController();
-  activeControllers.set(key, abortController);
-
+  const tenant = c.get("tenant") as TenantContext;
   try {
-    await repository.create(runningSession(sessionId, body, role));
-    const response = await directorInstance.execute(
-      body.requirement, sessionId, body.mode, role, body.history,
-      { signal: abortController.signal }
+    const result = await createExecution(
+      body,
+      tenant,
+      c.req.header("Idempotency-Key"),
     );
-    const output = AR.getTextContent(response);
-
-    const isAborted = abortController.signal.aborted;
-    await repository.update(sessionId, {
-      status: isAborted ? "failed" : (response.success ? "completed" : "failed"),
-      output: output ?? undefined,
-      error: isAborted ? "Cancelled by user" : (response.errorMessage ?? undefined),
-    });
-
-    return c.json<ExecuteResponse>({
-      success: isAborted ? false : response.success,
-      output,
-      error: isAborted ? "Cancelled by user" : response.errorMessage,
-      sessionId,
-    });
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    try {
-      await repository.update(sessionId, { status: "failed", error: errorMsg });
-    } catch {
-      // Preserve the original execution error if persistence also fails.
-    }
-
-    return c.json<ExecuteResponse>({
-      success: false,
-      output: null,
-      error: errorMsg,
-      sessionId,
+    return c.json({
+      executionId: result.execution.id,
+      sessionId: result.sessionId,
+      status: result.execution.status,
+      created: result.created,
+    }, 202);
+  } catch (error) {
+    return c.json({
+      error: "execution_creation_failed",
+      message: error instanceof Error ? error.message : String(error),
     }, 500);
-  } finally {
-    activeControllers.delete(key);
-    await userContextManagerInstance.releaseConcurrencySlot(tenant);
   }
 });
 
 consoleRoute.post("/execute/stream", async (c) => {
   const body = await c.req.json<ExecuteRequest>();
-  const sessionId = body.sessionId ?? crypto.randomUUID();
-  const role = body.role ?? "chief_designer";
-  const tenant = c.get("tenant") as TenantContext;
-
   const validationError = validateExecuteRequest(body);
   if (validationError) {
     return c.json({ error: "validation_error", message: validationError }, 400);
   }
-
-  if (!directorInstance) {
-    return c.json({ error: "not_configured", message: "API key not configured. Please configure via settings." }, 409);
+  if (!directorConfigured || !dependencies?.worker.hasDirector()) {
+    return c.json({ error: "not_configured", message: "Director is not configured" }, 409);
   }
-
-  if (!sessionRepositoryFactory || !userContextManagerInstance) {
-    return c.json({ error: "not_initialized", message: "Tenant execution dependencies not initialized." }, 503);
+  if (!dependencies) {
+    return c.json({ error: "not_initialized" }, 503);
   }
-
-  const repository = sessionRepositoryFactory(tenant.userId);
-  const key = executionKey(tenant.userId, sessionId);
-
-  // Concurrent execution guard
-  if (activeControllers.has(key)) {
-    return c.json({ error: "concurrent_execution", message: "Session already has an active execution" }, 409);
-  }
-
-  const slotAcquired = await userContextManagerInstance.acquireConcurrencySlot(
-    tenant,
-    maxConcurrentPerUser,
-  );
-  if (!slotAcquired) {
-    return c.json({ error: "concurrent_limit", message: "Tenant concurrent execution limit reached" }, 429);
-  }
-  if (activeControllers.has(key)) {
-    await userContextManagerInstance.releaseConcurrencySlot(tenant);
-    return c.json({ error: "concurrent_execution", message: "Session already has an active execution" }, 409);
-  }
-
-  const abortController = new AbortController();
-  activeControllers.set(key, abortController);
-
-  // Detect client disconnect: when the SSE client aborts the fetch,
-  // propagate that into our AbortController so backend processing stops.
-  const clientSignal = c.req.raw.signal;
-  const onClientAbort = () => {
-    console.log(`[console.ts] Client disconnected for session ${sessionId}, aborting execution`);
-    abortController.abort();
-  };
-  clientSignal.addEventListener("abort", onClientAbort, { once: true });
-
-  try {
-    await repository.create(runningSession(sessionId, body, role));
-  } catch (error) {
-    clientSignal.removeEventListener("abort", onClientAbort);
-    activeControllers.delete(key);
-    await userContextManagerInstance.releaseConcurrencySlot(tenant);
-    const message = error instanceof Error ? error.message : String(error);
-    return c.json({ error: "session_persistence_failed", message }, 500);
-  }
-
+  const tenant = c.get("tenant") as TenantContext;
+  const created = await createExecution(body, tenant, c.req.header("Idempotency-Key"));
+  const repository = dependencies.executionRepositoryFactory(tenant.userId);
+  const eventStore = dependencies.eventStore;
+  const afterCursor = c.req.header("Last-Event-ID")?.trim() || "0-0";
+  const subscriptionController = new AbortController();
+  const onDisconnect = () => subscriptionController.abort();
+  c.req.raw.signal.addEventListener("abort", onDisconnect, { once: true });
   const encoder = new TextEncoder();
-  const stream = new ReadableStream({
+
+  const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\n`));
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      let cursor = afterCursor;
+      const send = (event: ExecutionEvent) => {
+        controller.enqueue(encoder.encode(
+          `id: ${event.cursor}\nevent: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`,
+        ));
+        cursor = event.cursor;
       };
-
       try {
-        const eventStream = directorInstance!.executeStream(
-          body.requirement,
-          sessionId,
-          body.mode,
-          role,
-          body.history,
-          { signal: abortController.signal }
+        const replayed = await eventStore.replay(
+          tenant.userId,
+          created.execution.id,
+          cursor,
+          1_000,
         );
-
-        let finalOutput = "";
-        let hasError = false;
-        let errorMsg = "";
-
-        for await (const event of eventStream) {
-          switch (event.type) {
-            case "start":
-              send("start", event.data);
-              break;
-            case "plan":
-              send("plan", event.data);
-              break;
-            case "route":
-              send("route", event.data);
-              break;
-            case "task_start":
-              send("task_start", event.data);
-              break;
-            case "task_complete":
-              send("task_complete", event.data);
-              break;
-            case "integrate":
-              send("integrate", event.data);
-              break;
-            case "chunk":
-              send("chunk", event.data);
-              finalOutput += (event.data.text as string) ?? "";
-              break;
-            case "complete":
-              finalOutput = (event.data.output as string) ?? finalOutput;
-              send("complete", { ...event.data, output: finalOutput, sessionId });
-              break;
-            case "error":
-              hasError = true;
-              errorMsg = (event.data.error as string) ?? "Unknown error";
-              send("error", { ...event.data, sessionId });
-              break;
-            // Forward new event types
-            case "thinking":
-            case "tool_start":
-            case "tool_complete":
-            case "knowledge_used":
-              send(event.type, event.data);
-              break;
-          }
+        for (const event of replayed) send(event);
+        const latest = await repository.get(created.execution.id);
+        if (
+          replayed.some((event) => event.type === "execution_terminal")
+          || (latest && ExecutionStateMachine.isTerminal(latest.status))
+        ) {
+          controller.close();
+          return;
         }
-
-        const isAborted = abortController.signal.aborted;
-        await repository.update(sessionId, {
-          status: isAborted ? "failed" : (hasError ? "failed" : "completed"),
-          output: finalOutput || undefined,
-          error: isAborted ? "Cancelled by user" : (errorMsg || undefined),
-        });
-        controller.close();
-      } catch (err) {
-        const isAborted = abortController.signal.aborted;
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        await repository.update(sessionId, {
-          status: "failed",
-          error: isAborted ? "Cancelled by user" : errorMsg,
-        });
-        if (!isAborted) {
-          send("error", { error: errorMsg, sessionId });
+        for await (const event of eventStore.subscribe(
+          tenant.userId,
+          created.execution.id,
+          cursor,
+          subscriptionController.signal,
+        )) {
+          send(event);
+          if (event.type === "execution_terminal") break;
         }
         controller.close();
+      } catch (error) {
+        if (!subscriptionController.signal.aborted) {
+          controller.enqueue(encoder.encode(
+            `event: error\ndata: ${JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+            })}\n\n`,
+          ));
+          controller.close();
+        }
       } finally {
-        clientSignal.removeEventListener("abort", onClientAbort);
-        activeControllers.delete(key);
-        await userContextManagerInstance!.releaseConcurrencySlot(tenant);
+        c.req.raw.signal.removeEventListener("abort", onDisconnect);
       }
+    },
+    cancel() {
+      subscriptionController.abort();
+      c.req.raw.signal.removeEventListener("abort", onDisconnect);
     },
   });
 
   return new Response(stream, {
+    status: 202,
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Execution-Id": created.execution.id,
+      "X-Session-Id": created.sessionId,
     },
   });
 });
 
-/** Cancel an active execution session. */
-consoleRoute.post("/cancel", async (c) => {
-  const body = await c.req.json<{ sessionId: string }>();
-  const { sessionId } = body;
+consoleRoute.get("/executions/:id", async (c) => {
+  if (!dependencies) return c.json({ error: "not_initialized" }, 503);
   const tenant = c.get("tenant") as TenantContext;
+  const execution = await dependencies.executionRepositoryFactory(tenant.userId)
+    .get(c.req.param("id"));
+  if (!execution) return c.json({ error: "not_found" }, 404);
+  return c.json(execution);
+});
 
-  if (!sessionId) {
-    return c.json({ success: false, error: "sessionId is required" }, 400);
+consoleRoute.post("/cancel", async (c) => {
+  if (!dependencies) return c.json({ success: false, error: "not_initialized" }, 503);
+  const body = await c.req.json<{ executionId?: string; sessionId?: string }>();
+  if (!body.executionId && !body.sessionId) {
+    return c.json({ success: false, error: "executionId or sessionId is required" }, 400);
   }
-
-  if (!sessionRepositoryFactory) {
-    return c.json({ success: false, error: "SessionRepository not initialized" }, 503);
+  const tenant = c.get("tenant") as TenantContext;
+  const repository = dependencies.executionRepositoryFactory(tenant.userId);
+  let execution = body.executionId ? await repository.get(body.executionId) : null;
+  if (!execution && body.sessionId) {
+    execution = (await repository.list({ sessionId: body.sessionId, limit: 1 }))[0] ?? null;
   }
-
-  const repository = sessionRepositoryFactory(tenant.userId);
-  const session = await repository.get(sessionId);
-  if (!session) {
-    return c.json({ success: false, error: "Session not found" }, 404);
+  if (!execution) return c.json({ success: false, error: "Execution not found" }, 404);
+  if (ExecutionStateMachine.isTerminal(execution.status) && execution.status !== "cancelled") {
+    return c.json({
+      success: false,
+      error: `Execution is already ${execution.status}`,
+      executionId: execution.id,
+      status: execution.status,
+    }, 409);
   }
-
-  const controller = activeControllers.get(executionKey(tenant.userId, sessionId));
-  if (!controller) {
-    return c.json({ success: false, error: "No active execution for this session" }, 404);
-  }
-
-  console.log(`[console.ts] Cancelling session ${sessionId}`);
-  controller.abort();
-
-  await repository.update(sessionId, {
-    status: "failed",
-    error: "Cancelled by user",
+  const service = new ExecutionService(repository, dependencies.idGenerator);
+  const cancelled = await service.cancel(execution.id);
+  await dependencies.sessionRepositoryFactory(tenant.userId).update(
+    cancelled.sessionId,
+    { status: "cancelled", error: cancelled.errorMessage ?? "Execution cancelled" },
+  );
+  return c.json({
+    success: true,
+    executionId: cancelled.id,
+    sessionId: cancelled.sessionId,
+    status: cancelled.status,
   });
-
-  return c.json({ success: true, sessionId });
 });

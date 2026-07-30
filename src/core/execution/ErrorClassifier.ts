@@ -12,6 +12,7 @@ const TRANSIENT_ERROR_CODES = new Set([
 ]);
 
 type ErrorLike = {
+  errorClass?: unknown;
   name?: unknown;
   message?: unknown;
   code?: unknown;
@@ -24,6 +25,11 @@ type ErrorLike = {
 export class ErrorClassifier {
   static classify(error: unknown): ExecutionErrorClass {
     const chain = this.errorChain(error);
+    const explicit = chain
+      .map((item) => item.errorClass)
+      .find((value): value is ExecutionErrorClass =>
+        ["transient", "permanent", "cancelled", "timeout"].includes(String(value)));
+    if (explicit) return explicit;
 
     if (chain.some((item) => this.isCancelled(item))) {
       return "cancelled";

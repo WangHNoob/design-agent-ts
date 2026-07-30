@@ -118,4 +118,117 @@ describe("DirectorAgent", () => {
     expect(response.success).toBe(true);
     expect(response.agentName).toBe("Director");
   });
+
+  it("query stream 应直接转发 processStream 的真实 chunk", async () => {
+    const process = vi.fn();
+    const processStream = vi.fn(async function* () {
+      for (const text of ["真实", "分块"]) {
+        yield {
+          agentName: "QueryAgent",
+          message: ChatMessage.text("assistant", "QueryAgent", text),
+          metadata: {},
+          success: true,
+          errorMessage: null,
+        };
+      }
+    });
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: {
+        createAgent: vi.fn(() => ({
+          getDescriptor: vi.fn(),
+          getName: vi.fn(() => "QueryAgent"),
+          process,
+          processStream,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+    });
+
+    const events = [];
+    for await (const event of director.executeStream("Hello", "sid-stream", "query", "chief_designer")) {
+      events.push(event);
+    }
+
+    expect(events.filter((event) => event.type === "chunk").map((event) => event.data.text))
+      .toEqual(["真实", "分块"]);
+    expect(events.at(-1)?.data.output).toBe("真实分块");
+    expect(process).not.toHaveBeenCalled();
+  });
+
+  it("design stream 应按 DAG 并发同层并将失败后继标记 skipped", async () => {
+    const plan = {
+      planId: "p-dag",
+      subTasks: [
+        { id: "A", fragmentId: "A", domain: "system_design", description: "A", dependencies: [], priority: 1 },
+        { id: "B", fragmentId: "B", domain: "combat_design", description: "B", dependencies: [], priority: 1 },
+        { id: "C", fragmentId: "C", domain: "qa", description: "C", dependencies: ["A"], priority: 1 },
+      ],
+    };
+    const routing = [
+      { fragmentId: "A", domain: "system_design", agentName: "SystemDesigner", assignment: "A", priority: 1 },
+      { fragmentId: "B", domain: "combat_design", agentName: "CombatDesigner", assignment: "B", priority: 1 },
+      { fragmentId: "C", domain: "qa", agentName: "QAPlanner", assignment: "C", priority: 1 },
+    ];
+    let generateCall = 0;
+    const model = createMockModel();
+    model.generate = vi.fn(async () => ({
+      message: ChatMessage.text(
+        "assistant",
+        "bot",
+        JSON.stringify(generateCall++ === 0 ? plan : routing),
+      ),
+      inputTokenCount: 0,
+      outputTokenCount: 0,
+      finishReason: "stop",
+    }));
+    let active = 0;
+    let maxActive = 0;
+    const process = vi.fn(async function (this: { name: string }) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      const failed = this.name === "SystemDesigner";
+      return {
+        agentName: this.name,
+        message: ChatMessage.text("assistant", this.name, failed ? "" : "ok"),
+        metadata: {},
+        success: !failed,
+        errorMessage: failed ? "A failed" : null,
+      };
+    });
+    const director = new DirectorAgent({
+      model,
+      agentFactory: {
+        createAgent: vi.fn((descriptor) => ({
+          name: descriptor.name,
+          getDescriptor: vi.fn(() => descriptor),
+          getName: vi.fn(() => descriptor.name),
+          process,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+    });
+
+    const events = [];
+    for await (const event of director.executeStream("DAG", "sid-dag", "design", "chief_designer")) {
+      events.push(event);
+    }
+    const completed = events.filter((event) => event.type === "task_complete");
+
+    expect(maxActive).toBe(2);
+    expect(completed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ data: expect.objectContaining({ taskId: "A", status: "error" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ taskId: "B", status: "success" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ taskId: "C", status: "skipped" }) }),
+    ]));
+    expect(process).toHaveBeenCalledTimes(2);
+  });
 });

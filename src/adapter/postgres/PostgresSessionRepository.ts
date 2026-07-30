@@ -16,7 +16,8 @@ export class PostgresSessionRepository implements SessionRepository {
   async create(meta: SessionMeta): Promise<void> {
     await this.db.query(
       `INSERT INTO sessions (id, user_id, requirement, mode, role, status, output, error, hitl_checkpoint_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO NOTHING`,
       {
         1: meta.id,
         2: this.userId,

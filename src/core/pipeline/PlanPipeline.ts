@@ -7,6 +7,7 @@ export type TaskExecutor = (task: SubTask, signal?: AbortSignal) => Promise<Task
 export interface PlanPipelineOptions {
   signal?: AbortSignal;
   taskTimeoutMs?: number;
+  initialResults?: readonly TaskResult[];
   onTaskStart?: (task: SubTask) => void | Promise<void>;
   onTaskResult?: (task: SubTask, result: TaskResult) => void | Promise<void>;
 }
@@ -40,8 +41,9 @@ export class PlanPipeline {
   }
 
   async execute(): Promise<TaskResult[]> {
-    const allResults: TaskResult[] = [];
-    const resultByTaskId = new Map<string, TaskResult>();
+    const initialResults = this.options.initialResults ?? [];
+    const allResults: TaskResult[] = [...initialResults];
+    const resultByTaskId = new Map(initialResults.map((result) => [result.taskId, result]));
 
     for (let layerIndex = 0; layerIndex < this.layers.length; layerIndex += 1) {
       const layer = this.layers[layerIndex] ?? [];
@@ -52,13 +54,14 @@ export class PlanPipeline {
         console.log(
           `[PlanPipeline] Aborted, cancelling ${remainingTasks} tasks across ${remainingLayers} layers`,
         );
-        this.appendCancelledResults(allResults, resultByTaskId);
+        await this.appendCancelledResults(allResults, resultByTaskId);
         return allResults;
       }
 
       const layerTasks = layer
         .map((id) => this.plan.subTasks.find((t) => t.id === id))
-        .filter((t): t is SubTask => t !== undefined);
+        .filter((t): t is SubTask => t !== undefined)
+        .filter((task) => !resultByTaskId.has(task.id));
 
       const layerResults = await Promise.all(
         layerTasks.map(async (task) => {
@@ -66,7 +69,9 @@ export class PlanPipeline {
             (dependencyId) => resultByTaskId.get(dependencyId)?.status !== "success",
           );
           if (failedDependencies.length > 0) {
-            return this.skippedResult(task, failedDependencies);
+            const result = this.skippedResult(task, failedDependencies);
+            await this.options.onTaskResult?.(task, result);
+            return result;
           }
           return this.executeTask(task);
         }),
@@ -190,6 +195,7 @@ export class PlanPipeline {
         status: errorClass === "cancelled" ? "cancelled" : "error",
         output: "",
         errorMessage: ErrorClassifier.message(error),
+        errorClass,
       };
     } finally {
       if (timeout !== undefined) {
@@ -212,10 +218,10 @@ export class PlanPipeline {
     };
   }
 
-  private appendCancelledResults(
+  private async appendCancelledResults(
     allResults: TaskResult[],
     resultByTaskId: Map<string, TaskResult>,
-  ): void {
+  ): Promise<void> {
     for (const task of this.plan.subTasks) {
       if (resultByTaskId.has(task.id)) {
         continue;
@@ -229,6 +235,7 @@ export class PlanPipeline {
       };
       allResults.push(result);
       resultByTaskId.set(task.id, result);
+      await this.options.onTaskResult?.(task, result);
     }
   }
 

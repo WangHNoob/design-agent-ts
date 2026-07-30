@@ -50,9 +50,9 @@ export function createApp() {
       if (!origin || allowed.some((p) => p.test(origin))) return origin;
       return "http://localhost:3001";
     },
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "Last-Event-ID"],
     allowMethods: ["POST", "GET", "OPTIONS", "PUT", "DELETE"],
-    exposeHeaders: ["Content-Length", "Set-Cookie"],
+    exposeHeaders: ["Content-Length", "Set-Cookie", "X-Execution-Id", "X-Session-Id"],
     maxAge: 600,
     credentials: true,
   }));

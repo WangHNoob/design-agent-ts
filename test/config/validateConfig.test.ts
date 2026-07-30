@@ -56,6 +56,11 @@ function config(
       blockMs: 1000,
       maxRetries: 3,
     },
+    execution: {
+      taskTimeoutMs: 300000,
+      pollIntervalMs: 1000,
+      eventMaxLength: 10000,
+    },
     mcp: {
       enabled: false,
       servers: [],

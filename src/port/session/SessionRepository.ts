@@ -3,7 +3,15 @@ export interface SessionMeta {
   requirement: string;
   mode: "design" | "query" | "table";
   role: string;
-  status: "running" | "waiting_hitl" | "completed" | "failed" | "clarifying";
+  status:
+    | "queued"
+    | "running"
+    | "waiting_hitl"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "timed_out"
+    | "clarifying";
   createdAt: string;
   updatedAt: string;
   output?: string;
