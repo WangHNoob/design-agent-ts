@@ -252,7 +252,7 @@ export class DirectorAgent {
 
     const pipeline = new PlanPipeline(
       mergedPlan,
-      (task) => this.executeSingleTask(
+      (task, taskSignal) => this.executeSingleTask(
         {
           taskId: task.id,
           domain: task.domain,
@@ -262,7 +262,7 @@ export class DirectorAgent {
         },
         sessionId,
         traceId,
-        signal
+        taskSignal
       ),
       signal
     );
