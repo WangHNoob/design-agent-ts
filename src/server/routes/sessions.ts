@@ -1,15 +1,16 @@
 import { Hono } from "hono";
-import type { SessionManager } from "../../core/session/SessionManager.js";
 import type { WorkspaceManager } from "../../core/workspace/WorkspaceManager.js";
-import { promises as fs } from "fs";
-import path from "path";
+import type { SessionRepository } from "../../port/session/SessionRepository.js";
+import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
 import JSZip from "jszip";
 
-let sessionManagerInstance: SessionManager | null = null;
+export type SessionRepositoryFactory = (userId: string) => SessionRepository;
+
+let sessionRepositoryFactory: SessionRepositoryFactory | null = null;
 let workspaceManagerInstance: WorkspaceManager | null = null;
 
-export function setSessionManager(sm: SessionManager) {
-  sessionManagerInstance = sm;
+export function setSessionRepositoryFactory(factory: SessionRepositoryFactory) {
+  sessionRepositoryFactory = factory;
 }
 
 export function setWorkspaceManager(ws: WorkspaceManager) {
@@ -23,31 +24,35 @@ function isValidSessionId(id: string): boolean {
 export const sessionsRoute = new Hono();
 
 sessionsRoute.get("/", async (c) => {
-  if (!sessionManagerInstance) {
-    return c.json({ error: "SessionManager not initialized" }, 503);
+  const factory = sessionRepositoryFactory;
+  if (!factory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
   }
+  const repository = factory((c.get("tenant") as TenantContext).userId);
   const limit = Number(c.req.query("limit") ?? "50");
   const offset = Number(c.req.query("offset") ?? "0");
-  const sessions = await sessionManagerInstance.list(limit, offset);
+  const sessions = await repository.list(limit, offset);
   return c.json({ sessions, total: sessions.length });
 });
 
 sessionsRoute.get("/:id", async (c) => {
-  if (!sessionManagerInstance) {
-    return c.json({ error: "SessionManager not initialized" }, 503);
+  const factory = sessionRepositoryFactory;
+  if (!factory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
   }
   const id = c.req.param("id");
-  const session = await sessionManagerInstance.get(id);
+  const session = await factory((c.get("tenant") as TenantContext).userId).get(id);
   if (!session) return c.json({ error: "Session not found" }, 404);
   return c.json(session);
 });
 
 sessionsRoute.delete("/:id", async (c) => {
-  if (!sessionManagerInstance) {
-    return c.json({ error: "SessionManager not initialized" }, 503);
+  const factory = sessionRepositoryFactory;
+  if (!factory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
   }
   const id = c.req.param("id");
-  const deleted = await sessionManagerInstance.delete(id);
+  const deleted = await factory((c.get("tenant") as TenantContext).userId).delete(id);
   if (!deleted) return c.json({ error: "Session not found" }, 404);
   return c.json({ success: true });
 });
@@ -56,14 +61,16 @@ sessionsRoute.get("/:id/files", async (c) => {
   if (!workspaceManagerInstance) {
     return c.json({ error: "WorkspaceManager not initialized" }, 503);
   }
-  if (!sessionManagerInstance) {
-    return c.json({ error: "SessionManager not initialized" }, 503);
+  const factory = sessionRepositoryFactory;
+  if (!factory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
   }
   const sessionId = c.req.param("id");
   if (!isValidSessionId(sessionId)) {
     return c.json({ error: "Invalid session id" }, 400);
   }
-  const session = await sessionManagerInstance.get(sessionId);
+  const repository = factory((c.get("tenant") as TenantContext).userId);
+  const session = await repository.get(sessionId);
   if (!session) return c.json({ error: "Session not found" }, 404);
 
   try {
@@ -74,14 +81,11 @@ sessionsRoute.get("/:id/files", async (c) => {
         const { taskId, domain } = parseTaskPath(taskPath);
         const files = await Promise.all(
           fileNames.map(async (name) => {
-            const fullPath = path.join("workspace", sessionId, taskPath, name);
-            let size = 0;
-            try {
-              const stat = await fs.stat(fullPath);
-              size = stat.size;
-            } catch {
-              // ignore files that cannot be stated
-            }
+            const content = await workspaceManagerInstance!.readWorkspaceFile(
+              sessionId,
+              `${taskPath}/${name}`,
+            );
+            const size = content === null ? 0 : Buffer.byteLength(content);
             return {
               name,
               size: formatBytes(size),
@@ -111,11 +115,15 @@ sessionsRoute.get("/:id/files/download", async (c) => {
   if (!workspaceManagerInstance) {
     return c.json({ error: "WorkspaceManager not initialized" }, 503);
   }
+  const factory = sessionRepositoryFactory;
+  if (!factory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
+  }
   const sessionId = c.req.param("id");
   if (!isValidSessionId(sessionId)) {
     return c.json({ error: "Invalid session id" }, 400);
   }
-  const session = await sessionManagerInstance?.get(sessionId);
+  const session = await factory((c.get("tenant") as TenantContext).userId).get(sessionId);
   if (!session) return c.json({ error: "Session not found" }, 404);
   const rawPath = c.req.query("path") ?? "";
   const safePath = sanitizeFilePath(rawPath);
@@ -123,20 +131,16 @@ sessionsRoute.get("/:id/files/download", async (c) => {
     return c.json({ error: "Invalid path" }, 400);
   }
 
-  const fullPath = path.resolve(path.join("workspace", sessionId, safePath));
-  const workspaceRoot = path.resolve(path.join("workspace", sessionId));
-  if (!isWithinWorkspace(fullPath, workspaceRoot)) {
-    return c.json({ error: "Invalid path" }, 400);
-  }
-
   try {
-    const content = await fs.readFile(fullPath);
-    const fileName = path.basename(safePath);
-    const ext = path.extname(fileName).toLowerCase();
-    const contentType = ext === ".md" ? "text/markdown; charset=utf-8" : "application/octet-stream";
+    const content = await workspaceManagerInstance.readWorkspaceFile(sessionId, safePath);
+    if (content === null) return c.json({ error: "File not found" }, 404);
+    const fileName = safePath.split("/").at(-1) ?? "download";
+    const contentType = fileName.toLowerCase().endsWith(".md")
+      ? "text/markdown; charset=utf-8"
+      : "application/octet-stream";
     c.header("Content-Type", contentType);
     c.header("Content-Disposition", `attachment; filename="${fileName}"`);
-    return c.body(content);
+    return c.body(new TextEncoder().encode(content));
   } catch {
     return c.json({ error: "File not found" }, 404);
   }
@@ -146,11 +150,15 @@ sessionsRoute.get("/:id/files/zip", async (c) => {
   if (!workspaceManagerInstance) {
     return c.json({ error: "WorkspaceManager not initialized" }, 503);
   }
+  const factory = sessionRepositoryFactory;
+  if (!factory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
+  }
   const sessionId = c.req.param("id");
   if (!isValidSessionId(sessionId)) {
     return c.json({ error: "Invalid session id" }, 400);
   }
-  const session = await sessionManagerInstance?.get(sessionId);
+  const session = await factory((c.get("tenant") as TenantContext).userId).get(sessionId);
   if (!session) return c.json({ error: "Session not found" }, 404);
   const zip = new JSZip();
 
@@ -159,9 +167,12 @@ sessionsRoute.get("/:id/files/zip", async (c) => {
     for (const taskPath of taskDirs) {
       const fileNames = await workspaceManagerInstance.listTaskFilesByPath(sessionId, taskPath);
       for (const fileName of fileNames) {
-        const fullPath = path.join("workspace", sessionId, taskPath, fileName);
         try {
-          const content = await fs.readFile(fullPath);
+          const content = await workspaceManagerInstance.readWorkspaceFile(
+            sessionId,
+            `${taskPath}/${fileName}`,
+          );
+          if (content === null) continue;
           zip.file(`${taskPath}/${fileName}`, content);
         } catch {
           // skip unreadable files
@@ -191,15 +202,6 @@ function sanitizeFilePath(input: string): string {
     )
     .filter((s) => s.length > 0)
     .join("/");
-}
-
-function isWithinWorkspace(fullPath: string, workspaceRoot: string): boolean {
-  const normalizedFile = path.normalize(fullPath);
-  const normalizedRoot = path.normalize(workspaceRoot);
-  return (
-    normalizedFile === normalizedRoot ||
-    normalizedFile.startsWith(normalizedRoot + path.sep)
-  );
 }
 
 function parseTaskPath(taskPath: string): { taskId: string; domain: string } {

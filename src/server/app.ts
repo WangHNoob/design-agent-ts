@@ -11,11 +11,14 @@ import { workflowsRoute } from "./routes/workflows.js";
 import { usersRoute } from "./routes/users.js";
 import type { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
+import type { TenantContext } from "../port/user/TenantIsolationPort.js";
 import type { DatabasePort } from "../port/infra/DatabasePort.js";
+import type { ContextStoragePort } from "../port/infra/ContextStoragePort.js";
 import { authMiddleware, requireAuth } from "./middleware/auth.js";
 
 let betterAuthAdapter: BetterAuthAdapter | null = null;
 let tenantPort: TenantIsolationPort | null = null;
+let tenantContextStorage: ContextStoragePort<TenantContext> | null = null;
 let databasePort: DatabasePort | null = null;
 
 export function setAuthAdapter(adapter: BetterAuthAdapter) {
@@ -24,6 +27,10 @@ export function setAuthAdapter(adapter: BetterAuthAdapter) {
 
 export function setTenantPort(port: TenantIsolationPort) {
   tenantPort = port;
+}
+
+export function setTenantContextStorage(storage: ContextStoragePort<TenantContext>) {
+  tenantContextStorage = storage;
 }
 
 export function setDatabasePort(db: DatabasePort) {
@@ -66,7 +73,10 @@ export function createApp() {
   // Resolves Better Auth session → TenantContext for all /api/* routes,
   // then protects business API routes by default.
   if (tenantPort) {
-    app.use("/api/*", authMiddleware(tenantPort));
+    if (!tenantContextStorage) {
+      throw new Error("Tenant context storage is not configured");
+    }
+    app.use("/api/*", authMiddleware(tenantPort, tenantContextStorage));
     app.use("/api/*", requireAuth());
   }
 

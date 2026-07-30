@@ -5,6 +5,7 @@ import type { TavilySearchTool } from "../../adapter/tavily/TavilySearchTool.js"
 import { syncEnvFromSettings } from "../envSync.js";
 import { isDirectorReady, lateBootstrapDirector } from "../bootstrap.js";
 import { hasActiveExecutions } from "./console.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 let settingsManagerInstance: SettingsManager | null = null;
 let containerInstance: Container | null = null;
@@ -70,7 +71,7 @@ settingsRoute.get("/status", async (c) => {
   });
 });
 
-settingsRoute.post("/", async (c) => {
+settingsRoute.post("/", requireAdmin(), async (c) => {
   if (!settingsManagerInstance) {
     return c.json({ error: "SettingsManager not initialized" }, 503);
   }

@@ -24,7 +24,7 @@ const DEFAULT_LOCK_OPTIONS: LockOptions = {
  * - Tenant context resolution via Better Auth session (delegated to UserPort)
  * - Distributed locking with Redis SET NX EX
  * - Tenant-scoped caching with TTL
- * - Concurrency control via Redis INCR/DECR
+ * - Atomic concurrency control via Redis Lua
  */
 export class RedisTenantIsolationAdapter implements TenantIsolationPort {
   private redis: RedisType;
@@ -182,29 +182,44 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
 
   // ─── Concurrency Control ─────────────────────────────────────
 
-  async checkConcurrencyLimit(userId: string, maxConcurrent: number): Promise<{ allowed: boolean; current: number }> {
+  async acquireConcurrencySlot(
+    userId: string,
+    maxConcurrent: number,
+  ): Promise<{ acquired: boolean; current: number }> {
     const key = this.scopeKey(userId, "concurrent");
-    const current = parseInt(await this.redis.get(key) ?? "0", 10);
-    return { allowed: current < maxConcurrent, current };
+    const script = `
+      local current = tonumber(redis.call("GET", KEYS[1]) or "0")
+      local limit = tonumber(ARGV[1])
+      if current >= limit then
+        return {0, current}
+      end
+      local next = redis.call("INCR", KEYS[1])
+      if next == 1 then
+        redis.call("EXPIRE", KEYS[1], tonumber(ARGV[2]))
+      end
+      return {1, next}
+    `;
+    const result = await this.redis.eval(script, 1, key, maxConcurrent.toString(), "3600");
+    if (!Array.isArray(result) || result.length < 2) {
+      throw new Error("Redis returned an invalid concurrency acquisition result");
+    }
+    return {
+      acquired: Number(result[0]) === 1,
+      current: Number(result[1]),
+    };
   }
 
-  async incrementConcurrency(userId: string): Promise<number> {
+  async releaseConcurrencySlot(userId: string): Promise<number> {
     const key = this.scopeKey(userId, "concurrent");
-    const val = await this.redis.incr(key);
-    if (val === 1) {
-      await this.redis.expire(key, 3600);
-    }
-    return val;
-  }
-
-  async decrementConcurrency(userId: string): Promise<number> {
-    const key = this.scopeKey(userId, "concurrent");
-    const val = await this.redis.decr(key);
-    if (val <= 0) {
-      await this.redis.del(key);
-      return 0;
-    }
-    return val;
+    const script = `
+      local current = tonumber(redis.call("GET", KEYS[1]) or "0")
+      if current <= 1 then
+        redis.call("DEL", KEYS[1])
+        return 0
+      end
+      return redis.call("DECR", KEYS[1])
+    `;
+    return Number(await this.redis.eval(script, 1, key));
   }
 
   // ─── Health ──────────────────────────────────────────────────

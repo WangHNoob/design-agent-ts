@@ -7,16 +7,16 @@ import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
-import { setDirector, setConsoleSessionManager, setConsoleHITLManager, hasActiveExecutions } from "./routes/console.js";
-import { setSessionManager, setWorkspaceManager } from "./routes/sessions.js";
-import { setHITLManager } from "./routes/hitl.js";
-import { SessionManager } from "../core/session/SessionManager.js";
-import { HITLManager } from "../core/hitl/HITLManager.js";
+import { setDirector, setConsoleExecutionDependencies, hasActiveExecutions } from "./routes/console.js";
+import { setSessionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
+import { setHITLRepositoryFactory } from "./routes/hitl.js";
 import { LoggingHook } from "../core/hook/LoggingHook.js";
 import { ValidationHook } from "../core/hook/ValidationHook.js";
 import { IterationBudgetHook } from "../core/hook/IterationBudgetHook.js";
 import { OutputEnforcementHook } from "../core/hook/OutputEnforcementHook.js";
 import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
+import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
+import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
 import { WikiPageTool } from "../core/tool/knowledge/WikiPageTool.js";
 import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
@@ -28,17 +28,20 @@ import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool, setMCPStatus } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
+import { NodeContextStorageAdapter } from "../adapter/infra/NodeContextStorageAdapter.js";
 import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
 import { MemoryManager } from "../core/memory/MemoryManager.js";
 import { PostgresDatabaseAdapter } from "../adapter/postgres/PostgresDatabaseAdapter.js";
 import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
+import { PostgresHITLRepository } from "../adapter/postgres/PostgresHITLRepository.js";
+import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
+import type { TenantContext } from "../port/user/TenantIsolationPort.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
-import { setAuthAdapter, setTenantPort, setDatabasePort } from "./app.js";
-import { setUserIdScopedStores } from "./middleware/auth.js";
+import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
@@ -133,6 +136,7 @@ export async function lateBootstrapDirector(): Promise<void> {
 export async function bootstrap() {
   const config = loadConfig();
   const fileSystem = new NodeFileSystemAdapter();
+  const contextStorage = new NodeContextStorageAdapter<TenantContext>();
 
   let apiKey = config.model.apiKey;
 
@@ -335,7 +339,7 @@ export async function bootstrap() {
   // Long-term memory is PostgreSQL-backed and scoped per authenticated user.
   let memoryManager: MemoryManager | null = null;
 
-  const workspaceManager = new WorkspaceManager("workspace", fileSystem);
+  const workspaceManager = new WorkspaceManager("workspace", fileSystem, contextStorage);
 
   // ─── User System (Multi-Tenant) ──────────────────────────────────
   let userContextManager: UserContextManager | null = null;
@@ -391,6 +395,16 @@ export async function bootstrap() {
     userContextManager = new UserContextManager(betterAuthAdapter, redisAdapter);
 
     if (config.longTermMemory.enabled) {
+      const memoryPort = new ContextualPostgresLongTermMemoryAdapter(
+        dbAdapter,
+        new NodeIdGeneratorAdapter(),
+        contextStorage,
+      );
+      memoryManager = new MemoryManager(memoryPort, config.longTermMemory);
+      hooks.push(new MemoryInjectionHook(memoryManager, config.longTermMemory.defaultNamespace));
+      if (config.longTermMemory.autoExtract) {
+        hooks.push(new MemoryExtractionHook(memoryManager, config.longTermMemory.defaultNamespace));
+      }
       console.log("[Bootstrap] Long-term memory configured for PostgreSQL (user-scoped)");
     }
 
@@ -410,19 +424,19 @@ export async function bootstrap() {
   // Store bootstrap state for potential late director initialization
   bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, mcpClients, mcpToolNames, blackboardStore };
 
-  const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
-  await sessionManager.initialize();
+  const sessionRepositoryFactory = (userId: string) =>
+    new PostgresSessionRepository(dbAdapter!, userId);
+  const hitlRepositoryFactory = (userId: string) =>
+    new PostgresHITLRepository(dbAdapter!, userId);
 
-  const hitlManager = new HITLManager(fileSystem);
-  await hitlManager.initialize();
-
-  setUserIdScopedStores(sessionManager, workspaceManager, hitlManager);
-
-  setConsoleSessionManager(sessionManager);
-  setConsoleHITLManager(hitlManager);
-  setSessionManager(sessionManager);
+  setConsoleExecutionDependencies(
+    sessionRepositoryFactory,
+    userContextManager!,
+    config.userSystem.maxConcurrentPerUser,
+  );
+  setSessionRepositoryFactory(sessionRepositoryFactory);
   setWorkspaceManager(workspaceManager);
-  setHITLManager(hitlManager);
+  setHITLRepositoryFactory(hitlRepositoryFactory);
   setSettingsManager(settingsManager);
   setTavilyTool(tavilyTool);
 
@@ -435,6 +449,7 @@ export async function bootstrap() {
     setAuthAdapter(betterAuthAdapter);
   }
   if (redisAdapter) {
+    setTenantContextStorage(contextStorage);
     setTenantPort(redisAdapter);
   }
   if (dbAdapter) {
@@ -496,7 +511,7 @@ export async function bootstrap() {
   }
 
   const app = createApp();
-  return { app, config, container: bootstrapState.container, director: null, sessionManager, hitlManager, settingsManager };
+  return { app, config, container: bootstrapState.container, director: null, settingsManager };
 }
 
 /**
