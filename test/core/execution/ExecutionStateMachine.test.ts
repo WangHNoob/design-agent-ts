@@ -9,6 +9,7 @@ describe("ExecutionStateMachine", () => {
     expect(ExecutionStateMachine.canTransition("queued", "running")).toBe(true);
     expect(ExecutionStateMachine.canTransition("running", "waiting_hitl")).toBe(true);
     expect(ExecutionStateMachine.canTransition("waiting_hitl", "queued")).toBe(true);
+    expect(ExecutionStateMachine.canTransition("waiting_hitl", "failed")).toBe(true);
     expect(ExecutionStateMachine.canTransition("running", "completed")).toBe(true);
   });
 
