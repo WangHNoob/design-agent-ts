@@ -97,7 +97,9 @@ export function loadConfig(): FrameworkConfig {
     messageQueue: {
       enabled: process.env.MQ_ENABLED === "true",
       consumerGroup: process.env.MQ_CONSUMER_GROUP ?? "gd-workers",
-      pollIntervalMs: Number(process.env.MQ_POLL_INTERVAL_MS ?? 100),
+      visibilityTimeoutMs: Number(process.env.MQ_VISIBILITY_TIMEOUT_MS ?? 30000),
+      blockMs: Number(process.env.MQ_BLOCK_MS ?? 1000),
+      maxRetries: Number(process.env.MQ_MAX_RETRIES ?? 3),
     },
     mcp: {
       enabled: process.env.MCP_ENABLED === "true",
