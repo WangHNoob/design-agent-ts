@@ -72,7 +72,6 @@ export function loadConfig(): FrameworkConfig {
     },
     longTermMemory: {
       enabled: process.env.LTM_ENABLED === "true",
-      storagePath: process.env.LTM_STORAGE_PATH ?? "./data/long-term-memory",
       defaultNamespace: process.env.LTM_DEFAULT_NAMESPACE ?? "global",
       maxContextMemories: Number(process.env.LTM_MAX_CONTEXT_MEMORIES ?? 10),
       minImportanceForContext: Number(process.env.LTM_MIN_IMPORTANCE ?? 0.4),
@@ -82,14 +81,11 @@ export function loadConfig(): FrameworkConfig {
       pruneBelowImportance: Number(process.env.LTM_PRUNE_BELOW_IMPORTANCE ?? 0.3),
     },
     userSystem: {
-      enabled: process.env.USER_SYSTEM_ENABLED === "true",
-      betterAuthSecret: process.env.BETTER_AUTH_SECRET ?? "change-me-in-production",
+      betterAuthSecret: process.env.BETTER_AUTH_SECRET ?? "",
       betterAuthBaseUrl: process.env.BETTER_AUTH_BASE_URL ?? "http://localhost:4527",
       maxConcurrentPerUser: Number(process.env.MAX_CONCURRENT_PER_USER ?? 3),
-      postgresUrl: process.env.POSTGRES_URL ?? "postgresql://localhost:5432/game_designer",
-      redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
-      redisEnabled: process.env.USER_SYSTEM_REDIS_ENABLED !== "false",
-      autoInitSchema: process.env.AUTO_INIT_SCHEMA !== "false",
+      postgresUrl: process.env.POSTGRES_URL ?? "",
+      redisUrl: process.env.REDIS_URL ?? "",
       adminEmailDomains: process.env.ADMIN_EMAIL_DOMAINS ?? "",
       dingtalk: {
         clientId: process.env.DINGTALK_CLIENT_ID ?? "",

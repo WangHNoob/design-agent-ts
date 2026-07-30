@@ -1,7 +1,6 @@
 services:
   # ─── Infrastructure ────────────────────────────────────────────
   postgres:
-    profiles: ["infra"]
     image: pgvector/pgvector:pg18
     container_name: gdt-postgres
     environment:
@@ -47,7 +46,6 @@ services:
     restart: unless-stopped
 
   redis:
-    profiles: ["infra"]
     image: redis:7-alpine
     container_name: gdt-redis
     ports:
@@ -90,15 +88,12 @@ services:
       - TAVILY_API_KEY=${TAVILY_API_KEY}
       # Long-Term Memory
       - LTM_ENABLED=${LTM_ENABLED:-true}
-      - LTM_STORAGE_PATH=./data/long-term-memory
       # User System (Better Auth)
-      - USER_SYSTEM_ENABLED=${USER_SYSTEM_ENABLED:-true}
-      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-in-production}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       - BETTER_AUTH_BASE_URL=http://backend:3000
-      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@host.docker.internal:5433/${POSTGRES_DB:-game_designer}
-      - REDIS_URL=redis://host.docker.internal:${REDIS_PORT:-6379}/0
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-game_designer}:${POSTGRES_PASSWORD:-game_designer}@postgres:5432/${POSTGRES_DB:-game_designer}
+      - REDIS_URL=redis://redis:6379/0
       - MAX_CONCURRENT_PER_USER=${MAX_CONCURRENT_PER_USER:-3}
-      - AUTO_INIT_SCHEMA=${AUTO_INIT_SCHEMA:-true}
       # Admin domains (comma-separated email domains for auto admin role)
       - ADMIN_EMAIL_DOMAINS=${ADMIN_EMAIL_DOMAINS:-}
       # DingTalk SSO
@@ -107,22 +102,17 @@ services:
       - ALLOW_EMAIL_PASSWORD=${ALLOW_EMAIL_PASSWORD:-true}
       - TRUSTED_ORIGINS=${TRUSTED_ORIGINS:-http://localhost:3001}
       # Message Queue
-      - MQ_ENABLED=${MQ_ENABLED:-true}
+      - MQ_ENABLED=true
       - MQ_CONSUMER_GROUP=${MQ_CONSUMER_GROUP:-gd-workers}
     volumes:
-      - ./sessions:/app/sessions
-      - ./settings.json:/app/settings.json
       - ./contrib:/app/contrib
       - ./prompts:/app/prompts
       - ./knowledge:/app/knowledge
-      - ltm_data:/app/data/long-term-memory
     depends_on:
       postgres:
         condition: service_healthy
-        required: false
       redis:
         condition: service_healthy
-        required: false
     restart: unless-stopped
 
   # ─── Frontend ──────────────────────────────────────────────────
@@ -185,6 +175,5 @@ volumes:
   postgres_data:
   pg_backups:
   redis_data:
-  ltm_data:
   prometheus_data:
   grafana_data:
