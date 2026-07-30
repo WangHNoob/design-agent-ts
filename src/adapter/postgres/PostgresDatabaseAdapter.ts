@@ -100,7 +100,7 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       -- Application sessions table (game design sessions, not auth sessions)
       CREATE TABLE IF NOT EXISTS sessions (
         id VARCHAR(100) PRIMARY KEY,
-        user_id VARCHAR(36),
+        user_id VARCHAR(36) NOT NULL,
         requirement TEXT NOT NULL,
         mode VARCHAR(20) NOT NULL,
         role VARCHAR(50) NOT NULL,

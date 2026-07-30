@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -43,7 +44,7 @@ export const sessions = pgTable(
   "sessions",
   {
     id: varchar("id", { length: 100 }).primaryKey(),
-    userId: varchar("user_id", { length: 36 }),
+    userId,
     requirement: text("requirement").notNull(),
     mode: varchar("mode", { length: 20 }).notNull(),
     role: varchar("role", { length: 50 }).notNull(),
@@ -55,6 +56,161 @@ export const sessions = pgTable(
     updatedAt,
   },
   (table) => [index("idx_sessions_user").on(table.userId, table.status)],
+);
+
+export const executions = pgTable(
+  "executions",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    sessionId: varchar("session_id", { length: 100 })
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("queued"),
+    requestPayload: jsonb("request_payload").notNull().default({}),
+    planPayload: jsonb("plan_payload"),
+    resultPayload: jsonb("result_payload"),
+    resumeCursor: varchar("resume_cursor", { length: 255 }),
+    resumePayload: jsonb("resume_payload"),
+    errorClass: varchar("error_class", { length: 20 }),
+    errorMessage: text("error_message"),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    unique("executions_user_idempotency_unique").on(table.userId, table.idempotencyKey),
+    index("idx_executions_user_status_created").on(table.userId, table.status, table.createdAt),
+    index("idx_executions_user_session").on(table.userId, table.sessionId, table.createdAt),
+    check(
+      "executions_status_check",
+      sql`${table.status} in ('queued', 'running', 'waiting_hitl', 'completed', 'failed', 'cancelled', 'timed_out')`,
+    ),
+  ],
+);
+
+export const executionTasks = pgTable(
+  "execution_tasks",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    executionId: varchar("execution_id", { length: 100 })
+      .notNull()
+      .references(() => executions.id, { onDelete: "cascade" }),
+    taskKey: varchar("task_key", { length: 100 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    agentName: varchar("agent_name", { length: 100 }),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    dependencies: jsonb("dependencies").notNull().default([]),
+    inputPayload: jsonb("input_payload").notNull().default({}),
+    outputPayload: jsonb("output_payload"),
+    resumeCursor: varchar("resume_cursor", { length: 255 }),
+    resumePayload: jsonb("resume_payload"),
+    position: integer("position").notNull().default(0),
+    errorClass: varchar("error_class", { length: 20 }),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    unique("execution_tasks_user_execution_key_unique").on(table.userId, table.executionId, table.taskKey),
+    index("idx_execution_tasks_user_execution_status").on(table.userId, table.executionId, table.status),
+    check(
+      "execution_tasks_status_check",
+      sql`${table.status} in ('pending', 'running', 'success', 'error', 'skipped', 'cancelled')`,
+    ),
+  ],
+);
+
+export const executionAttempts = pgTable(
+  "execution_attempts",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    executionId: varchar("execution_id", { length: 100 })
+      .notNull()
+      .references(() => executions.id, { onDelete: "cascade" }),
+    taskId: varchar("task_id", { length: 100 })
+      .notNull()
+      .references(() => executionTasks.id, { onDelete: "cascade" }),
+    attemptNumber: integer("attempt_number").notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("running"),
+    errorClass: varchar("error_class", { length: 20 }),
+    errorCode: varchar("error_code", { length: 100 }),
+    errorMessage: text("error_message"),
+    inputPayload: jsonb("input_payload").notNull().default({}),
+    outputPayload: jsonb("output_payload"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt,
+  },
+  (table) => [
+    unique("execution_attempts_user_task_number_unique").on(table.userId, table.taskId, table.attemptNumber),
+    index("idx_execution_attempts_user_execution_task").on(table.userId, table.executionId, table.taskId),
+    index("idx_execution_attempts_user_status").on(table.userId, table.status),
+    check(
+      "execution_attempts_status_check",
+      sql`${table.status} in ('running', 'success', 'error', 'cancelled', 'timed_out')`,
+    ),
+    check(
+      "execution_attempts_error_class_check",
+      sql`${table.errorClass} is null or ${table.errorClass} in ('transient', 'permanent', 'cancelled', 'timeout')`,
+    ),
+  ],
+);
+
+export const hitlCheckpoints = pgTable(
+  "hitl_checkpoints",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    sessionId: varchar("session_id", { length: 100 })
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    executionId: varchar("execution_id", { length: 100 }).references(() => executions.id, { onDelete: "cascade" }),
+    taskId: varchar("task_id", { length: 100 }).references(() => executionTasks.id, { onDelete: "cascade" }),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }),
+    stage: varchar("stage", { length: 20 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("waiting_review"),
+    content: text("content").notNull(),
+    contentType: varchar("content_type", { length: 20 }).notNull().default("markdown"),
+    agentName: varchar("agent_name", { length: 100 }),
+    reviewPoint: varchar("review_point", { length: 100 }).notNull(),
+    resumeCursor: varchar("resume_cursor", { length: 255 }),
+    resumePayload: jsonb("resume_payload"),
+    reviewerId: varchar("reviewer_id", { length: 36 }),
+    fallback: boolean("fallback").notNull().default(false),
+    reviewAction: varchar("review_action", { length: 20 }),
+    reviewComment: text("review_comment"),
+    modifiedContent: text("modified_content"),
+    createdAt,
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    updatedAt,
+  },
+  (table) => [
+    unique("hitl_checkpoints_user_idempotency_unique").on(table.userId, table.idempotencyKey),
+    index("idx_hitl_checkpoints_user_status_created").on(table.userId, table.status, table.createdAt),
+    index("idx_hitl_checkpoints_user_session").on(table.userId, table.sessionId, table.createdAt),
+    index("idx_hitl_checkpoints_user_execution_review").on(table.userId, table.executionId, table.reviewPoint),
+    check("hitl_checkpoints_stage_check", sql`${table.stage} in ('plan', 'subagent', 'integrate')`),
+    check(
+      "hitl_checkpoints_status_check",
+      sql`${table.status} in ('waiting_review', 'approved', 'rejected', 'modified')`,
+    ),
+    check(
+      "hitl_checkpoints_content_type_check",
+      sql`${table.contentType} in ('markdown', 'json')`,
+    ),
+    check(
+      "hitl_checkpoints_review_action_check",
+      sql`${table.reviewAction} is null or ${table.reviewAction} in ('approve', 'reject', 'modify')`,
+    ),
+  ],
 );
 
 export const longTermMemory = pgTable(
