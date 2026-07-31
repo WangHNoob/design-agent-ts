@@ -37,7 +37,7 @@ todos:
     status: completed
   - id: p2-multiagent-guard
     content: 跨 Agent 全局 Token 预算、fan-out/递归深度、调用环检测、Handoff schema
-    status: pending
+    status: completed
   - id: p2-memory-sse
     content: 记忆驱逐前摘要 + SSE 心跳/执行与连接解耦/状态恢复重连
     status: pending

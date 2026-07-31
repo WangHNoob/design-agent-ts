@@ -1,5 +1,6 @@
 import type { Domain } from "./TaskPlan.js";
 import type { ExecutionErrorClass } from "../../port/execution/types.js";
+import type { HandoffPayload } from "./HandoffPayload.js";
 
 export interface TaskResult {
   readonly taskId: string;
@@ -8,4 +9,6 @@ export interface TaskResult {
   readonly output: string;
   readonly errorMessage: string | null;
   readonly errorClass?: ExecutionErrorClass;
+  /** Distilled handoff for downstream agents (full output still in `output` / workspace). */
+  readonly handoff?: HandoffPayload;
 }
