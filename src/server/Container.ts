@@ -23,16 +23,28 @@ export class Container {
     readonly skillRegistry: SkillRegistry,
   ) {
     switch (config.framework) {
-      case "langgraph":
-        this.model = new LangGraphModelAdapter({
-          ...config.model,
+      case "langgraph": {
+        const primary: ModelConfig = {
+          provider: config.model.provider,
+          modelName: config.model.modelName,
+          apiKey: config.model.apiKey,
+          baseUrl: config.model.baseUrl,
           maxTokens: config.limits.modelMaxTokens,
+        };
+        const fallbacks: ModelConfig[] = config.model.fallbackModels.map((modelName) => ({
+          ...primary,
+          modelName,
+        }));
+        const model = new LangGraphModelAdapter(primary, {
+          fallbacks,
+          failureThreshold: config.model.fallbackFailureThreshold,
+          cooldownMs: config.model.fallbackCooldownMs,
         });
-        this.agentFactory = new LangGraphAgentFactory(
-          this.model as LangGraphModelAdapter
-        );
+        this.model = model;
+        this.agentFactory = new LangGraphAgentFactory(model);
         this.humanReviewGateway = new LangGraphHumanReviewGateway();
         break;
+      }
       case "mock":
         this.model = new MockModelAdapter();
         this.agentFactory = new MockAgentFactory();
