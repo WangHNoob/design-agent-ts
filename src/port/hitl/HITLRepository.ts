@@ -1,5 +1,11 @@
 export type HITLStage = "plan" | "subagent" | "integrate";
-export type HITLStatus = "waiting_review" | "approved" | "rejected" | "modified";
+export type HITLStatus =
+  | "waiting_review"
+  | "approved"
+  | "rejected"
+  | "modified"
+  | "expired"
+  | "escalated";
 export type HITLContentType = "markdown" | "json";
 export type HITLReviewAction = "approve" | "reject" | "modify";
 export type HITLResumePayload = Readonly<Record<string, unknown>>;
@@ -27,6 +33,8 @@ export interface HITLCheckpoint {
   reviewerId?: string;
   fallback: boolean;
   updatedAt: string;
+  /** Set when SLA is breached and policy=escalate. */
+  escalatedAt?: string;
 }
 
 export interface CreateHITLCheckpointInput {
@@ -56,6 +64,8 @@ export interface HITLListOptions {
   sessionId?: string;
   executionId?: string;
   status?: HITLStatus;
+  /** When true, include waiting_review + escalated (ops pending board). */
+  pendingOnly?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -77,13 +87,35 @@ export interface HITLCreateResult {
 /**
  * Tenant-bound HITL persistence contract.
  *
- * Review implementations must atomically move only a waiting_review row.
+ * Review / expire / escalate implementations must atomically move only a
+ * pending row (waiting_review or escalated) — CAS against status.
  */
 export interface HITLRepository {
   create(input: CreateHITLCheckpointInput): Promise<HITLCreateResult>;
   get(id: string): Promise<HITLCheckpoint | null>;
   list(options?: HITLListOptions): Promise<HITLCheckpoint[]>;
   update(id: string, patch: HITLCheckpointPatch): Promise<HITLCheckpoint | null>;
+  /**
+   * CAS: only succeeds when status is waiting_review or escalated.
+   * Returns null on concurrent conflict (another resume already won).
+   */
   review(id: string, input: HITLReviewInput): Promise<HITLCheckpoint | null>;
+  /**
+   * CAS: mark expired from waiting_review/escalated. Returns null if already claimed.
+   */
+  expire(id: string, input: { comment?: string; reviewerId: string; reviewedAt?: string }): Promise<HITLCheckpoint | null>;
+  /**
+   * CAS: waiting_review → escalated. Idempotent if already escalated.
+   * Returns null if no longer pending.
+   */
+  escalate(id: string, input: { comment?: string; reviewedAt?: string }): Promise<HITLCheckpoint | null>;
   delete(id: string): Promise<boolean>;
+}
+
+/**
+ * System-scoped HITL queries for the timeout sweeper (cross-tenant).
+ */
+export interface HITLTimeoutScanPort {
+  /** Pending checkpoints whose created_at is older than cutoffIso. */
+  listPendingOlderThan(cutoffIso: string, limit?: number): Promise<HITLCheckpoint[]>;
 }

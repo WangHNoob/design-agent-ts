@@ -190,6 +190,7 @@ export const hitlCheckpoints = pgTable(
     modifiedContent: text("modified_content"),
     createdAt,
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
     updatedAt,
   },
   (table) => [
@@ -200,7 +201,7 @@ export const hitlCheckpoints = pgTable(
     check("hitl_checkpoints_stage_check", sql`${table.stage} in ('plan', 'subagent', 'integrate')`),
     check(
       "hitl_checkpoints_status_check",
-      sql`${table.status} in ('waiting_review', 'approved', 'rejected', 'modified')`,
+      sql`${table.status} in ('waiting_review', 'approved', 'rejected', 'modified', 'expired', 'escalated')`,
     ),
     check(
       "hitl_checkpoints_content_type_check",

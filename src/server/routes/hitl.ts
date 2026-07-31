@@ -1,8 +1,13 @@
 import { Hono } from "hono";
 import { ExecutionService } from "../../core/execution/ExecutionService.js";
 import type { TaskPlan } from "../../core/schema/TaskPlan.js";
+import { buildPendingBoard } from "../../core/hitl/HITLOps.js";
+import { assertHITLFreshness } from "../../core/hitl/HITLTimeoutSweeper.js";
+import { AlwaysFreshHITLCheck } from "../../core/hitl/AlwaysFreshHITLCheck.js";
+import type { HITLFreshnessPort } from "../../port/hitl/HITLFreshnessPort.js";
 import type { ExecutionRepository } from "../../port/execution/ExecutionRepository.js";
 import type { HITLRepository } from "../../port/hitl/HITLRepository.js";
+import { isPendingHITLStatus } from "../../port/hitl/HITLPendingItem.js";
 import type { IdGeneratorPort } from "../../port/infra/IdGeneratorPort.js";
 import type { MessageQueuePort } from "../../port/queue/MessageQueuePort.js";
 import type { SessionRepository } from "../../port/session/SessionRepository.js";
@@ -22,6 +27,9 @@ export interface HITLRouteDependencies {
   tenantPort: TenantIsolationPort;
   idGenerator: IdGeneratorPort;
   maxRetries: number;
+  /** HITL timeout SLA used for overdue flags on the pending board. */
+  timeoutMs: number;
+  freshness?: HITLFreshnessPort;
 }
 
 let dependencies: HITLRouteDependencies | null = null;
@@ -64,6 +72,8 @@ export function setHITLRepositoryFactory(factory: HITLRepositoryFactory) {
         },
       },
       maxRetries: 3,
+      timeoutMs: 300_000,
+      freshness: new AlwaysFreshHITLCheck(),
     };
     return;
   }
@@ -71,10 +81,28 @@ export function setHITLRepositoryFactory(factory: HITLRepositoryFactory) {
 }
 
 export function setHITLRouteDependencies(next: HITLRouteDependencies): void {
-  dependencies = next;
+  dependencies = {
+    freshness: new AlwaysFreshHITLCheck(),
+    ...next,
+  };
 }
 
 export const hitlRoute = new Hono();
+
+/** Ops pending board: waiting_review + escalated with waitingMs / overdue. */
+hitlRoute.get("/pending", async (c) => {
+  if (!dependencies) {
+    return c.json({ error: "HITLRepository not initialized" }, 503);
+  }
+  const repository = dependencies.repositoryFactory((c.get("tenant") as TenantContext).userId);
+  const checkpoints = await repository.list({ pendingOnly: true, limit: 100 });
+  const items = buildPendingBoard(checkpoints, dependencies.timeoutMs);
+  return c.json({
+    items,
+    count: items.length,
+    overdueCount: items.filter((i) => i.overdue).length,
+  });
+});
 
 hitlRoute.get("/checkpoints", async (c) => {
   if (!dependencies) {
@@ -83,9 +111,17 @@ hitlRoute.get("/checkpoints", async (c) => {
   const repository = dependencies.repositoryFactory((c.get("tenant") as TenantContext).userId);
   const sessionId = c.req.query("sessionId");
   const checkpoints = await repository.list(
-    sessionId ? { sessionId } : { status: "waiting_review" },
+    sessionId ? { sessionId, pendingOnly: true } : { pendingOnly: true },
   );
-  return c.json({ checkpoints });
+  const items = buildPendingBoard(checkpoints, dependencies.timeoutMs);
+  return c.json({
+    checkpoints: items.map((i) => ({
+      ...i.checkpoint,
+      waitingMs: i.waitingMs,
+      overdue: i.overdue,
+      escalated: i.escalated,
+    })),
+  });
 });
 
 hitlRoute.get("/checkpoints/:id", async (c) => {
@@ -97,7 +133,13 @@ hitlRoute.get("/checkpoints/:id", async (c) => {
     (c.get("tenant") as TenantContext).userId,
   ).get(id);
   if (!checkpoint) return c.json({ error: "Checkpoint not found" }, 404);
-  return c.json(checkpoint);
+  const [item] = buildPendingBoard([checkpoint], dependencies.timeoutMs);
+  return c.json({
+    ...checkpoint,
+    waitingMs: item?.waitingMs ?? 0,
+    overdue: item?.overdue ?? false,
+    escalated: item?.escalated ?? checkpoint.status === "escalated",
+  });
 });
 
 hitlRoute.post("/checkpoints/:id/review", async (c) => {
@@ -136,10 +178,22 @@ hitlRoute.post("/checkpoints/:id/review", async (c) => {
     if (!existing) {
       return c.json({ error: "Checkpoint not found" }, 404);
     }
-    if (existing.status !== "waiting_review") {
-      return c.json({ error: "Checkpoint already reviewed" }, 409);
+    if (!isPendingHITLStatus(existing.status)) {
+      return c.json({ error: "Checkpoint already reviewed", code: "HITL_ALREADY_RESOLVED" }, 409);
     }
 
+    const freshness = await assertHITLFreshness(
+      existing,
+      dependencies.freshness ?? new AlwaysFreshHITLCheck(),
+    );
+    if (!freshness.ok) {
+      return c.json(
+        { error: freshness.reason, code: "HITL_STALE" },
+        409,
+      );
+    }
+
+    // CAS: only one concurrent resume wins (status IN waiting_review|escalated).
     const checkpoint = await repository.review(id, {
       action: body.action,
       comment: body.comment,
@@ -147,7 +201,7 @@ hitlRoute.post("/checkpoints/:id/review", async (c) => {
       reviewerId: tenant.userId,
     });
     if (!checkpoint) {
-      return c.json({ error: "Checkpoint changed concurrently" }, 409);
+      return c.json({ error: "Checkpoint changed concurrently", code: "HITL_CAS_CONFLICT" }, 409);
     }
 
     if (!checkpoint.executionId) {

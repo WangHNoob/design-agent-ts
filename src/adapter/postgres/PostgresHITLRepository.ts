@@ -12,7 +12,61 @@ import type {
   HITLReviewInput,
   HITLStage,
   HITLStatus,
+  HITLTimeoutScanPort,
 } from "../../port/hitl/HITLRepository.js";
+
+const PENDING_STATUSES_SQL = `status IN ('waiting_review', 'escalated')`;
+
+export function rowToHITLCheckpoint(row: DbRow): HITLCheckpoint {
+  return {
+    id: row.id as string,
+    sessionId: row.session_id as string,
+    stage: row.stage as HITLStage,
+    status: row.status as HITLStatus,
+    content: row.content as string,
+    contentType: row.content_type as HITLContentType,
+    agentName: optionalString(row.agent_name),
+    createdAt: iso(row.created_at),
+    reviewedAt: optionalIso(row.reviewed_at),
+    reviewAction: row.review_action as HITLReviewAction | undefined,
+    reviewComment: optionalString(row.review_comment),
+    modifiedContent: optionalString(row.modified_content),
+    userId: row.user_id as string,
+    executionId: optionalString(row.execution_id),
+    taskId: optionalString(row.task_id),
+    idempotencyKey: optionalString(row.idempotency_key),
+    reviewPoint: row.review_point as string,
+    resumeCursor: optionalString(row.resume_cursor),
+    resumePayload: optionalPayload(row.resume_payload),
+    reviewerId: optionalString(row.reviewer_id),
+    fallback: row.fallback === true,
+    updatedAt: iso(row.updated_at),
+    escalatedAt: optionalIso(row.escalated_at),
+  };
+}
+
+function optionalPayload(value: unknown): HITLResumePayload | undefined {
+  if (value === null || value === undefined) return undefined;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as HITLResumePayload)
+    : {};
+}
+
+function optionalString(value: unknown): string | undefined {
+  return value === null || value === undefined ? undefined : String(value);
+}
+
+function optionalIso(value: unknown): string | undefined {
+  return value === null || value === undefined ? undefined : iso(value);
+}
+
+function iso(value: unknown): string {
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new TypeError(`Invalid database timestamp: ${String(value)}`);
+  }
+  return date.toISOString();
+}
 
 export class PostgresHITLRepository implements HITLRepository {
   constructor(
@@ -68,7 +122,7 @@ export class PostgresHITLRepository implements HITLRepository {
       throw new Error("HITL checkpoint parents do not exist in the current user scope");
     }
     return {
-      checkpoint: this.rowToCheckpoint(row),
+      checkpoint: rowToHITLCheckpoint(row),
       created: row.created === true || row.created === "true",
     };
   }
@@ -78,7 +132,7 @@ export class PostgresHITLRepository implements HITLRepository {
       `SELECT * FROM hitl_checkpoints WHERE id = $1 AND user_id = $2`,
       { 1: id, 2: this.userId },
     );
-    return result.rows[0] ? this.rowToCheckpoint(result.rows[0]) : null;
+    return result.rows[0] ? rowToHITLCheckpoint(result.rows[0]) : null;
   }
 
   async list(options: HITLListOptions = {}): Promise<HITLCheckpoint[]> {
@@ -95,7 +149,9 @@ export class PostgresHITLRepository implements HITLRepository {
       params[index.toString()] = options.executionId;
       index++;
     }
-    if (options.status) {
+    if (options.pendingOnly) {
+      conditions.push(`status IN ('waiting_review', 'escalated')`);
+    } else if (options.status) {
       conditions.push(`status = $${index}`);
       params[index.toString()] = options.status;
       index++;
@@ -110,7 +166,7 @@ export class PostgresHITLRepository implements HITLRepository {
        LIMIT $${index} OFFSET $${index + 1}`,
       params,
     );
-    return result.rows.map((row) => this.rowToCheckpoint(row));
+    return result.rows.map((row) => rowToHITLCheckpoint(row));
   }
 
   async update(id: string, patch: HITLCheckpointPatch): Promise<HITLCheckpoint | null> {
@@ -142,7 +198,7 @@ export class PostgresHITLRepository implements HITLRepository {
        RETURNING *`,
       params,
     );
-    return result.rows[0] ? this.rowToCheckpoint(result.rows[0]) : null;
+    return result.rows[0] ? rowToHITLCheckpoint(result.rows[0]) : null;
   }
 
   async review(id: string, input: HITLReviewInput): Promise<HITLCheckpoint | null> {
@@ -153,7 +209,7 @@ export class PostgresHITLRepository implements HITLRepository {
        SET status = $1, review_action = $2, review_comment = $3,
            modified_content = $4, reviewer_id = $5, fallback = $6,
            reviewed_at = $7, updated_at = $7
-       WHERE id = $8 AND user_id = $9 AND status = 'waiting_review'
+       WHERE id = $8 AND user_id = $9 AND ${PENDING_STATUSES_SQL}
        RETURNING *`,
       {
         1: status,
@@ -167,7 +223,54 @@ export class PostgresHITLRepository implements HITLRepository {
         9: this.userId,
       },
     );
-    return result.rows[0] ? this.rowToCheckpoint(result.rows[0]) : null;
+    return result.rows[0] ? rowToHITLCheckpoint(result.rows[0]) : null;
+  }
+
+  async expire(
+    id: string,
+    input: { comment?: string; reviewerId: string; reviewedAt?: string },
+  ): Promise<HITLCheckpoint | null> {
+    const reviewedAt = input.reviewedAt ?? new Date().toISOString();
+    const result = await this.db.query(
+      `UPDATE hitl_checkpoints
+       SET status = 'expired', review_comment = $1, reviewer_id = $2,
+           fallback = true, reviewed_at = $3, updated_at = $3
+       WHERE id = $4 AND user_id = $5 AND ${PENDING_STATUSES_SQL}
+       RETURNING *`,
+      {
+        1: input.comment ?? "HITL checkpoint expired",
+        2: input.reviewerId,
+        3: reviewedAt,
+        4: id,
+        5: this.userId,
+      },
+    );
+    return result.rows[0] ? rowToHITLCheckpoint(result.rows[0]) : null;
+  }
+
+  async escalate(
+    id: string,
+    input: { comment?: string; reviewedAt?: string },
+  ): Promise<HITLCheckpoint | null> {
+    const at = input.reviewedAt ?? new Date().toISOString();
+    // Already escalated → return current row (idempotent).
+    const existing = await this.get(id);
+    if (existing?.status === "escalated") return existing;
+
+    const result = await this.db.query(
+      `UPDATE hitl_checkpoints
+       SET status = 'escalated', escalated_at = $1, review_comment = COALESCE($2, review_comment),
+           updated_at = $1
+       WHERE id = $3 AND user_id = $4 AND status = 'waiting_review'
+       RETURNING *`,
+      {
+        1: at,
+        2: input.comment ?? null,
+        3: id,
+        4: this.userId,
+      },
+    );
+    return result.rows[0] ? rowToHITLCheckpoint(result.rows[0]) : null;
   }
 
   async delete(id: string): Promise<boolean> {
@@ -178,60 +281,10 @@ export class PostgresHITLRepository implements HITLRepository {
     return result.rowCount > 0;
   }
 
-  private rowToCheckpoint(row: DbRow): HITLCheckpoint {
-    return {
-      id: row.id as string,
-      sessionId: row.session_id as string,
-      stage: row.stage as HITLStage,
-      status: row.status as HITLStatus,
-      content: row.content as string,
-      contentType: row.content_type as HITLContentType,
-      agentName: this.optionalString(row.agent_name),
-      createdAt: this.iso(row.created_at),
-      reviewedAt: this.optionalIso(row.reviewed_at),
-      reviewAction: row.review_action as HITLReviewAction | undefined,
-      reviewComment: this.optionalString(row.review_comment),
-      modifiedContent: this.optionalString(row.modified_content),
-      userId: row.user_id as string,
-      executionId: this.optionalString(row.execution_id),
-      taskId: this.optionalString(row.task_id),
-      idempotencyKey: this.optionalString(row.idempotency_key),
-      reviewPoint: row.review_point as string,
-      resumeCursor: this.optionalString(row.resume_cursor),
-      resumePayload: this.optionalPayload(row.resume_payload),
-      reviewerId: this.optionalString(row.reviewer_id),
-      fallback: row.fallback === true,
-      updatedAt: this.iso(row.updated_at),
-    };
-  }
-
   private reviewStatus(action: HITLReviewAction): HITLStatus {
     if (action === "approve") return "approved";
     if (action === "reject") return "rejected";
     return "modified";
-  }
-
-  private optionalPayload(value: unknown): HITLResumePayload | undefined {
-    if (value === null || value === undefined) return undefined;
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as HITLResumePayload)
-      : {};
-  }
-
-  private optionalString(value: unknown): string | undefined {
-    return value === null || value === undefined ? undefined : String(value);
-  }
-
-  private optionalIso(value: unknown): string | undefined {
-    return value === null || value === undefined ? undefined : this.iso(value);
-  }
-
-  private iso(value: unknown): string {
-    const date = value instanceof Date ? value : new Date(String(value));
-    if (Number.isNaN(date.getTime())) {
-      throw new TypeError(`Invalid database timestamp: ${String(value)}`);
-    }
-    return date.toISOString();
   }
 
   private normalizeLimit(limit: number | undefined): number {
@@ -242,5 +295,25 @@ export class PostgresHITLRepository implements HITLRepository {
   private normalizeOffset(offset: number | undefined): number {
     if (offset === undefined) return 0;
     return Math.max(0, Math.trunc(offset));
+  }
+}
+
+/**
+ * Cross-tenant scan for the HITL timeout sweeper.
+ */
+export class PostgresHITLTimeoutScanAdapter implements HITLTimeoutScanPort {
+  constructor(private readonly db: DatabasePort) {}
+
+  async listPendingOlderThan(cutoffIso: string, limit = 50): Promise<HITLCheckpoint[]> {
+    const capped = Math.max(1, Math.min(200, Math.trunc(limit)));
+    const result = await this.db.query(
+      `SELECT * FROM hitl_checkpoints
+       WHERE status IN ('waiting_review', 'escalated')
+         AND created_at <= $1::timestamptz
+       ORDER BY created_at ASC
+       LIMIT $2`,
+      { 1: cutoffIso, 2: capped },
+    );
+    return result.rows.map((row) => rowToHITLCheckpoint(row));
   }
 }

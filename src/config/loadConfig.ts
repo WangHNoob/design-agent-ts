@@ -1,5 +1,6 @@
 import type { FrameworkConfig, McpServerConfig } from "./FrameworkConfig.js";
 import { validateConfig } from "./validateConfig.js";
+import { isHITLTimeoutPolicy, type HITLTimeoutPolicy } from "../port/hitl/HITLTimeoutPolicy.js";
 
 /**
  * Parse MCP server definitions from the MCP_SERVERS env var (JSON array).
@@ -39,6 +40,15 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   );
 }
 
+function resolveHitlTimeoutPolicy(): HITLTimeoutPolicy {
+  const raw = process.env.HITL_TIMEOUT_POLICY?.trim();
+  if (raw && isHITLTimeoutPolicy(raw)) return raw;
+  // Backward compat: HITL_AUTO_CONTINUE=true historically meant "do something on timeout"
+  // — we map it to auditable auto_reject (never silent approve).
+  if (process.env.HITL_AUTO_CONTINUE === "true") return "auto_reject";
+  return "auto_reject";
+}
+
 export function loadConfig(): FrameworkConfig {
   const hitlEnabled = process.env.HITL_ENABLED === "true";
   const config: FrameworkConfig = {
@@ -66,6 +76,8 @@ export function loadConfig(): FrameworkConfig {
       maxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS ?? 3),
       timeout: Number(process.env.HITL_TIMEOUT ?? 300000),
       autoContinueOnTimeout: process.env.HITL_AUTO_CONTINUE === "true",
+      timeoutPolicy: resolveHitlTimeoutPolicy(),
+      timeoutSweepIntervalMs: Number(process.env.HITL_TIMEOUT_SWEEP_INTERVAL_MS ?? 15000),
     },
     knowledge: {
       wikiPath: process.env.KNOWLEDGE_WIKI_PATH ?? "./knowledge/wiki",
