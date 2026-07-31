@@ -9,7 +9,13 @@ export async function signIn(email: string, password: string) {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || "登录失败");
+    const message =
+      data.message ||
+      data.error ||
+      (res.status === 401
+        ? "邮箱或密码错误。若尚未注册，请先切换到注册。"
+        : "登录失败");
+    throw new Error(message);
   }
   return res.json();
 }
@@ -23,7 +29,13 @@ export async function signUp(email: string, password: string, name: string) {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || "注册失败");
+    const message =
+      data.message ||
+      data.error ||
+      (res.status === 422
+        ? "该邮箱可能已注册，请直接登录或更换邮箱。"
+        : "注册失败");
+    throw new Error(message);
   }
   return res.json();
 }

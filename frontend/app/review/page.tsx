@@ -60,6 +60,16 @@ export default function ReviewPage() {
     integrate: '最终整合',
   };
 
+  const formatWaiting = (ms?: number) => {
+    if (ms === undefined) return '';
+    const sec = Math.floor(ms / 1000);
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m`;
+    const hr = Math.floor(min / 60);
+    return `${hr}h ${min % 60}m`;
+  };
+
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -110,8 +120,14 @@ export default function ReviewPage() {
                     <div className="flex items-center gap-2 mb-2">
                       <span className="flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-0.5 text-[11px] font-medium text-warning">
                         <Clock size={10} />
-                        等待审阅
+                        {cp.escalated || cp.status === 'escalated' ? '已升级' : '等待审阅'}
+                        {cp.waitingMs !== undefined ? ` · ${formatWaiting(cp.waitingMs)}` : ''}
                       </span>
+                      {cp.overdue && (
+                        <span className="rounded-full bg-coral/10 px-2.5 py-0.5 text-[11px] font-medium text-coral">
+                          超时
+                        </span>
+                      )}
                       <span className="text-xs text-ink/30">{stageLabels[cp.stage] ?? cp.stage}</span>
                       {cp.agentName && (
                         <span className="text-xs text-indigo">{cp.agentName}</span>
@@ -122,7 +138,10 @@ export default function ReviewPage() {
                       {cp.content.length > 200 ? '...' : ''}
                     </div>
                     <p className="mt-2 text-[11px] text-ink/25">
-                      Session: {cp.sessionId} · {new Date(cp.createdAt).toLocaleString()}
+                      Session: {cp.sessionId}
+                      {cp.reviewPoint ? ` · ${cp.reviewPoint}` : ''}
+                      {' · '}
+                      {new Date(cp.createdAt).toLocaleString()}
                     </p>
                   </div>
                   <button

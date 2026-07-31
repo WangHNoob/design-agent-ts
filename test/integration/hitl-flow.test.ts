@@ -25,6 +25,8 @@ describe("Integration: HITL Flow", () => {
     });
 
     const response = await director.execute("测试 HITL", "session-1", "design", "chief_designer");
-    expect(response.success).toBe(true);
+    expect(response.success).toBe(false);
+    expect(response.errorMessage).toBe("Mock rejection");
+    expect(response.metadata?.rejected).toBe(true);
   });
 });

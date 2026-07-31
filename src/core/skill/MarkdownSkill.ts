@@ -24,7 +24,8 @@ export class MarkdownSkill implements SkillPort {
   constructor(
     private readonly skillName: string,
     private readonly skillDescription: string,
-    private readonly content: string
+    private readonly content: string,
+    private readonly mcpTools: readonly string[] = [],
   ) {
     // Extract agent name from description, e.g. "指导 SystemDesignerAgent 完成..."
     const agentMatch = this.skillDescription.match(/指导\s+([A-Za-z]+)Agent/);
@@ -110,5 +111,9 @@ export class MarkdownSkill implements SkillPort {
 
   getContent(): string {
     return this.content;
+  }
+
+  getMcpTools(): readonly string[] {
+    return this.mcpTools;
   }
 }
