@@ -194,6 +194,7 @@ export class LangGraphAgentAdapter implements AgentPort {
         sessionId: state.sessionId,
         iteration: state.iteration,
         maxIterations: descriptor.maxIterations,
+        modelName: modelAdapter.getActiveModelName(),
         messages: state.messages.map((m) => this.messageMapper.fromLangGraph(m)),
       });
       const preCtx = await runHooks("pre_reasoning", hookCtx);
@@ -258,6 +259,7 @@ export class LangGraphAgentAdapter implements AgentPort {
           agentName: descriptor.name,
           sessionId: state.sessionId,
           iteration: state.iteration,
+          modelName: modelAdapter.getActiveModelName(),
           messages: [...(preCtx.messages ?? []), this.messageMapper.fromLangGraph(response)],
           inputTokenCount: response.usage_metadata?.input_tokens ?? 0,
           outputTokenCount: response.usage_metadata?.output_tokens ?? 0,

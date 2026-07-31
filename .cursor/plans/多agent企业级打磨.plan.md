@@ -25,7 +25,7 @@ todos:
     status: completed
   - id: p1-cost-quota
     content: 成本归因看板 + RPM/TPM 双限流 + 每用户隔舱
-    status: pending
+    status: completed
   - id: p1-saga-cancel
     content: Saga 最小集（compensate）+ 协作式取消与部分结果回传
     status: pending

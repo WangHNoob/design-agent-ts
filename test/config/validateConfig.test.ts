@@ -118,6 +118,17 @@ function config(
       sandboxDenyKeywords: ["DROP TABLE", "DELETE FROM", "rm -rf", "eval(", "exec("],
       sandboxBlockPathTraversal: true,
     },
+    cost: {
+      enabled: true,
+      inputPricePer1M: 2.5,
+      outputPricePer1M: 10,
+      rpmLimitPerUser: 60,
+      tpmLimitPerUser: 200000,
+      windowMs: 60000,
+      globalRpmLimit: 0,
+      globalTpmLimit: 0,
+      tpmEstimatePerCall: 8000,
+    },
   };
 }
 
