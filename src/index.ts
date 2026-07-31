@@ -29,6 +29,21 @@ export {
   DEFAULT_EXTERNAL_TOOL_FAILURE_POLICY,
 } from "./port/tool/ToolFailurePolicy.js";
 
+// Port 接口层 — Eval
+export type {
+  EvalMode,
+  MetricKind,
+  EvalMetric,
+  EvalCase,
+  EvalBaseline,
+  EvalDataset,
+  EvalTask,
+  EvalScore,
+  EvalReport,
+} from "./port/eval/types.js";
+export type { EvalStorePort } from "./port/eval/EvalStorePort.js";
+export type { ScorerPort, ScoreInput, ScoreResult } from "./port/eval/ScorerPort.js";
+
 // Port 接口层 — 记忆
 export type { MemoryPort } from "./port/memory/MemoryPort.js";
 

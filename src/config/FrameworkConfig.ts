@@ -167,4 +167,17 @@ export interface FrameworkConfig {
     /** Per-call timeout for external/MCP tools (ms). 0 disables. */
     toolTimeoutMs: number;
   };
+  /**
+   * Eval V1: Offline/Online scoring against golden datasets.
+   * Offline uses Trace reflux / recordedOutput — no Agent calls.
+   */
+  eval: {
+    /** Default golden dataset path (relative to repo root). */
+    defaultDatasetPath: string;
+    /**
+     * When true, offline CLI skips llm_judge metrics (CI-friendly, no LLM key).
+     * Override with `--exact-only` / omit flag on the script.
+     */
+    offlineExactOnlyDefault: boolean;
+  };
 }

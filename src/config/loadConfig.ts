@@ -161,6 +161,10 @@ export function loadConfig(): FrameworkConfig {
       toolRetryBackoffMs: Number(process.env.TOOL_RETRY_BACKOFF_MS ?? 200),
       toolTimeoutMs: Number(process.env.TOOL_TIMEOUT_MS ?? 30000),
     },
+    eval: {
+      defaultDatasetPath: process.env.EVAL_DEFAULT_DATASET ?? "eval/datasets/design-golden.v1.json",
+      offlineExactOnlyDefault: process.env.EVAL_OFFLINE_EXACT_ONLY !== "false",
+    },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
   return config;
