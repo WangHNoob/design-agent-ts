@@ -60,6 +60,7 @@ import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./route
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
 import type { McpClientPort } from "../port/mcp/McpClientPort.js";
+import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -128,6 +129,9 @@ export async function lateBootstrapDirector(): Promise<void> {
 
   const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
   bootstrapState.container = container;
+  if (container.model instanceof LangGraphModelAdapter) {
+    container.model.setTracer(tracer);
+  }
 
   const director = new DirectorAgent({
     model: container.model,
@@ -592,6 +596,9 @@ export async function bootstrap() {
 
     const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
     bootstrapState.container = container;
+    if (container.model instanceof LangGraphModelAdapter) {
+      container.model.setTracer(tracer);
+    }
 
     const director = new DirectorAgent({
       model: container.model,

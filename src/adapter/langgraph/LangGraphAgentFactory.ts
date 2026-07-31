@@ -49,7 +49,7 @@ export class LangGraphAgentFactory implements AgentFactory {
     return new LangGraphAgentAdapter(
       descriptor,
       tools,
-      this.model.getLangChainModel(),
+      this.model,
       hooks,
       this.checkpointer
     );

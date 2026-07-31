@@ -30,13 +30,17 @@ vi.mock("@langchain/openai", () => ({
   }),
 }));
 
-import { ChatOpenAI } from "@langchain/openai";
 import { LangGraphAgentAdapter } from "../../../src/adapter/langgraph/LangGraphAgentAdapter.js";
+import { LangGraphModelAdapter } from "../../../src/adapter/langgraph/LangGraphModelAdapter.js";
 import type { AgentDescriptor } from "../../../src/port/agent/AgentDescriptor.js";
 import { ChatMessage } from "../../../src/port/message/ChatMessage.js";
 
 describe("LangGraphAgentAdapter", () => {
-  const createModel = () => new ChatOpenAI({ modelName: "gpt-4o", openAIApiKey: "test" });
+  const createModel = () => new LangGraphModelAdapter({
+    provider: "openai",
+    modelName: "gpt-4o",
+    apiKey: "test",
+  });
 
   const descriptor: AgentDescriptor = {
     name: "TestAgent",

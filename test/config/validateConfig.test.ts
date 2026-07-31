@@ -12,6 +12,9 @@ function config(
       provider: "openai",
       modelName: "gpt-4o",
       apiKey: "",
+      fallbackModels: [],
+      fallbackFailureThreshold: 3,
+      fallbackCooldownMs: 60000,
     },
     hitl: {
       enabled: false,

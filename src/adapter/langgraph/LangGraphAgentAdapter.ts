@@ -11,6 +11,7 @@ import type { AgentHook } from "../../port/hook/AgentHook.js";
 import { HookContext } from "../../port/hook/HookContext.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
+import type { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
 
 const AgentState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -29,7 +30,7 @@ export class LangGraphAgentAdapter implements AgentPort {
   constructor(
     descriptor: AgentDescriptor,
     tools: ToolPort[],
-    private model: unknown,
+    private modelAdapter: LangGraphModelAdapter,
     private hooks: AgentHook[],
     private checkpointer?: MemorySaver
   ) {
@@ -157,10 +158,27 @@ export class LangGraphAgentAdapter implements AgentPort {
 
   private buildGraph(tools: ToolPort[]) {
     const lgTools = this.toolAdapter.toLangGraphTools(tools);
-    const modelWithTools = (this.model as { bindTools(tools: unknown[]): unknown }).bindTools(lgTools);
     const descriptor = this.descriptor;
     const hooks = this.hooks;
     const runHooks = this.runHooks.bind(this);
+    const modelAdapter = this.modelAdapter;
+    const aggregateStream = this.aggregateStream.bind(this);
+
+    const invokeLlm = async (
+      msgs: BaseMessage[],
+      streamOptions: Record<string, unknown>,
+    ): Promise<AIMessage> => {
+      const bound = (modelAdapter.getLangChainModel() as unknown as {
+        bindTools(tools: unknown[]): {
+          stream(
+            msgs: BaseMessage[],
+            options?: Record<string, unknown>,
+          ): AsyncIterable<AIMessageChunk> | Promise<AsyncIterable<AIMessageChunk>>;
+        };
+      }).bindTools(lgTools);
+      const stream = await bound.stream(msgs, streamOptions);
+      return aggregateStream(stream);
+    };
 
     const llmCall = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {
       // Early abort check
@@ -206,18 +224,29 @@ export class LangGraphAgentAdapter implements AgentPort {
           );
         }
 
-        console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke (streaming) with maxTokens=${descriptor.maxTokens ?? "undefined"}`);
+        console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke (streaming) with maxTokens=${descriptor.maxTokens ?? "undefined"} model=${modelAdapter.getActiveModelName()}`);
         // Use streaming internally to avoid Anthropic SDK's 10-minute timeout
         // for non-streaming requests with high max_tokens.
         const streamOptions: Record<string, unknown> = descriptor.maxTokens ? { maxTokens: descriptor.maxTokens } : {};
         if (config?.signal) {
           streamOptions.signal = config.signal;
         }
-        const stream = await (modelWithTools as {
-          stream(msgs: BaseMessage[], options?: Record<string, unknown>): AsyncIterable<AIMessageChunk>;
-        }).stream([systemMsg, ...injectedMessages], streamOptions);
 
-        const response = await this.aggregateStream(stream);
+        let response: AIMessage;
+        try {
+          response = await invokeLlm([systemMsg, ...injectedMessages], streamOptions);
+          modelAdapter.recordSuccess();
+        } catch (firstErr) {
+          if (config?.signal?.aborted) throw firstErr;
+          if (!modelAdapter.promoteFallback(firstErr)) {
+            throw firstErr;
+          }
+          console.warn(
+            `[LangGraphAgentAdapter:${descriptor.name}] Retrying LLM with fallback model=${modelAdapter.getActiveModelName()}`,
+          );
+          response = await invokeLlm([systemMsg, ...injectedMessages], streamOptions);
+          modelAdapter.recordSuccess();
+        }
 
         const metadata = response.response_metadata as Record<string, unknown> | undefined;
         const finishReason = (metadata?.finish_reason ?? metadata?.stop_reason) as string | undefined;
@@ -308,7 +337,7 @@ export class LangGraphAgentAdapter implements AgentPort {
 
     const forceFinalOutput = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {
       console.warn(`[LangGraphAgentAdapter:${descriptor.name}] Iteration budget exhausted with pending tool calls. Forcing final text output.`);
-      const rawModel = this.model as { stream(msgs: BaseMessage[], options?: Record<string, unknown>): AsyncIterable<AIMessageChunk> };
+      const rawModel = modelAdapter.getLangChainModel();
       const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
       // Use HumanMessage for the final instruction because Anthropic only
       // allows system messages as the first message in the conversation.

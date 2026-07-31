@@ -48,6 +48,11 @@ export function loadConfig(): FrameworkConfig {
       modelName: process.env.LLM_MODEL ?? "gpt-4o",
       apiKey: process.env.LLM_API_KEY ?? "",
       baseUrl: process.env.LLM_BASE_URL,
+      fallbackModels: process.env.LLM_FALLBACK_MODELS
+        ? process.env.LLM_FALLBACK_MODELS.split(",").map((s) => s.trim()).filter(Boolean)
+        : [],
+      fallbackFailureThreshold: Number(process.env.LLM_FALLBACK_FAILURE_THRESHOLD ?? 3),
+      fallbackCooldownMs: Number(process.env.LLM_FALLBACK_COOLDOWN_MS ?? 60000),
     },
     hitl: {
       enabled: hitlEnabled,
