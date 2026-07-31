@@ -21,6 +21,10 @@ import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
 import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
 import { TracingHook } from "../core/hook/TracingHook.js";
 import { TokenBudgetHook } from "../core/hook/TokenBudgetHook.js";
+import { CancellationHook } from "../core/hook/CancellationHook.js";
+import { AuditCompensateFailureQueue } from "../core/saga/AuditCompensateFailureQueue.js";
+import { InMemoryCompensateFailureQueue } from "../core/saga/InMemoryCompensateFailureQueue.js";
+import type { CompensateFailureQueuePort } from "../port/saga/CompensateFailureQueuePort.js";
 import { CostAccountingHook } from "../core/hook/CostAccountingHook.js";
 import { RateLimitHook } from "../core/hook/RateLimitHook.js";
 import { RateLimitGuard } from "../core/cost/RateLimitGuard.js";
@@ -113,6 +117,7 @@ let bootstrapState: {
   wrapTool?: (tool: import("../port/tool/ToolPort.js").ToolPort) => import("../port/tool/ToolPort.js").ToolPort;
   costStore: CostStorePort | null;
   rateLimit: RateLimitPort | null;
+  compensateFailureQueue: CompensateFailureQueuePort;
 } | null = null;
 
 function createDirectorModel(
@@ -185,7 +190,12 @@ export async function lateBootstrapDirector(): Promise<void> {
     temperature: settings.temperature,
   };
 
-  const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
+  const container = new Container(
+    { ...config, model: mergedModelConfig },
+    toolRegistry,
+    skillRegistry,
+    { compensateFailureQueue: bootstrapState.compensateFailureQueue },
+  );
   bootstrapState.container = container;
   if (container.model instanceof LangGraphModelAdapter) {
     container.model.setTracer(tracer);
@@ -463,6 +473,7 @@ export async function bootstrap() {
 
   // Initialize hooks
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
+    new CancellationHook(),
     new LoggingHook(),
     new ValidationHook(),
     new IterationBudgetHook(config.limits.iterationBudgetDefault),
@@ -475,6 +486,7 @@ export async function bootstrap() {
   const toolApprovalStore = new InMemoryToolApprovalStore();
   let toolSecurityOptions: ToolSecurityOptions | null = null;
   let auditStoreAdapter: PostgresAuditStoreAdapter | null = null;
+  let compensateFailureQueue: CompensateFailureQueuePort = new InMemoryCompensateFailureQueue();
   let traceStore: TraceStorePort | null = null;
   let tracer: TracerPort = new NoOpTracer();
 
@@ -515,6 +527,16 @@ export async function bootstrap() {
       setAuditStore(null);
     }
 
+    if (config.saga.compensateFailureToAudit && auditStoreAdapter) {
+      compensateFailureQueue = new AuditCompensateFailureQueue(
+        auditStoreAdapter,
+        () => contextStorage.getStore()?.userId ?? "system",
+      );
+      console.log("[Bootstrap] Saga compensate failures → audit_logs (saga.compensate_failed)");
+    } else {
+      compensateFailureQueue = new InMemoryCompensateFailureQueue();
+    }
+
     if (config.tracing.enabled) {
       traceStore = new PostgresTraceStoreAdapter(dbAdapter);
       const exporters = config.tracing.consoleExporter ? [new ConsoleTraceExporter()] : [];
@@ -551,6 +573,10 @@ export async function bootstrap() {
         `toolLoop=${config.guards.toolLoopMaxRepeats}/${config.guards.toolLoopWindowSize} ` +
         `toolCircuit=${config.guards.toolCircuitFailureThreshold}/${config.guards.toolCircuitCooldownMs}ms ` +
         `toolTimeout=${config.guards.toolTimeoutMs || "off"}ms`,
+    );
+    console.log(
+      `[Bootstrap] Saga: compensate=${config.saga.compensateEnabled ? "on" : "off"} ` +
+        `failureAudit=${config.saga.compensateFailureToAudit ? "on" : "off"}`,
     );
 
     // Better Auth (handles registration, login, sessions, DingTalk SSO)
@@ -704,7 +730,7 @@ export async function bootstrap() {
     taskTimeoutMs: config.execution.taskTimeoutMs,
   });
 
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter, compensateFailureQueue };
 
   const hitlRepositoryFactory = (userId: string) =>
     new PostgresHITLRepository(dbAdapter!, userId);
@@ -922,7 +948,12 @@ export async function bootstrap() {
       temperature: settings.temperature,
     };
 
-    const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
+    const container = new Container(
+      { ...config, model: mergedModelConfig },
+      toolRegistry,
+      skillRegistry,
+      { compensateFailureQueue },
+    );
     bootstrapState.container = container;
     if (container.model instanceof LangGraphModelAdapter) {
       container.model.setTracer(tracer);

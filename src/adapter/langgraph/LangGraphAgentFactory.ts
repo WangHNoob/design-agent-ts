@@ -5,7 +5,7 @@ import type { ToolRegistry } from "../../port/tool/ToolRegistry.js";
 import type { MemoryPort } from "../../port/memory/MemoryPort.js";
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { ToolPort } from "../../port/tool/ToolPort.js";
-import { LangGraphAgentAdapter } from "./LangGraphAgentAdapter.js";
+import { LangGraphAgentAdapter, type LangGraphSagaOptions } from "./LangGraphAgentAdapter.js";
 import { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
 import { SessionToolRegistry } from "../../core/tool/SessionToolRegistry.js";
 import { MemorySaver } from "@langchain/langgraph";
@@ -16,7 +16,8 @@ export class LangGraphAgentFactory implements AgentFactory {
 
   constructor(
     private model: LangGraphModelAdapter,
-    checkpointer?: MemorySaver
+    checkpointer?: MemorySaver,
+    private sagaOptions: LangGraphSagaOptions = { enabled: true },
   ) {
     this.checkpointer = checkpointer ?? new MemorySaver();
   }
@@ -51,7 +52,8 @@ export class LangGraphAgentFactory implements AgentFactory {
       tools,
       this.model,
       hooks,
-      this.checkpointer
+      this.checkpointer,
+      this.sagaOptions,
     );
   }
 

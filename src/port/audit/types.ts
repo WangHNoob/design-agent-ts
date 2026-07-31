@@ -4,7 +4,8 @@ export type AuditAction =
   | "config.change"
   | "hitl.decision"
   | "tool.invoke"
-  | "tool.denied";
+  | "tool.denied"
+  | "saga.compensate_failed";
 
 export type AuditOutcome = "success" | "denied" | "error";
 

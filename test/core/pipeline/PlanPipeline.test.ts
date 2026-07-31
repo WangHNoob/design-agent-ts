@@ -111,6 +111,34 @@ describe("PlanPipeline", () => {
     ]);
   });
 
+  it("层间取消应保留已完成任务并标记未开始为 cancelled", async () => {
+    const root = new AbortController();
+    const plan = createPlan([
+      { id: "A", fragmentId: "F1", domain: "system_design", description: "A", dependencies: [], priority: 1 },
+      { id: "B", fragmentId: "F2", domain: "combat_design", description: "B", dependencies: ["A"], priority: 1 },
+      { id: "C", fragmentId: "F3", domain: "gameplay_design", description: "C", dependencies: ["A"], priority: 1 },
+    ]);
+    const pipeline = new PlanPipeline(plan, async (task) => ({
+      taskId: task.id,
+      domain: task.domain,
+      status: "success",
+      output: task.id,
+      errorMessage: null,
+    }), {
+      signal: root.signal,
+      onTaskResult: async (task, result) => {
+        if (task.id === "A" && result.status === "success") {
+          root.abort(new DOMException("cancelled", "AbortError"));
+        }
+      },
+    });
+
+    const results = await pipeline.execute();
+
+    expect(results.filter((r) => r.status === "success").map((r) => r.taskId)).toEqual(["A"]);
+    expect(results.filter((r) => r.status === "cancelled").map((r) => r.taskId).sort()).toEqual(["B", "C"]);
+  });
+
   it("根 signal 取消应传递到任务并取消未开始任务", async () => {
     const root = new AbortController();
     const calls: string[] = [];
@@ -208,5 +236,42 @@ describe("PlanPipeline", () => {
       output: "",
       errorMessage: null,
     }))).toThrow("Dependency cycle detected");
+  });
+
+  it("in-flight 取消应尽量回收 partial output", async () => {
+    const root = new AbortController();
+    const plan = createPlan([
+      { id: "A", fragmentId: "F1", domain: "system_design", description: "A", dependencies: [], priority: 1 },
+    ]);
+    const pipeline = new PlanPipeline(plan, async (task, taskSignal) => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      root.abort(new DOMException("cancelled", "AbortError"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (taskSignal?.aborted) {
+        return {
+          taskId: task.id,
+          domain: task.domain,
+          status: "cancelled",
+          output: "partial from agent",
+          errorMessage: "Task cancelled by user",
+          errorClass: "cancelled",
+        };
+      }
+      return {
+        taskId: task.id,
+        domain: task.domain,
+        status: "success",
+        output: "full",
+        errorMessage: null,
+      };
+    }, root.signal);
+
+    const results = await pipeline.execute();
+
+    expect(results[0]).toMatchObject({
+      taskId: "A",
+      status: "cancelled",
+      output: "partial from agent",
+    });
   });
 });

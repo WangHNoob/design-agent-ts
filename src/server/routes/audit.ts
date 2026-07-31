@@ -16,6 +16,7 @@ const VALID_ACTIONS = new Set<AuditAction>([
   "hitl.decision",
   "tool.invoke",
   "tool.denied",
+  "saga.compensate_failed",
 ]);
 
 export const auditRoute = new Hono();

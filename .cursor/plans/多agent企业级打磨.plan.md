@@ -28,7 +28,7 @@ todos:
     status: completed
   - id: p1-saga-cancel
     content: Saga 最小集（compensate）+ 协作式取消与部分结果回传
-    status: pending
+    status: completed
   - id: p2-versioning
     content: Prompt/Skill/Workflow 版本绑定会话 + 灰度/回滚
     status: pending

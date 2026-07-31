@@ -5,12 +5,17 @@ import type { SkillRegistry } from "../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "../core/agent/director/HumanReviewGateway.js";
 import type { FrameworkConfig } from "../config/FrameworkConfig.js";
 import type { ModelConfig } from "../port/model/ModelConfig.js";
+import type { CompensateFailureQueuePort } from "../port/saga/CompensateFailureQueuePort.js";
 import { LangGraphAgentFactory } from "../adapter/langgraph/LangGraphAgentFactory.js";
 import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
 import { LangGraphHumanReviewGateway } from "../adapter/langgraph/LangGraphHumanReviewGateway.js";
 import { MockModelAdapter } from "../adapter/mock/MockModelAdapter.js";
 import { MockAgentFactory } from "../adapter/mock/MockAgentFactory.js";
 import { MockHumanReviewGateway } from "../adapter/mock/MockHumanReviewGateway.js";
+
+export interface ContainerRuntimeDeps {
+  readonly compensateFailureQueue?: CompensateFailureQueuePort;
+}
 
 export class Container {
   readonly model: ChatModelPort;
@@ -21,6 +26,7 @@ export class Container {
     readonly config: FrameworkConfig,
     readonly toolRegistry: ToolRegistry,
     readonly skillRegistry: SkillRegistry,
+    runtimeDeps: ContainerRuntimeDeps = {},
   ) {
     switch (config.framework) {
       case "langgraph": {
@@ -41,7 +47,10 @@ export class Container {
           cooldownMs: config.model.fallbackCooldownMs,
         });
         this.model = model;
-        this.agentFactory = new LangGraphAgentFactory(model);
+        this.agentFactory = new LangGraphAgentFactory(model, undefined, {
+          enabled: config.saga.compensateEnabled,
+          failureQueue: runtimeDeps.compensateFailureQueue,
+        });
         this.humanReviewGateway = new LangGraphHumanReviewGateway();
         break;
       }
