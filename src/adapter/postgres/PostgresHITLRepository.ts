@@ -82,20 +82,21 @@ export class PostgresHITLRepository implements HITLRepository {
          stage, status, content, content_type, agent_name, review_point,
          resume_cursor, resume_payload, fallback, created_at, updated_at
        )
-       SELECT $1, $2, s.id, $4, $5, $6, $7, 'waiting_review', $8, $9,
-              $10, $11, $12, $13, false, $14, $14
+       SELECT $1::varchar, $2::varchar, s.id, $4::varchar, $5::varchar, $6::varchar, $7::varchar,
+              'waiting_review', $8::text, $9::varchar, $10::varchar, $11::varchar, $12::varchar,
+              $13::jsonb, false, $14::timestamptz, $14::timestamptz
        FROM sessions s
-       WHERE s.id = $3
-         AND s.user_id = $2
+       WHERE s.id = $3::varchar
+         AND s.user_id = $2::varchar
          AND ($4::varchar IS NULL OR EXISTS (
-           SELECT 1 FROM executions e WHERE e.id = $4 AND e.user_id = $2
+           SELECT 1 FROM executions e WHERE e.id = $4::varchar AND e.user_id = $2::varchar
          ))
          AND ($5::varchar IS NULL OR EXISTS (
            SELECT 1
            FROM execution_tasks t
-           WHERE t.id = $5
-             AND t.user_id = $2
-             AND ($4::varchar IS NULL OR t.execution_id = $4)
+           WHERE t.id = $5::varchar
+             AND t.user_id = $2::varchar
+             AND ($4::varchar IS NULL OR t.execution_id = $4::varchar)
          ))
        ON CONFLICT (user_id, idempotency_key)
        DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
@@ -113,7 +114,7 @@ export class PostgresHITLRepository implements HITLRepository {
         10: input.agentName ?? null,
         11: input.reviewPoint,
         12: input.resumeCursor ?? null,
-        13: input.resumePayload ?? null,
+        13: JSON.stringify(input.resumePayload ?? null),
         14: now,
       },
     );
@@ -311,7 +312,7 @@ export class PostgresHITLTimeoutScanAdapter implements HITLTimeoutScanPort {
        WHERE status IN ('waiting_review', 'escalated')
          AND created_at <= $1::timestamptz
        ORDER BY created_at ASC
-       LIMIT $2`,
+       LIMIT $2::int`,
       { 1: cutoffIso, 2: capped },
     );
     return result.rows.map((row) => rowToHITLCheckpoint(row));

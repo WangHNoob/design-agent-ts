@@ -55,7 +55,7 @@ describe("PostgresSessionRepository", () => {
     expect(sessions[0]?.createdAt).toBe("2026-07-30T04:00:00.000Z");
     expect(sessions[0]?.updatedAt).toBe("2026-07-30T05:00:00.000Z");
     expect(db.calls[0]?.sql).toContain(
-      "WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3",
+      "WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2::int OFFSET $3::int",
     );
     expect(db.calls[0]?.params).toEqual({ 1: "user-a", 2: 25, 3: 50 });
   });

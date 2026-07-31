@@ -80,11 +80,15 @@ describe("PostgresHITLRepository", () => {
 
     expect(result.created).toBe(false);
     expect(result.checkpoint.id).toBe("checkpoint-1");
-    expect(db.calls[0]?.sql).toContain("s.user_id = $2");
-    expect(db.calls[0]?.sql).toContain("e.id = $4 AND e.user_id = $2");
-    expect(db.calls[0]?.sql).toContain("($4::varchar IS NULL OR t.execution_id = $4)");
+    expect(db.calls[0]?.sql).toContain("s.user_id = $2::varchar");
+    expect(db.calls[0]?.sql).toContain("e.id = $4::varchar AND e.user_id = $2::varchar");
+    expect(db.calls[0]?.sql).toContain("($4::varchar IS NULL OR t.execution_id = $4::varchar)");
     expect(db.calls[0]?.sql).toContain("ON CONFLICT (user_id, idempotency_key)");
-    expect(db.calls[0]?.params).toMatchObject({ 2: "user-a", 6: "review-1" });
+    expect(db.calls[0]?.params).toMatchObject({
+      2: "user-a",
+      6: "review-1",
+      13: JSON.stringify({ node: "route" }),
+    });
   });
 
   test("keeps cross-tenant checkpoints invisible", async () => {
