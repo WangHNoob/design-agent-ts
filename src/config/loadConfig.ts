@@ -142,6 +142,10 @@ export function loadConfig(): FrameworkConfig {
             "kg_list_nodes",
           ],
     },
+    tracing: {
+      enabled: process.env.TRACING_ENABLED !== "false",
+      consoleExporter: process.env.TRACING_CONSOLE_EXPORTER === "true",
+    },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
   return config;

@@ -10,6 +10,7 @@ import type { SkillRegistry } from "../../../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "./HumanReviewGateway.js";
 import type { AgentHook } from "../../../port/hook/AgentHook.js";
 import type { IdGeneratorPort } from "../../../port/infra/IdGeneratorPort.js";
+import type { TracerPort } from "../../../port/tracing/TracerPort.js";
 import type { WorkspaceManager } from "../../workspace/WorkspaceManager.js";
 import { TaskPlanner } from "./TaskPlanner.js";
 import { Router } from "./Router.js";
@@ -62,6 +63,8 @@ export interface DirectorStreamOptions {
   initialTaskResults?: readonly TaskResult[];
   /** Durable HITL requires the owning execution id for pause/resume. */
   executionId?: string;
+  /** Tenant user id for Trace persistence (Worker/ALS usually supplies via resolveUserId). */
+  userId?: string;
 }
 
 export interface KnowledgeSource {
@@ -128,6 +131,10 @@ export interface DirectorDeps {
     recentInjectCount: number;
     cachedTools: string[];
   };
+  /** Optional tracer; when set, each execute/stream opens a root Trace. */
+  tracer?: TracerPort;
+  /** Resolve tenant userId when options.userId is omitted (e.g. from ALS). */
+  resolveUserId?: () => string | undefined;
 }
 
 export class DirectorAgent {
@@ -151,23 +158,28 @@ export class DirectorAgent {
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     options?: DirectorStreamOptions
   ): Promise<AgentResponse> {
-    try {
-      let result: AgentResponse;
-      switch (mode) {
-        case "design":
-          result = await this.executeDesignFlow(requirement, sessionId, role, undefined, options);
-          break;
-        case "query":
-          result = await this.executeQueryFlow(requirement, sessionId, undefined, history, options?.signal);
-          break;
-        case "table":
-          result = await this.executeTableFlow(requirement, sessionId, role, undefined, options);
-          break;
+    return this.withRootTrace(sessionId, mode, options, async (traceId) => {
+      try {
+        let result: AgentResponse;
+        switch (mode) {
+          case "design":
+            result = await this.executeDesignFlow(requirement, sessionId, role, traceId, options);
+            break;
+          case "query":
+            result = await this.executeQueryFlow(requirement, sessionId, traceId, history, options?.signal);
+            break;
+          case "table":
+            result = await this.executeTableFlow(requirement, sessionId, role, traceId, options);
+            break;
+        }
+        return {
+          ...result,
+          metadata: { ...result.metadata, traceId },
+        };
+      } catch (err) {
+        throw err;
       }
-      return result;
-    } catch (err) {
-      throw err;
-    }
+    });
   }
 
   async *executeStream(
@@ -177,6 +189,64 @@ export class DirectorAgent {
     role: string,
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     options?: DirectorStreamOptions
+  ): AsyncIterable<StreamEvent> {
+    const tracer = this.deps.tracer;
+    const userId = options?.userId ?? this.deps.resolveUserId?.();
+    if (!tracer || !userId || !tracer.bindTrace) {
+      yield* this.executeStreamInner(requirement, sessionId, mode, role, history, options);
+      return;
+    }
+
+    const handle = await tracer.startTrace({
+      sessionId,
+      userId,
+      name: `director.${mode}`,
+      executionId: options?.executionId,
+      attributes: { mode, role },
+    });
+    const unbind = tracer.bindTrace(handle);
+    let status: "ok" | "error" = "ok";
+    try {
+      let startInjected = false;
+      for await (const event of this.executeStreamInner(
+        requirement,
+        sessionId,
+        mode,
+        role,
+        history,
+        options,
+      )) {
+        if (!startInjected && event.type === "start") {
+          startInjected = true;
+          yield {
+            ...event,
+            data: { ...event.data, traceId: handle.traceId },
+          };
+        } else if (event.type === "complete" || event.type === "error") {
+          yield {
+            ...event,
+            data: { ...event.data, traceId: handle.traceId },
+          };
+        } else {
+          yield event;
+        }
+      }
+    } catch (err) {
+      status = "error";
+      throw err;
+    } finally {
+      await tracer.endTrace(handle.traceId, status);
+      unbind();
+    }
+  }
+
+  private async *executeStreamInner(
+    requirement: string,
+    sessionId: string,
+    mode: "design" | "query" | "table",
+    role: string,
+    history: Array<{ role: "user" | "assistant"; content: string }> | undefined,
+    options: DirectorStreamOptions | undefined,
   ): AsyncIterable<StreamEvent> {
     const signal = options?.signal;
     switch (mode) {
@@ -188,6 +258,37 @@ export class DirectorAgent {
         yield* this.executeDesignStream(requirement, sessionId, role, options);
         break;
     }
+  }
+
+  private async withRootTrace<T>(
+    sessionId: string,
+    mode: string,
+    options: DirectorStreamOptions | undefined,
+    fn: (traceId: string | undefined) => Promise<T>,
+  ): Promise<T> {
+    const tracer = this.deps.tracer;
+    const userId = options?.userId ?? this.deps.resolveUserId?.();
+    if (!tracer || !userId) {
+      return fn(undefined);
+    }
+    const handle = await tracer.startTrace({
+      sessionId,
+      userId,
+      name: `director.${mode}`,
+      executionId: options?.executionId,
+      attributes: { mode },
+    });
+    let status: "ok" | "error" = "ok";
+    return tracer.withTrace(handle, async () => {
+      try {
+        return await fn(handle.traceId);
+      } catch (err) {
+        status = "error";
+        throw err;
+      } finally {
+        await tracer.endTrace(handle.traceId, status);
+      }
+    });
   }
 
   private async executeDesignFlow(

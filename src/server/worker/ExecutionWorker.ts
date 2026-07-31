@@ -241,6 +241,7 @@ export class ExecutionWorker {
         resumePlan,
         initialTaskResults,
         executionId: execution.id,
+        userId: context.userId,
       };
       const attempts = new Map<string, ExecutionAttempt>();
       let completedOutput = "";

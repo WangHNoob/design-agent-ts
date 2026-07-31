@@ -127,4 +127,13 @@ export interface FrameworkConfig {
     /** 启用透明缓存的工具名白名单（kb_* MCP 工具在 bootstrap 运行时追加）。 */
     cachedTools: string[];
   };
+  /**
+   * Agent observability: Session / Trace / Span persistence.
+   * Spans are write-once; exporters reserved for future OTel Collector wiring.
+   */
+  tracing: {
+    enabled: boolean;
+    /** When true, also log completed spans to stdout (dev aid). */
+    consoleExporter: boolean;
+  };
 }

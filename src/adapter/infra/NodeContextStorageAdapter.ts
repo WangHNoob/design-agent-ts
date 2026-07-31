@@ -11,4 +11,8 @@ export class NodeContextStorageAdapter<T> implements ContextStoragePort<T> {
   getStore(): T | undefined {
     return this.storage.getStore();
   }
+
+  enterWith(store: T): void {
+    this.storage.enterWith(store);
+  }
 }

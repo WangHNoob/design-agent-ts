@@ -42,4 +42,14 @@ export type { SkillWorkflow, SkillPort } from "./port/skill/SkillPort.js";
 export type { SkillRegistry } from "./port/skill/SkillRegistry.js";
 
 // Port 接口层 — 追踪
-export type { SpanContext, TracerPort } from "./port/tracing/TracerPort.js";
+export type { SpanContext, TracerPort, TraceHandle, TraceRuntimeState } from "./port/tracing/TracerPort.js";
+export type { TraceStorePort } from "./port/tracing/TraceStorePort.js";
+export type { TraceExporter } from "./port/tracing/TraceExporter.js";
+export type {
+  SpanPhase,
+  SpanRecord,
+  TraceRecord,
+  TraceSessionRecord,
+  TraceDetail,
+} from "./port/tracing/types.js";
+export { NINE_SPAN_PHASES, isSpanPhase } from "./port/tracing/types.js";

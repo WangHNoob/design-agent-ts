@@ -36,6 +36,23 @@ describe("Postgres Drizzle migrations", () => {
     );
   });
 
+  test("adds Better Auth tables in 0002", () => {
+    const migration = readFileSync(resolve("drizzle/0002_better_auth.sql"), "utf8");
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "user"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "session"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "account"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "verification"');
+  });
+
+  test("adds agent Session/Trace/Span tables in 0003", () => {
+    const migration = readFileSync(resolve("drizzle/0003_agent_traces.sql"), "utf8");
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "agent_trace_sessions"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "agent_traces"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "agent_spans"');
+    expect(migration).toContain("pre_reasoning");
+    expect(migration).toContain("post_summary");
+  });
+
   test("keeps the migration journal and snapshot in sync", () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
@@ -48,9 +65,15 @@ describe("Postgres Drizzle migrations", () => {
       }>;
     };
 
+    expect(journal.entries.map((e) => e.tag)).toEqual([
+      "0000_complex_anita_blake",
+      "0001_execution_persistence",
+      "0002_better_auth",
+      "0003_agent_traces",
+    ]);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 1,
-      tag: "0001_execution_persistence",
+      idx: 3,
+      tag: "0003_agent_traces",
     });
     expect(Object.keys(snapshot.tables)).toEqual(
       expect.arrayContaining([
