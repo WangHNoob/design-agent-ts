@@ -7,7 +7,8 @@
  *   2. Game Designer 后端（Hono 服务器，端口 4527）
  *   3. Game Designer 前端（Vite dev server，端口 3001）
  *
- * 前提：PostgreSQL 和 Redis 已在本地运行
+ * 前提：PostgreSQL 和 Redis 已在本地运行（均为强制依赖）
+ *       且已应用 drizzle 迁移、配置 BETTER_AUTH_SECRET 与 MQ_ENABLED=true
  *
  * 使用：
  *   node scripts/start-local.mjs
