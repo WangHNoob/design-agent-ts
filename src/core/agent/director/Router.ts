@@ -3,6 +3,8 @@ import type { TaskPlan, Domain } from "../../schema/TaskPlan.js";
 import type { RouteDecision } from "../../schema/RouteDecision.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
 import { type Role, canAccessDomain } from "../../schema/Role.js";
+import { generateStructured } from "../../structured/generateStructured.js";
+import { RouteDecisionArraySchema } from "../../structured/schemas.js";
 
 // ---------------------------------------------------------------------------
 // Deterministic domain → agent mapping (used when plan comes from a workflow)
@@ -33,16 +35,6 @@ Output format (JSON array):
   { "fragmentId": "F1", "domain": "system_design", "agentName": "SystemDesigner", "assignment": "...", "priority": 1 }
 ]`;
 
-function extractJson(text: string): string {
-  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (codeBlockMatch) return codeBlockMatch[1]!.trim();
-  const arrayMatch = text.match(/\[[\s\S]*\]/);
-  if (arrayMatch) return arrayMatch[0];
-  const braceMatch = text.match(/\{[\s\S]*\}/);
-  if (braceMatch) return `[${braceMatch[0]}]`;
-  return text;
-}
-
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -67,11 +59,11 @@ export class Router {
     return this.routeWithLLM(plan, role);
   }
 
-  // ---- Deterministic routing (workflow-based) ----
+  // ---- Deterministic routing (workflow-based / structured degrade) ----
 
   private routeDeterministic(plan: TaskPlan, role: string): RouteDecision[] {
     const typedRole = role as Role;
-    console.log(`[Router] Deterministic routing from workflow: ${plan.skillId}`);
+    console.log(`[Router] Deterministic routing${plan.skillId ? ` from workflow: ${plan.skillId}` : " (domain→agent)"}`);
 
     const decisions: RouteDecision[] = [];
     let priority = 1;
@@ -100,30 +92,44 @@ export class Router {
       JSON.stringify(plan.subTasks, null, 2),
     );
 
-    const response = await this.model.generate([
+    const messages = [
       ChatMessage.text("system", "system", prompt),
       ChatMessage.text("user", "user", "请根据以上规则进行路由分配。"),
-    ]);
+    ];
 
-    try {
-      const rawText = ChatMessage.textContent(response.message);
-      const jsonStr = extractJson(rawText ?? "[]");
-      const parsed = JSON.parse(jsonStr);
-      if (!Array.isArray(parsed)) return [];
+    const result = await generateStructured<import("../../structured/schemas.js").RouteDecisionParsed[]>(
+      this.model,
+      messages,
+      RouteDecisionArraySchema,
+      {
+        preferArray: true,
+        maxRetries: 2,
+        onExhausted: "degrade",
+        degradeValue: () => [],
+      },
+    );
 
-      const typedRole = role as Role;
-      const decisions: RouteDecision[] = (parsed as Record<string, unknown>[])
-        .map((item): RouteDecision => ({
-          fragmentId: (item.fragmentId ?? item.taskId ?? item.id ?? "") as string,
-          domain: (((item.domain as string) ?? "system_design").toLowerCase().replace(/-/g, "_")) as Domain,
-          agentName: (item.agentName ?? item.agent ?? "SystemDesigner") as string,
-          assignment: (item.assignment ?? item.description ?? item.requirement ?? "") as string,
-          priority: (item.priority ?? 1) as number,
-        }));
-      return decisions.filter((d) => canAccessDomain(typedRole, d.domain));
-    } catch (err) {
-      console.error("[Router] Failed to parse routing:", err, "Raw text:", ChatMessage.textContent(response.message));
-      return [];
+    if (result.degraded) {
+      console.warn(
+        "[Router] structured parse exhausted → deterministic domain→agent degrade:",
+        result.issues?.join("; "),
+      );
+      return this.routeDeterministic(plan, role);
     }
+
+    const typedRole = role as Role;
+    const decisions: RouteDecision[] = result.value.map((item) => ({
+      fragmentId: item.fragmentId,
+      domain: item.domain,
+      agentName: item.agentName,
+      assignment: item.assignment,
+      priority: item.priority,
+    }));
+    const filtered = decisions.filter((d) => canAccessDomain(typedRole, d.domain));
+    if (filtered.length === 0) {
+      console.warn("[Router] LLM routing empty after role filter → deterministic degrade");
+      return this.routeDeterministic(plan, role);
+    }
+    return filtered;
   }
 }
