@@ -64,23 +64,26 @@ LLM_MODEL=claude-sonnet-4-6     # 模型名称
 LLM_BASE_URL=https://api.nagara.top  # API 代理地址（如使用代理）
 ```
 
-### 4.2 用户系统
-
-```env
-USER_SYSTEM_ENABLED=true
-```
-
-### 4.3 Better Auth 密钥（必须修改！）
+### 4.2 认证与消息队列（强制）
 
 ```env
 # 生成方式: openssl rand -hex 32
 BETTER_AUTH_SECRET=a1b2c3d4e5f6...生成一个64位随机字符串
 
-# 云部署时填你的域名
+# 云部署时填你的对外可达域名（含协议）
 BETTER_AUTH_BASE_URL=https://your-domain.com
+
+# Redis Streams 执行队列必须开启
+MQ_ENABLED=true
+MQ_CONSUMER_GROUP=gd-workers
 ```
 
-> **重要**: `BETTER_AUTH_SECRET` 绝不能使用默认值 `change-me-in-production`！
+> **重要**: `BETTER_AUTH_SECRET` 绝不能使用默认值；缺少有效密钥、PostgreSQL、Redis 或 `MQ_ENABLED=true` 时进程会 fail-fast。
+> 已退役开关：`USER_SYSTEM_ENABLED`、`USER_SYSTEM_REDIS_ENABLED`、`AUTO_INIT_SCHEMA`、`LTM_STORAGE_PATH` —— 不要再写进 `.env`。
+
+### 4.3 Better Auth 对外地址
+
+云部署请确保 `BETTER_AUTH_BASE_URL` 与浏览器访问域名一致；Docker Compose 内默认使用 `http://backend:3000` 供容器间回调。
 
 ### 4.4 PostgreSQL 数据库
 
@@ -226,33 +229,32 @@ route:
 ```bash
 cd /opt/game-designer
 
-# 1. 安装依赖
-pnpm install
-
-# 2. 编译后端
-pnpm run build
-
-# 3. 编译前端
-cd frontend
+# 1. 安装依赖并编译（镜像 COPY 的是本地 dist/）
 pnpm install
 pnpm run build
-cd ..
+cd frontend && pnpm install && pnpm run build && cd ..
 
-# 4. 启动所有服务
-docker compose up -d
+# 2. 启动基础设施 + migrate + 应用
+# postgres 使用 pgvector/pgvector:pg16；migrate 先于 backend
+docker compose up -d --build
 
-# 5. 查看日志
-docker compose logs -f backend
+# 3. 查看日志
+docker compose logs -f migrate backend
 ```
+
+> 改完后端源码后必须重新 `pnpm run build` 并 `docker compose up -d --build backend`，否则容器会跑旧的 `dist/`。
 
 ### 验证服务
 
 ```bash
-# 健康检查
+# 健康检查（源码接线正常时应含 postgres/redis）
 curl http://localhost:13000/health
 
-# 预期输出: {"status":"ok","checks":{"postgres":"ok","redis":"ok"}}
+# 预期输出示例:
+# {"status":"ok","checks":{"postgres":"ok","redis":"ok"}}
 ```
+
+前端入口：http://localhost:3001 ；后端映射：http://localhost:13000 。
 
 ---
 
@@ -422,7 +424,6 @@ TAVILY_API_KEY=tvly-your-api-key-here
 
 # ─── 长期记忆 ────────────────────────────────────────────────
 LTM_ENABLED=true
-LTM_STORAGE_PATH=./data/long-term-memory
 LTM_DEFAULT_NAMESPACE=global
 LTM_MAX_CONTEXT_MEMORIES=10
 LTM_MIN_IMPORTANCE=0.4
@@ -446,9 +447,7 @@ WEB_SOURCE_RESULT_LIMIT=10
 SESSION_LIST_LIMIT=500
 MODEL_MAX_TOKENS=65536
 
-# ─── 用户系统 [必改] ────────────────────────────────────────
-USER_SYSTEM_ENABLED=true
-
+# ─── 认证 [必改] ────────────────────────────────────────────
 # Better Auth 密钥 [必改] 生成: openssl rand -hex 32
 BETTER_AUTH_SECRET=替换为64位随机字符串
 
@@ -463,7 +462,6 @@ POSTGRES_USER=game_designer
 POSTGRES_PASSWORD=替换为强密码
 POSTGRES_DB=game_designer
 POSTGRES_PORT=5432
-AUTO_INIT_SCHEMA=true
 
 # 备份保留天数
 BACKUP_RETENTION=30
@@ -483,7 +481,7 @@ SMTP_USER=no-reply@game2sky.com
 SMTP_PASSWORD=替换为SMTP授权码
 SMTP_FROM=no-reply@game2sky.com
 
-# ─── 消息队列 ────────────────────────────────────────────────
+# ─── 消息队列（强制） ────────────────────────────────────────
 MQ_ENABLED=true
 MQ_CONSUMER_GROUP=gd-workers
 MQ_POLL_INTERVAL_MS=100
@@ -494,7 +492,7 @@ FRONTEND_PORT=3001
 REDIS_PORT=6379
 
 # ─── 前端 ────────────────────────────────────────────────────
-API_BASE_URL=http://localhost:4527
+API_BASE_URL=http://localhost:13000
 
 # ─── 监控 [必改] ────────────────────────────────────────────
 GRAFANA_ADMIN_USER=admin
