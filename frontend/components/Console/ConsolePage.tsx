@@ -13,7 +13,8 @@ import type { TimelineEntry } from '@/components/Console/StepsTimeline';
 import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import ResultPanel from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
-import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, type SessionMeta, type StreamHandle } from '@/lib/api';
+import HitlReviewModal from '@/components/Console/HitlReviewModal';
+import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, type SessionMeta, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking } from '@/lib/streamHandler';
 
@@ -105,6 +106,8 @@ export default function ConsolePage({ mode }: Props) {
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [hitlModalOpen, setHitlModalOpen] = useState(false);
+  const [hitlFallbackContent, setHitlFallbackContent] = useState<string | undefined>();
 
   // Check config status on mount
   useEffect(() => {
@@ -133,6 +136,22 @@ export default function ConsolePage({ mode }: Props) {
           statusText: '等待人工审阅',
           streamRef: null,
         });
+        // Resolve checkpoint id if stream event was missed.
+        if (!store.getTask(task.sessionId)?.hitlCheckpointId) {
+          listHITLCheckpoints(task.sessionId)
+            .then((res) => {
+              const pending = res.checkpoints.find(
+                (cp) => cp.status === 'waiting_review' || cp.status === 'escalated',
+              );
+              if (pending) {
+                store.updateTask(task.sessionId, { hitlCheckpointId: pending.id });
+                setHitlModalOpen(true);
+              }
+            })
+            .catch(() => {});
+        } else {
+          setHitlModalOpen(true);
+        }
         setRefreshTick((t) => t + 1);
         return;
       }
@@ -314,12 +333,36 @@ export default function ConsolePage({ mode }: Props) {
         }
       }
 
+      if (event === 'hitl') {
+        const d = data as Record<string, unknown>;
+        const plan = d.plan;
+        if (plan && typeof plan === 'object') {
+          try {
+            setHitlFallbackContent(JSON.stringify(plan, null, 2));
+          } catch {
+            setHitlFallbackContent(undefined);
+          }
+        }
+        setHitlModalOpen(true);
+      }
+
+      if (event === 'execution_status') {
+        const d = data as Record<string, unknown>;
+        if (d.status === 'waiting_hitl') {
+          const checkpointId = d.checkpointId as string | undefined;
+          if (checkpointId) {
+            store.updateTask(sessionId, { hitlCheckpointId: checkpointId });
+          }
+          setHitlModalOpen(true);
+        }
+      }
+
       if (event === 'complete') {
         const taskRole = store.getTask(sessionId)?.role;
         if (taskRole === 'chief_designer') {
           setRightPanelTab('files');
         }
-        store.updateTask(sessionId, { streamResumeAttempts: 0 });
+        store.updateTask(sessionId, { streamResumeAttempts: 0, hitlCheckpointId: null });
       }
 
       if (event === 'complete' || event === 'error' || event === 'hitl' || event === 'execution_terminal') {
@@ -330,6 +373,63 @@ export default function ConsolePage({ mode }: Props) {
   );
 
   onStreamEventRef.current = onStreamEvent;
+
+  const handleHitlReviewed = useCallback((result: {
+    action: 'approve' | 'reject' | 'modify';
+    checkpoint: { id: string; executionId?: string };
+    executionId?: string;
+  }) => {
+    if (!task) return;
+    const sid = task.sessionId;
+    const actionLabel =
+      result.action === 'approve' ? '已通过' : result.action === 'reject' ? '已驳回' : '已修改并确认';
+    store.appendMessage(sid, {
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+      type: 'system',
+      content: `人工审阅${actionLabel}`,
+      timestamp: getCurrentTime(),
+    });
+    store.updateTask(sid, {
+      hitlCheckpointId: null,
+      status: result.action === 'reject' ? 'error' : 'working',
+      statusText: result.action === 'reject' ? '审阅驳回' : '审阅通过，继续执行…',
+      loading: result.action !== 'reject',
+      streaming: result.action !== 'reject',
+    });
+    setHitlModalOpen(false);
+    setHitlFallbackContent(undefined);
+    setRefreshTick((t) => t + 1);
+
+    if (result.action === 'reject') return;
+
+    const executionId = result.executionId || result.checkpoint.executionId || task.executionId;
+    if (!executionId) return;
+
+    store.updateTask(sid, { executionId, streamResumeAttempts: 0 });
+    const resume = resumeExecutionStream(
+      executionId,
+      task.lastEventId ?? undefined,
+      (event, data) => onStreamEventRef.current(sid, event, data),
+      (err) => {
+        if (!mountedRef.current) return;
+        if (!tryResumeStream(sid, err.message)) {
+          store.updateTask(sid, {
+            loading: false,
+            streaming: false,
+            status: 'error',
+            statusText: '错误',
+          });
+          store.appendMessage(sid, {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+            type: 'system',
+            content: `续订失败: ${err.message}`,
+            timestamp: getCurrentTime(),
+          });
+        }
+      },
+    );
+    attachStream(sid, resume);
+  }, [task, store, attachStream, tryResumeStream]);
 
   const handleSubmit = async () => {
     if (!requirement.trim()) return;
@@ -585,6 +685,23 @@ export default function ConsolePage({ mode }: Props) {
 
           {/* Input */}
           <div className="shrink-0 border-t border-ink/6 px-4 py-3">
+            {task?.status === 'waiting' && (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-coral/20 bg-coral/5 px-4 py-2.5">
+                <div className="text-xs text-ink/70">
+                  执行已暂停，等待人工审阅
+                  {task.hitlCheckpointId ? (
+                    <span className="ml-1 text-ink/40">· {task.hitlCheckpointId.slice(0, 8)}…</span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHitlModalOpen(true)}
+                  className="shrink-0 rounded-lg bg-coral px-3 py-1.5 text-xs font-medium text-white hover:bg-coral/90"
+                >
+                  打开审阅
+                </button>
+              </div>
+            )}
             <div className="max-w-none mx-0">
               <div className="rounded-xl border border-ink/8 bg-white shadow-sm">
                 <textarea
@@ -682,6 +799,14 @@ export default function ConsolePage({ mode }: Props) {
         onClose={() => setShowSetupModal(false)}
         onConfigured={() => { setShowSetupModal(false); setIsFirstTimeSetup(false); }}
         isFirstTime={isFirstTimeSetup}
+      />
+
+      <HitlReviewModal
+        open={hitlModalOpen}
+        checkpointId={task?.hitlCheckpointId ?? null}
+        fallbackContent={hitlFallbackContent}
+        onClose={() => setHitlModalOpen(false)}
+        onReviewed={handleHitlReviewed}
       />
     </div>
   );
