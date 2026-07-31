@@ -43,7 +43,7 @@ export interface HITLCheckpoint {
   id: string;
   sessionId: string;
   stage: 'plan' | 'subagent' | 'integrate';
-  status: 'waiting_review' | 'approved' | 'rejected' | 'modified';
+  status: 'waiting_review' | 'approved' | 'rejected' | 'modified' | 'expired' | 'escalated';
   content: string;
   contentType: 'markdown' | 'json';
   agentName?: string;
@@ -52,6 +52,12 @@ export interface HITLCheckpoint {
   reviewAction?: 'approve' | 'reject' | 'modify';
   reviewComment?: string;
   modifiedContent?: string;
+  executionId?: string;
+  reviewPoint?: string;
+  waitingMs?: number;
+  overdue?: boolean;
+  escalated?: boolean;
+  escalatedAt?: string;
 }
 
 export async function executeDesign(req: ExecuteRequest): Promise<ExecuteResponse> {

@@ -138,7 +138,7 @@ describe("PostgresHITLRepository", () => {
     expect(reviewed?.status).toBe("approved");
     expect(reviewed?.fallback).toBe(true);
     expect(db.calls[0]?.sql).toContain(
-      "WHERE id = $8 AND user_id = $9 AND status = 'waiting_review'",
+      "WHERE id = $8 AND user_id = $9 AND status IN ('waiting_review', 'escalated')",
     );
     expect(db.calls[0]?.params).toMatchObject({
       1: "approved",
