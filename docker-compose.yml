@@ -16,7 +16,9 @@ services:
       - pg_backups:/backups
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # Must authenticate as POSTGRES_USER — pg_isready alone stays healthy even when
+      # an old volume only has the default "postgres" role and migrate cannot connect.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} && psql -U $${POSTGRES_USER} -d $${POSTGRES_DB} -c 'SELECT 1' >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 10
