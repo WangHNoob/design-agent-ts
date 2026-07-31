@@ -118,7 +118,7 @@ async function createExecution(
   let existingSession = await sessionRepository.get(requestedSessionId);
   if (!existingSession) {
     let versionSnapshotId: string | undefined;
-    if (dependencies.config?.versioning.enabled) {
+    if (dependencies.config?.versioning?.enabled) {
       if (!dependencies.versionStore) {
         throw new Error("VERSIONING_ENABLED but version store is unavailable");
       }
@@ -127,7 +127,7 @@ async function createExecution(
     }
     await sessionRepository.create(queuedSession(requestedSessionId, body, role, versionSnapshotId));
     existingSession = await sessionRepository.get(requestedSessionId);
-  } else if (dependencies.config?.versioning.enabled) {
+  } else if (dependencies.config?.versioning?.enabled) {
     await ensureSessionVersionSnapshot({
       sessionRepository,
       userId: tenant.userId,
@@ -222,77 +222,59 @@ consoleRoute.post("/execute/stream", async (c) => {
     return c.json(rpmDenied, 429);
   }
   const created = await createExecution(body, tenant, c.req.header("Idempotency-Key"));
-  const repository = dependencies.executionRepositoryFactory(tenant.userId);
-  const eventStore = dependencies.eventStore;
   const afterCursor = c.req.header("Last-Event-ID")?.trim() || "0-0";
-  const subscriptionController = new AbortController();
-  const onDisconnect = () => subscriptionController.abort();
-  c.req.raw.signal.addEventListener("abort", onDisconnect, { once: true });
-  const encoder = new TextEncoder();
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let cursor = afterCursor;
-      const send = (event: ExecutionEvent) => {
-        controller.enqueue(encoder.encode(
-          `id: ${event.cursor}\nevent: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`,
-        ));
-        cursor = event.cursor;
-      };
-      try {
-        const replayed = await eventStore.replay(
-          tenant.userId,
-          created.execution.id,
-          cursor,
-          1_000,
-        );
-        for (const event of replayed) send(event);
-        const latest = await repository.get(created.execution.id);
-        if (
-          replayed.some((event) => event.type === "execution_terminal")
-          || (latest && ExecutionStateMachine.isTerminal(latest.status))
-        ) {
-          controller.close();
-          return;
-        }
-        for await (const event of eventStore.subscribe(
-          tenant.userId,
-          created.execution.id,
-          cursor,
-          subscriptionController.signal,
-        )) {
-          send(event);
-          if (event.type === "execution_terminal") break;
-        }
-        controller.close();
-      } catch (error) {
-        if (!subscriptionController.signal.aborted) {
-          controller.enqueue(encoder.encode(
-            `event: error\ndata: ${JSON.stringify({
-              error: error instanceof Error ? error.message : String(error),
-            })}\n\n`,
-          ));
-          controller.close();
-        }
-      } finally {
-        c.req.raw.signal.removeEventListener("abort", onDisconnect);
-      }
-    },
-    cancel() {
-      subscriptionController.abort();
-      c.req.raw.signal.removeEventListener("abort", onDisconnect);
-    },
+  return openExecutionEventStream(c, {
+    userId: tenant.userId,
+    executionId: created.execution.id,
+    sessionId: created.sessionId,
+    afterCursor,
   });
+});
 
-  return new Response(stream, {
-    status: 202,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Execution-Id": created.execution.id,
-      "X-Session-Id": created.sessionId,
-    },
+/** Resume an existing execution event stream without creating a new execution. */
+consoleRoute.get("/executions/:id/events", async (c) => {
+  if (!dependencies) return c.json({ error: "not_initialized" }, 503);
+  if (!directorConfigured || !dependencies.worker.hasDirector()) {
+    return c.json({ error: "not_configured", message: "Director is not configured" }, 409);
+  }
+  const tenant = c.get("tenant") as TenantContext;
+  const executionId = c.req.param("id");
+  const execution = await dependencies.executionRepositoryFactory(tenant.userId).get(executionId);
+  if (!execution) return c.json({ error: "not_found" }, 404);
+  const afterCursor =
+    c.req.header("Last-Event-ID")?.trim()
+    || c.req.query("afterCursor")?.trim()
+    || "0-0";
+  return openExecutionEventStream(c, {
+    userId: tenant.userId,
+    executionId: execution.id,
+    sessionId: execution.sessionId,
+    afterCursor,
+  });
+});
+
+consoleRoute.post("/execute/stream/resume", async (c) => {
+  if (!dependencies) return c.json({ error: "not_initialized" }, 503);
+  if (!directorConfigured || !dependencies.worker.hasDirector()) {
+    return c.json({ error: "not_configured", message: "Director is not configured" }, 409);
+  }
+  const tenant = c.get("tenant") as TenantContext;
+  const body = await c.req.json<{ executionId?: string; afterCursor?: string }>();
+  if (!body.executionId?.trim()) {
+    return c.json({ error: "validation_error", message: "executionId is required" }, 400);
+  }
+  const execution = await dependencies.executionRepositoryFactory(tenant.userId)
+    .get(body.executionId.trim());
+  if (!execution) return c.json({ error: "not_found" }, 404);
+  const afterCursor =
+    c.req.header("Last-Event-ID")?.trim()
+    || body.afterCursor?.trim()
+    || "0-0";
+  return openExecutionEventStream(c, {
+    userId: tenant.userId,
+    executionId: execution.id,
+    sessionId: execution.sessionId,
+    afterCursor,
   });
 });
 
@@ -339,3 +321,127 @@ consoleRoute.post("/cancel", async (c) => {
     status: cancelled.status,
   });
 });
+
+function openExecutionEventStream(
+  c: { req: { raw: { signal: AbortSignal } } },
+  opts: {
+    userId: string;
+    executionId: string;
+    sessionId: string;
+    afterCursor: string;
+  },
+): Response {
+  if (!dependencies) {
+    return new Response(JSON.stringify({ error: "not_initialized" }), { status: 503 });
+  }
+  const repository = dependencies.executionRepositoryFactory(opts.userId);
+  const eventStore = dependencies.eventStore;
+  const heartbeatMs = dependencies.config?.execution?.sseHeartbeatMs ?? 15_000;
+  const subscriptionController = new AbortController();
+  const onDisconnect = () => subscriptionController.abort();
+  c.req.raw.signal.addEventListener("abort", onDisconnect, { once: true });
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let cursor = opts.afterCursor;
+      const send = (event: ExecutionEvent) => {
+        controller.enqueue(encoder.encode(
+          `id: ${event.cursor}\nevent: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`,
+        ));
+        cursor = event.cursor;
+      };
+      const sendHeartbeat = () => {
+        controller.enqueue(encoder.encode(": heartbeat\n\n"));
+      };
+      try {
+        const replayed = await eventStore.replay(
+          opts.userId,
+          opts.executionId,
+          cursor,
+          1_000,
+        );
+        for (const event of replayed) send(event);
+        const latest = await repository.get(opts.executionId);
+        if (
+          replayed.some((event) => event.type === "execution_terminal")
+          || (latest && ExecutionStateMachine.isTerminal(latest.status))
+        ) {
+          controller.close();
+          return;
+        }
+
+        const iterator = eventStore.subscribe(
+          opts.userId,
+          opts.executionId,
+          cursor,
+          subscriptionController.signal,
+        )[Symbol.asyncIterator]();
+
+        type NextOutcome =
+          | { kind: "event"; result: IteratorResult<ExecutionEvent, unknown> }
+          | { kind: "error"; error: unknown };
+        let pendingNext: Promise<NextOutcome> | null = null;
+
+        while (!subscriptionController.signal.aborted) {
+          if (!pendingNext) {
+            pendingNext = iterator.next().then(
+              (result) => ({ kind: "event" as const, result }),
+              (error: unknown) => ({ kind: "error" as const, error }),
+            );
+          }
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const heartbeatPromise = heartbeatMs > 0
+            ? new Promise<{ kind: "heartbeat" }>((resolve) => {
+              timer = setTimeout(() => resolve({ kind: "heartbeat" }), heartbeatMs);
+              timer.unref?.();
+            })
+            : new Promise<{ kind: "heartbeat" }>(() => { /* never */ });
+
+          const winner = await Promise.race([pendingNext, heartbeatPromise]);
+          if (timer) clearTimeout(timer);
+
+          if (winner.kind === "heartbeat") {
+            sendHeartbeat();
+            continue;
+          }
+          pendingNext = null;
+          if (winner.kind === "error") {
+            if (!subscriptionController.signal.aborted) throw winner.error;
+            break;
+          }
+          if (winner.result.done) break;
+          send(winner.result.value);
+          if (winner.result.value.type === "execution_terminal") break;
+        }
+        controller.close();
+      } catch (error) {
+        if (!subscriptionController.signal.aborted) {
+          controller.enqueue(encoder.encode(
+            `event: error\ndata: ${JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+            })}\n\n`,
+          ));
+          controller.close();
+        }
+      } finally {
+        c.req.raw.signal.removeEventListener("abort", onDisconnect);
+      }
+    },
+    cancel() {
+      subscriptionController.abort();
+      c.req.raw.signal.removeEventListener("abort", onDisconnect);
+    },
+  });
+
+  return new Response(stream, {
+    status: 202,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Execution-Id": opts.executionId,
+      "X-Session-Id": opts.sessionId,
+    },
+  });
+}

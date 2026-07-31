@@ -186,6 +186,12 @@ export function loadConfig(): FrameworkConfig {
       taskTimeoutMs: Number(process.env.EXECUTION_TASK_TIMEOUT_MS ?? 300000),
       pollIntervalMs: Number(process.env.EXECUTION_POLL_INTERVAL_MS ?? 1000),
       eventMaxLength: Number(process.env.EXECUTION_EVENT_MAX_LENGTH ?? 10000),
+      sseHeartbeatMs: Number(process.env.SSE_HEARTBEAT_MS ?? 15000),
+    },
+    memory: {
+      archiveEnabled: process.env.MEMORY_ARCHIVE_ENABLED !== "false",
+      protectRecentTurns: Number(process.env.MEMORY_PROTECT_RECENT_TURNS ?? 10),
+      maxActiveMessages: Number(process.env.MEMORY_MAX_ACTIVE_MESSAGES ?? 40),
     },
     mcp: {
       enabled: process.env.MCP_ENABLED === "true",
