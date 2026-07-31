@@ -13,9 +13,12 @@ const SETTINGS_TO_ENV_MAP: Record<string, string> = {
 /**
  * 将用户设置同步回写 .env 文件，保持环境变量与运行时配置一致。
  * 保留原有注释和空行，仅更新发生变化的键。
+ *
+ * Docker: compose 将宿主机 `./.env` 挂载到容器 `/app/.env`，
+ * 因此 UI 保存会写回宿主机，重建镜像后仍可注入 LLM_*。
  */
 export function syncEnvFromSettings(updates: Record<string, unknown>): void {
-  const envPath = ".env";
+  const envPath = process.env.ENV_FILE_PATH || ".env";
   const envContent = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
   const lines = envContent.split(/\r?\n/);
 
@@ -60,5 +63,11 @@ export function syncEnvFromSettings(updates: Record<string, unknown>): void {
   }
 
   const output = newLines.join("\n");
-  writeFileSync(envPath, output.endsWith("\n") ? output : output + "\n");
+  try {
+    writeFileSync(envPath, output.endsWith("\n") ? output : output + "\n");
+  } catch (err) {
+    console.warn(
+      `[envSync] Failed to write ${envPath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
