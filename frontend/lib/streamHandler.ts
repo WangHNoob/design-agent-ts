@@ -121,17 +121,19 @@ export function handleStreamEvent(
       const reviewPoint = (d.reviewPoint as string) || 'HITL';
       const feedback = (d.feedback as string) || (d.message as string) || '等待人工审阅';
       const checkpointId = d.checkpointId as string | undefined;
+      const plan = d.plan as { subTasks?: unknown[] } | undefined;
       store.updateTask(sessionId, {
         streaming: false,
         loading: false,
         status: 'waiting',
         statusText: '等待人工审阅',
         streamingText: '',
+        hitlCheckpointId: checkpointId ?? null,
       });
       store.appendMessage(sessionId, {
         id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
         type: 'system',
-        content: `需要人工审阅（${reviewPoint}）${checkpointId ? ` · checkpoint=${checkpointId}` : ''}\n${feedback}`,
+        content: `需要人工审阅（${reviewPoint}）${checkpointId ? ` · checkpoint=${checkpointId}` : ''}\n${feedback}${plan?.subTasks ? `\n已规划 ${plan.subTasks.length} 个任务，请在弹窗中确认。` : ''}`,
         timestamp: getCurrentTime(),
       });
       store.appendTimeline(sessionId, {
@@ -148,7 +150,7 @@ export function handleStreamEvent(
         level: 'warn',
         source: 'HITL',
         message: feedback,
-        data: { reviewPoint, checkpointId, status: d.status },
+        data: { reviewPoint, checkpointId, status: d.status, plan },
       });
       break;
     }
@@ -167,12 +169,14 @@ export function handleStreamEvent(
         break;
       }
       if (status === 'waiting_hitl') {
+        const checkpointId = d.checkpointId as string | undefined;
         store.updateTask(sessionId, {
           streaming: false,
           loading: false,
           status: 'waiting',
           statusText: '等待人工审阅',
           streamingText: '',
+          ...(checkpointId ? { hitlCheckpointId: checkpointId } : {}),
         });
         break;
       }

@@ -62,6 +62,8 @@ export interface TaskState {
   streamRef: StreamHandle | null;
   /** Server execution id for resume / refresh. */
   executionId: string | null;
+  /** Pending HITL checkpoint id when status === 'waiting'. */
+  hitlCheckpointId: string | null;
   lastEventId: string | null;
   streamResumeAttempts: number;
   startedAt: number;
@@ -111,6 +113,7 @@ function createInitialTaskState(mode: TaskMode, role: string, requirement: strin
     streamingText: '',
     streamRef: null,
     executionId: null,
+    hitlCheckpointId: null,
     lastEventId: null,
     streamResumeAttempts: 0,
     startedAt: 0,
