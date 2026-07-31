@@ -20,6 +20,12 @@ export interface WorkflowTask {
   readonly dependencies: readonly string[];
   readonly outputType: OutputType;
   readonly outputTemplate: string;
+  /**
+   * Optional per-task tool whitelist.
+   * - omitted: use domain defaults at execution time
+   * - `[]`: no external tools allowed (strict empty set)
+   */
+  readonly allowedTools?: readonly string[];
 }
 
 export interface SubTask {
@@ -29,6 +35,13 @@ export interface SubTask {
   readonly description: string;
   readonly dependencies: string[];
   readonly priority: number;
+  /**
+   * Step-level tool whitelist for plan hard guards.
+   * - omitted / undefined: resolve via domain defaults (`planDomainToolDefaults` / core defaults)
+   * - empty array `[]`: **no external tools** — only agent reasoning without tool calls
+   * - non-empty: intersected with `AgentDescriptor.toolNames` (+ session tools when listed)
+   */
+  readonly allowedTools?: readonly string[];
 }
 
 export interface TaskPlan {

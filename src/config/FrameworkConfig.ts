@@ -182,6 +182,23 @@ export interface FrameworkConfig {
     toolRetryBackoffMs: number;
     /** Per-call timeout for external/MCP tools (ms). 0 disables. */
     toolTimeoutMs: number;
+    /**
+     * Plan hard guards (paradigm II): step ordering, tool whitelist, replan budget.
+     * When false, whitelist/replan/jump assertions are no-ops.
+     */
+    planHardEnabled: boolean;
+    /**
+     * Max Replanner rounds after step failure (replace remaining steps).
+     * 0 = never replan; default 2.
+     */
+    planMaxReplans: number;
+    /** When true, unauthorized tool calls fail loud (ToolResult.error / PlanViolationError). */
+    planRejectUnauthorizedTools: boolean;
+    /**
+     * Optional per-domain default tool whitelists (env JSON override).
+     * Merged over core defaults; missing domains keep core defaults.
+     */
+    planDomainToolDefaults: Record<string, string[]>;
   };
   /**
    * Eval V1: Offline/Online scoring against golden datasets.

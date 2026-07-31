@@ -34,7 +34,7 @@ todos:
     status: completed
   - id: p2-plan-hard
     content: Plan 硬保障（代码驱动步骤、步骤工具白名单、最大重规划）
-    status: pending
+    status: completed
   - id: p2-multiagent-guard
     content: 跨 Agent 全局 Token 预算、fan-out/递归深度、调用环检测、Handoff schema
     status: pending

@@ -2,6 +2,8 @@ import type { TaskPlan, SubTask } from "../schema/TaskPlan.js";
 import type { TaskResult } from "../schema/TaskResult.js";
 import { ErrorClassifier } from "../execution/ErrorClassifier.js";
 import { isToolHitlRequiredError } from "../tool/ToolHitlRequiredError.js";
+import { PlanHardGuard } from "../plan/PlanHardGuard.js";
+import { isPlanViolationError } from "../plan/PlanViolationError.js";
 
 export type TaskExecutor = (task: SubTask, signal?: AbortSignal) => Promise<TaskResult>;
 
@@ -11,6 +13,11 @@ export interface PlanPipelineOptions {
   initialResults?: readonly TaskResult[];
   onTaskStart?: (task: SubTask) => void | Promise<void>;
   onTaskResult?: (task: SubTask, result: TaskResult) => void | Promise<void>;
+  /**
+   * When true (default), assertExecutable rejects jump-ahead before calling executor.
+   * Failed-deps → skipped path is unchanged.
+   */
+  planHardEnabled?: boolean;
 }
 
 class TaskTimeoutError extends Error {
@@ -77,7 +84,7 @@ export class PlanPipeline {
             await this.options.onTaskResult?.(task, result);
             return result;
           }
-          return this.executeTask(task);
+          return this.executeTask(task, resultByTaskId);
         }),
       );
 
@@ -156,7 +163,36 @@ export class PlanPipeline {
     return layers;
   }
 
-  private async executeTask(task: SubTask): Promise<TaskResult> {
+  private async executeTask(
+    task: SubTask,
+    resultByTaskId: Map<string, TaskResult>,
+  ): Promise<TaskResult> {
+    const planHardEnabled = this.options.planHardEnabled !== false;
+    if (planHardEnabled) {
+      const completedSuccessIds = new Set(
+        [...resultByTaskId.entries()]
+          .filter(([, result]) => result.status === "success")
+          .map(([id]) => id),
+      );
+      try {
+        PlanHardGuard.assertExecutable(task, completedSuccessIds);
+      } catch (err) {
+        if (isPlanViolationError(err)) {
+          const result: TaskResult = {
+            taskId: task.id,
+            domain: task.domain,
+            status: "error",
+            output: "",
+            errorMessage: err instanceof Error ? err.message : String(err),
+            errorClass: "permanent",
+          };
+          await this.options.onTaskResult?.(task, result);
+          return result;
+        }
+        throw err;
+      }
+    }
+
     await this.options.onTaskStart?.(task);
 
     const controller = new AbortController();
