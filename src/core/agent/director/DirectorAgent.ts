@@ -1643,9 +1643,49 @@ export class DirectorAgent {
       if (plan) {
         yield { type: "plan", data: { message: `Resuming ${plan.subTasks.length} tasks`, plan, resumed: true } };
       } else {
-        yield { type: "plan", data: { message: "Planning tasks...", matchedSkill: skill?.getName() ?? null } };
-        plan = await this.getTaskPlanner(options).plan(requirement, role, skill);
-        yield { type: "plan", data: { message: `Planned ${plan.subTasks.length} tasks`, plan, matchedSkill: skill?.getName() ?? null } };
+        yield {
+          type: "plan",
+          data: {
+            message: "正在进行任务规划…",
+            phase: "plan",
+            matchedSkill: skill?.getName() ?? null,
+          },
+        };
+        try {
+          plan = await this.getTaskPlanner(options).plan(requirement, role, skill);
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          yield {
+            type: "error",
+            data: {
+              error: `任务规划失败: ${detail}`,
+              phase: "plan",
+              errorClass: "permanent",
+            },
+          };
+          return;
+        }
+        if (plan.warnings && plan.warnings.length > 0) {
+          yield {
+            type: "plan",
+            data: {
+              message: plan.warnings.join("；"),
+              warning: true,
+              phase: "plan",
+              plan,
+              matchedSkill: skill?.getName() ?? null,
+            },
+          };
+        }
+        yield {
+          type: "plan",
+          data: {
+            message: `已规划 ${plan.subTasks.length} 个任务`,
+            plan,
+            matchedSkill: skill?.getName() ?? null,
+            fallback: plan.fallback === true,
+          },
+        };
       }
 
       const reviewedPlan = options?.resumePlan
@@ -1666,7 +1706,8 @@ export class DirectorAgent {
             status: "waiting_review",
             resumeCursor: "after_plan",
             plan,
-            feedback: reviewedPlan.feedback,
+            feedback: reviewedPlan.feedback ?? "任务计划等待人工审阅",
+            message: "任务计划已生成，等待人工审阅后继续",
           },
         };
         return;
@@ -1677,6 +1718,7 @@ export class DirectorAgent {
           type: "error",
           data: {
             error: reviewedPlan.feedback ?? "任务计划被驳回",
+            phase: "plan_review",
             errorClass: "permanent",
             rejected: true,
             fallback: reviewedPlan.fallback === true,
@@ -1685,10 +1727,24 @@ export class DirectorAgent {
         return;
       }
 
-      yield { type: "route", data: { message: "Routing tasks to agents..." } };
+      yield { type: "route", data: { message: "正在路由分配子任务…", phase: "route" } };
       const activePlan = reviewedPlan.modifications ?? plan;
-      const routing = await this.getRouter(options).route(activePlan, role);
-      yield { type: "route", data: { message: `Routed to ${routing.length} agents`, routing } };
+      let routing;
+      try {
+        routing = await this.getRouter(options).route(activePlan, role);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        yield {
+          type: "error",
+          data: {
+            error: `任务路由失败: ${detail}`,
+            phase: "route",
+            errorClass: "permanent",
+          },
+        };
+        return;
+      }
+      yield { type: "route", data: { message: `已路由到 ${routing.length} 个 Agent`, routing } };
 
       const assignments = this.mapRoutingToAssignments(activePlan, routing, options);
 
@@ -1882,7 +1938,13 @@ export class DirectorAgent {
         yield this.toolHitlStreamEvent(err);
         return;
       }
-      yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
+      yield {
+        type: "error",
+        data: {
+          error: err instanceof Error ? err.message : String(err),
+          phase: "design",
+        },
+      };
     }
   }
 
