@@ -10,7 +10,7 @@ todos:
     status: completed
   - id: p0-model-fallback
     content: 模型 Fallback 链（超时/429/连续失败自动切备模）
-    status: pending
+    status: completed
   - id: p0-tool-resilience
     content: 工具失败四策略 + 外部工具/MCP 熔断器
     status: pending

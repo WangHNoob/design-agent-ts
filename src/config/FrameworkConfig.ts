@@ -29,6 +29,15 @@ export interface FrameworkConfig {
     modelName: string;
     apiKey: string;
     baseUrl?: string;
+    /**
+     * Ordered fallback model names (same provider/key/baseUrl as primary by default).
+     * On timeout / 429 / consecutive failures the next entry is promoted.
+     */
+    fallbackModels: string[];
+    /** Consecutive retriable failures before opening a model slot circuit. */
+    fallbackFailureThreshold: number;
+    /** Cooldown before a failed model slot is probed again (ms). */
+    fallbackCooldownMs: number;
   };
   hitl: {
     enabled: boolean;
