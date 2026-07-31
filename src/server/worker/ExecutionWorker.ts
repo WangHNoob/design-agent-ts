@@ -227,6 +227,7 @@ export class ExecutionWorker {
     pollTimer.unref?.();
 
     this.activeExecutions.add(execution.id);
+    let sawError = false;
     try {
       await sessionRepository.update(execution.sessionId, {
         status: "running",
@@ -293,6 +294,7 @@ export class ExecutionWorker {
             ? event.data.partialOutput
             : completedOutput;
         } else if (event.type === "error") {
+          sawError = true;
           const streamError = new Error(
             typeof event.data.error === "string" ? event.data.error : "Director execution failed",
           ) as Error & { errorClass?: unknown };
@@ -374,18 +376,33 @@ export class ExecutionWorker {
       }
 
       const failed = await service.fail(execution.id, error);
+      const errorText = failed.errorMessage ?? ErrorClassifier.message(error);
       await sessionRepository.update(execution.sessionId, {
         status: failed.status === "cancelled" || failed.status === "timed_out"
           ? failed.status
           : "failed",
-        error: failed.errorMessage ?? ErrorClassifier.message(error),
+        error: errorText,
       });
+      // Emit a first-class error event so SSE clients that only listen for `error`
+      // (not `execution_terminal`) still surface an explicit failure message.
+      // Skip if Director already yielded `error` (already appended above).
+      if (!sawError) {
+        await this.append(failed, {
+          type: "error",
+          data: {
+            error: errorText,
+            phase: "execution",
+            errorClass: failed.errorClass,
+            status: failed.status,
+          },
+        });
+      }
       await this.append(failed, {
         type: "execution_terminal",
         data: {
           status: failed.status,
           errorClass: failed.errorClass,
-          error: failed.errorMessage,
+          error: errorText,
         },
       });
       return { success: false, retry: false, error: ErrorClassifier.message(error) };

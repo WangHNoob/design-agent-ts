@@ -57,4 +57,6 @@ export interface TaskPlan {
   readonly fallback?: boolean;
   /** Alias of fallback for parse-path degradation (structured output closed loop). */
   readonly parseFallback?: boolean;
+  /** Human-readable planning warnings (LLM degrade / template fallback). Surfaced on SSE. */
+  readonly warnings?: readonly string[];
 }
