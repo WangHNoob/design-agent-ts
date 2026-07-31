@@ -43,7 +43,7 @@ export interface HITLCheckpoint {
   id: string;
   sessionId: string;
   stage: 'plan' | 'subagent' | 'integrate';
-  status: 'waiting_review' | 'approved' | 'rejected' | 'modified';
+  status: 'waiting_review' | 'approved' | 'rejected' | 'modified' | 'expired' | 'escalated';
   content: string;
   contentType: 'markdown' | 'json';
   agentName?: string;
@@ -52,6 +52,12 @@ export interface HITLCheckpoint {
   reviewAction?: 'approve' | 'reject' | 'modify';
   reviewComment?: string;
   modifiedContent?: string;
+  executionId?: string;
+  reviewPoint?: string;
+  waitingMs?: number;
+  overdue?: boolean;
+  escalated?: boolean;
+  escalatedAt?: string;
 }
 
 export async function executeDesign(req: ExecuteRequest): Promise<ExecuteResponse> {
@@ -78,15 +84,92 @@ export async function cancelExecution(sessionId: string): Promise<{ success: boo
   }
 }
 
+export interface ExecutionRecord {
+  id: string;
+  sessionId: string;
+  status: string;
+  output?: string | null;
+  errorMessage?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: unknown;
+}
+
+export async function getExecution(id: string): Promise<ExecutionRecord> {
+  const res = await apiFetch(`${API_BASE}/api/console/executions/${id}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`获取执行状态失败 (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export interface StreamHandle {
+  close: () => void;
+  getExecutionId: () => string | null;
+  getLastEventId: () => string | null;
+}
+
+/** Parse complete SSE blocks from a buffer; returns the incomplete trailing fragment. */
+export function parseSseBlocks(
+  buffer: string,
+  onEvent: (event: string, data: unknown) => void,
+  onId?: (id: string) => void,
+): string {
+  const blocks = buffer.split('\n\n');
+  const rest = blocks.pop() ?? '';
+
+  for (const block of blocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    // SSE comment frames (e.g. ": heartbeat")
+    if (trimmed.startsWith(':') || trimmed.split('\n').every((line) => line.startsWith(':'))) {
+      continue;
+    }
+    const idMatch = block.match(/^id: (.+)$/m);
+    if (idMatch) onId?.(idMatch[1].trim());
+    const eventMatch = block.match(/^event: (.+)$/m);
+    const dataMatch = block.match(/^data: (.+)$/m);
+    if (eventMatch && dataMatch) {
+      try {
+        const data = JSON.parse(dataMatch[1]);
+        onEvent(eventMatch[1], data);
+      } catch {
+        onEvent(eventMatch[1], dataMatch[1]);
+      }
+    }
+  }
+  return rest;
+}
+
+async function readEventStream(
+  res: Response,
+  signal: AbortSignal,
+  onEvent: (event: string, data: unknown) => void,
+  onId: (id: string) => void,
+): Promise<void> {
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (!signal.aborted) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = parseSseBlocks(buffer, onEvent, onId);
+  }
+}
+
 export function executeDesignStream(
   req: ExecuteRequest,
   onEvent: (event: string, data: unknown) => void,
-  onError?: (error: Error) => void
-): { close: () => void } {
+  onError?: (error: Error) => void,
+): StreamHandle {
   const sessionId = req.sessionId ?? crypto.randomUUID();
   const body = { ...req, sessionId };
-
   const controller = new AbortController();
+  let executionId: string | null = null;
+  let lastEventId: string | null = null;
 
   apiFetch(`${API_BASE}/api/console/execute/stream`, {
     method: 'POST',
@@ -99,38 +182,64 @@ export function executeDesignStream(
       onError?.(new Error(`后端错误 (${res.status}): ${text}`));
       return;
     }
-    if (!res.body) return;
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop() ?? '';
-
-      for (const block of lines) {
-        const eventMatch = block.match(/^event: (.+)$/m);
-        const dataMatch = block.match(/^data: (.+)$/m);
-        if (eventMatch && dataMatch) {
-          try {
-            const data = JSON.parse(dataMatch[1]);
-            onEvent(eventMatch[1], data);
-          } catch {
-            onEvent(eventMatch[1], dataMatch[1]);
-          }
-        }
-      }
-    }
+    executionId = res.headers.get('X-Execution-Id');
+    await readEventStream(
+      res,
+      controller.signal,
+      onEvent,
+      (id) => { lastEventId = id; },
+    );
   }).catch((err) => {
-    onError?.(err);
+    if (!controller.signal.aborted) onError?.(err);
   });
 
   return {
     close: () => controller.abort(),
+    getExecutionId: () => executionId,
+    getLastEventId: () => lastEventId,
+  };
+}
+
+/** Resume SSE for an existing execution (does not create a new one). */
+export function resumeExecutionStream(
+  executionId: string,
+  afterCursor: string | null | undefined,
+  onEvent: (event: string, data: unknown) => void,
+  onError?: (error: Error) => void,
+): StreamHandle {
+  const controller = new AbortController();
+  let lastEventId: string | null = afterCursor ?? null;
+  const headers: Record<string, string> = {};
+  if (afterCursor) headers['Last-Event-ID'] = afterCursor;
+
+  const url = afterCursor
+    ? `${API_BASE}/api/console/executions/${executionId}/events?afterCursor=${encodeURIComponent(afterCursor)}`
+    : `${API_BASE}/api/console/executions/${executionId}/events`;
+
+  apiFetch(url, {
+    method: 'GET',
+    headers,
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok) {
+      const text = await res.text().catch(() => `HTTP ${res.status}`);
+      onError?.(new Error(`续订失败 (${res.status}): ${text}`));
+      return;
+    }
+    await readEventStream(
+      res,
+      controller.signal,
+      onEvent,
+      (id) => { lastEventId = id; },
+    );
+  }).catch((err) => {
+    if (!controller.signal.aborted) onError?.(err);
+  });
+
+  return {
+    close: () => controller.abort(),
+    getExecutionId: () => executionId,
+    getLastEventId: () => lastEventId,
   };
 }
 

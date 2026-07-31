@@ -18,7 +18,8 @@
     "dev": "tsx watch --env-file=.env src/server/main.ts",
     "dev:web": "pnpm --filter game-designer-frontend dev",
     "dev:all": "concurrently -n server,web -c cyan,magenta \"pnpm dev\" \"pnpm dev:web\"",
-    "dev:local": "node scripts/start-local.mjs"
+    "dev:local": "node scripts/start-local.mjs",
+    "eval:offline": "tsx --env-file=.env scripts/run-offline-eval.ts --exact-only"
   },
   "keywords": [
     "game-design",

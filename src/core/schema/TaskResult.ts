@@ -1,9 +1,14 @@
 import type { Domain } from "./TaskPlan.js";
+import type { ExecutionErrorClass } from "../../port/execution/types.js";
+import type { HandoffPayload } from "./HandoffPayload.js";
 
 export interface TaskResult {
   readonly taskId: string;
   readonly domain: Domain;
-  readonly status: "success" | "error" | "pending" | "rejected" | "cancelled";
+  readonly status: "success" | "error" | "pending" | "rejected" | "cancelled" | "skipped";
   readonly output: string;
   readonly errorMessage: string | null;
+  readonly errorClass?: ExecutionErrorClass;
+  /** Distilled handoff for downstream agents (full output still in `output` / workspace). */
+  readonly handoff?: HandoffPayload;
 }

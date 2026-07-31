@@ -31,8 +31,34 @@ async function proxyAuthRequest(request: NextRequest) {
   }
   const targetUrl = `${API_BASE}${targetPath}${url.search}`;
 
-  const headers = new Headers(request.headers);
+  const headers = new Headers();
+  // Forward only safe headers. Forwarding the raw request header bag breaks
+  // undici (e.g. Expect: 100-continue → UND_ERR_NOT_SUPPORTED) and can also
+  // leak hop-by-hop headers that must not be proxied.
+  const allowList = new Set([
+    "accept",
+    "accept-language",
+    "authorization",
+    "content-type",
+    "cookie",
+    "origin",
+    "referer",
+    "user-agent",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-request-id",
+  ]);
+  request.headers.forEach((value, key) => {
+    if (allowList.has(key.toLowerCase())) {
+      headers.set(key, value);
+    }
+  });
   headers.set("host", new URL(API_BASE).host);
+  // Browser talks to the frontend origin; Better Auth trustedOrigins expects it.
+  if (!headers.has("origin")) {
+    headers.set("origin", url.origin);
+  }
 
   // Forward the request body (if any)
   let body: BodyInit | null = null;

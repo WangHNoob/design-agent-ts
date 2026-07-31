@@ -3,18 +3,28 @@ export interface SessionMeta {
   requirement: string;
   mode: "design" | "query" | "table";
   role: string;
-  status: "running" | "waiting_hitl" | "completed" | "failed" | "clarifying";
+  status:
+    | "queued"
+    | "running"
+    | "waiting_hitl"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "timed_out"
+    | "clarifying";
   createdAt: string;
   updatedAt: string;
   output?: string;
   error?: string;
   hitlCheckpointId?: string;
+  /** Pinned artifact version snapshot (MVCC). */
+  versionSnapshotId?: string;
 }
 
 export interface SessionRepository {
   create(meta: SessionMeta): Promise<void>;
   update(id: string, patch: Partial<SessionMeta>): Promise<void>;
   get(id: string): Promise<SessionMeta | null>;
-  list(): Promise<SessionMeta[]>;
-  delete(id: string): Promise<void>;
+  list(limit?: number, offset?: number): Promise<SessionMeta[]>;
+  delete(id: string): Promise<boolean>;
 }

@@ -5,7 +5,8 @@ import type { ToolRegistry } from "../../port/tool/ToolRegistry.js";
 import type { MemoryPort } from "../../port/memory/MemoryPort.js";
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { ToolPort } from "../../port/tool/ToolPort.js";
-import { LangGraphAgentAdapter } from "./LangGraphAgentAdapter.js";
+import { ContextManagementHook } from "../../core/hook/ContextManagementHook.js";
+import { LangGraphAgentAdapter, type LangGraphSagaOptions } from "./LangGraphAgentAdapter.js";
 import { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
 import { SessionToolRegistry } from "../../core/tool/SessionToolRegistry.js";
 import { MemorySaver } from "@langchain/langgraph";
@@ -16,7 +17,8 @@ export class LangGraphAgentFactory implements AgentFactory {
 
   constructor(
     private model: LangGraphModelAdapter,
-    checkpointer?: MemorySaver
+    checkpointer?: MemorySaver,
+    private sagaOptions: LangGraphSagaOptions = { enabled: true },
   ) {
     this.checkpointer = checkpointer ?? new MemorySaver();
   }
@@ -25,23 +27,41 @@ export class LangGraphAgentFactory implements AgentFactory {
     descriptor: AgentDescriptor,
     toolRegistry: ToolRegistry,
     memory: MemoryPort,
-    hooks: AgentHook[]
+    hooks: AgentHook[],
   ): AgentPort {
-    // Skip cache for session-scoped registries (tools differ per session)
+    const boundHooks = this.bindMemoryHooks(hooks, memory);
+
+    // Session-scoped tools differ per call — never cache.
     if (toolRegistry instanceof SessionToolRegistry) {
-      return this.buildAgent(descriptor, toolRegistry, hooks);
+      return this.buildAgent(descriptor, toolRegistry, boundHooks, memory);
     }
 
     const cacheKey = descriptor.name;
     const cached = this.agentCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached instanceof LangGraphAgentAdapter) {
+      // Re-bind stateful short-term memory for this invocation.
+      cached.setMemory(memory);
+      cached.setHooks(boundHooks);
+      return cached;
+    }
 
-    const agent = this.buildAgent(descriptor, toolRegistry, hooks);
+    const agent = this.buildAgent(descriptor, toolRegistry, boundHooks, memory);
     this.agentCache.set(cacheKey, agent);
     return agent;
   }
 
-  private buildAgent(descriptor: AgentDescriptor, toolRegistry: ToolRegistry, hooks: AgentHook[]): AgentPort {
+  private bindMemoryHooks(hooks: AgentHook[], memory: MemoryPort): AgentHook[] {
+    return hooks.map((hook) =>
+      hook instanceof ContextManagementHook ? hook.withMemory(memory) : hook,
+    );
+  }
+
+  private buildAgent(
+    descriptor: AgentDescriptor,
+    toolRegistry: ToolRegistry,
+    hooks: AgentHook[],
+    memory: MemoryPort,
+  ): AgentPort {
     const tools = descriptor.toolNames
       .map((name) => toolRegistry.getTool(name))
       .filter((t): t is ToolPort => t !== undefined);
@@ -49,9 +69,11 @@ export class LangGraphAgentFactory implements AgentFactory {
     return new LangGraphAgentAdapter(
       descriptor,
       tools,
-      this.model.getLangChainModel(),
+      this.model,
       hooks,
-      this.checkpointer
+      this.checkpointer,
+      this.sagaOptions,
+      memory,
     );
   }
 

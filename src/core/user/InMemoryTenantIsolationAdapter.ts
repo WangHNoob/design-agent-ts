@@ -172,18 +172,20 @@ export class InMemoryTenantIsolationAdapter implements TenantIsolationPort {
 
   // ─── Concurrency Control ─────────────────────────────────────
 
-  async checkConcurrencyLimit(userId: string, maxConcurrent: number): Promise<{ allowed: boolean; current: number }> {
+  async acquireConcurrencySlot(
+    userId: string,
+    maxConcurrent: number,
+  ): Promise<{ acquired: boolean; current: number }> {
     const current = this.concurrency.get(userId) ?? 0;
-    return { allowed: current < maxConcurrent, current };
-  }
-
-  async incrementConcurrency(userId: string): Promise<number> {
-    const next = (this.concurrency.get(userId) ?? 0) + 1;
+    if (current >= maxConcurrent) {
+      return { acquired: false, current };
+    }
+    const next = current + 1;
     this.concurrency.set(userId, next);
-    return next;
+    return { acquired: true, current: next };
   }
 
-  async decrementConcurrency(userId: string): Promise<number> {
+  async releaseConcurrencySlot(userId: string): Promise<number> {
     const current = this.concurrency.get(userId) ?? 0;
     const next = Math.max(0, current - 1);
     if (next === 0) {

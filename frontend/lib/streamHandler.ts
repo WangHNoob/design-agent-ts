@@ -81,26 +81,162 @@ export function handleStreamEvent(
     }
 
     case 'plan': {
-      store.updateTask(sessionId, { statusText: '任务规划中' });
+      const isWarning = d.warning === true;
+      const planMsg = (d.message as string) || (isWarning ? '规划警告' : '任务规划中');
+      store.updateTask(sessionId, {
+        statusText: isWarning ? '规划告警' : '任务规划中',
+      });
+      if (isWarning) {
+        store.appendMessage(sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'system',
+          content: `规划警告: ${planMsg}`,
+          timestamp: getCurrentTime(),
+        });
+      }
       const plan = d.plan as { subTasks?: Array<{ id: string; domain: string; description: string; dependencies: string[] }> } | undefined;
       const planDetail = plan?.subTasks
-        ? `${d.message as string}\n${plan.subTasks.map(t => `  ${t.id} [${t.domain}] ${t.description.substring(0, 60)}${t.dependencies.length ? ` ← ${t.dependencies.join(',')}` : ''}`).join('\n')}`
-        : (d.message as string);
+        ? `${planMsg}\n${plan.subTasks.map(t => `  ${t.id} [${t.domain}] ${t.description.substring(0, 60)}${t.dependencies.length ? ` ← ${t.dependencies.join(',')}` : ''}`).join('\n')}`
+        : planMsg;
       store.appendTimeline(sessionId, {
         id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
         type: 'phase',
-        title: `规划: ${d.message as string}`,
-        status: 'completed',
+        title: isWarning ? `规划警告: ${planMsg}` : `规划: ${planMsg}`,
+        status: isWarning ? 'error' : 'completed',
         detail: plan?.subTasks ? plan.subTasks.map(t => `${t.id} [${t.domain}]`).join(' → ') : undefined,
       });
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
-        level: 'info',
+        level: isWarning ? 'warn' : 'info',
         source: 'Director',
-        message: d.message as string,
-        data: plan ? { plan } : undefined,
+        message: planMsg,
+        data: plan ? { plan, warning: isWarning, detail: planDetail } : { warning: isWarning },
+      });
+      break;
+    }
+
+    case 'hitl': {
+      const reviewPoint = (d.reviewPoint as string) || 'HITL';
+      const feedback = (d.feedback as string) || (d.message as string) || '等待人工审阅';
+      const checkpointId = d.checkpointId as string | undefined;
+      const plan = d.plan as { subTasks?: unknown[] } | undefined;
+      store.updateTask(sessionId, {
+        streaming: false,
+        loading: false,
+        status: 'waiting',
+        statusText: '等待人工审阅',
+        streamingText: '',
+        hitlCheckpointId: checkpointId ?? null,
+      });
+      store.appendMessage(sessionId, {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'system',
+        content: `需要人工审阅（${reviewPoint}）${checkpointId ? ` · checkpoint=${checkpointId}` : ''}\n${feedback}${plan?.subTasks ? `\n已规划 ${plan.subTasks.length} 个任务，请在弹窗中确认。` : ''}`,
+        timestamp: getCurrentTime(),
+      });
+      store.appendTimeline(sessionId, {
+        id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        type: 'phase',
+        title: `等待审阅: ${reviewPoint}`,
+        status: 'running',
+        detail: feedback,
+      });
+      store.appendLog(sessionId, {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        level: 'warn',
+        source: 'HITL',
+        message: feedback,
+        data: { reviewPoint, checkpointId, status: d.status, plan },
+      });
+      break;
+    }
+
+    case 'execution_terminal': {
+      const status = (d.status as string) || 'failed';
+      const errMsg = (d.error as string) || '';
+      if (status === 'completed') {
+        store.updateTask(sessionId, {
+          streaming: false,
+          loading: false,
+          status: 'idle',
+          statusText: '完成',
+          streamingText: '',
+        });
+        break;
+      }
+      if (status === 'waiting_hitl') {
+        const checkpointId = d.checkpointId as string | undefined;
+        store.updateTask(sessionId, {
+          streaming: false,
+          loading: false,
+          status: 'waiting',
+          statusText: '等待人工审阅',
+          streamingText: '',
+          ...(checkpointId ? { hitlCheckpointId: checkpointId } : {}),
+        });
+        break;
+      }
+      const alreadyShown = store.getTask(sessionId)?.status === 'error';
+      const terminalMsg = errMsg
+        ? `执行结束（${status}）: ${errMsg}`
+        : `执行结束（${status}）`;
+      if (!alreadyShown) {
+        store.appendMessage(sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'system',
+          content: terminalMsg,
+          timestamp: getCurrentTime(),
+        });
+        store.appendTimeline(sessionId, {
+          id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          time: getCurrentTime(),
+          type: 'error',
+          title: terminalMsg,
+          status: 'error',
+        });
+      }
+      store.updateTask(sessionId, {
+        streaming: false,
+        loading: false,
+        status: status === 'cancelled' || status === 'timed_out' ? 'idle' : 'error',
+        statusText: errMsg ? `错误: ${errMsg.slice(0, 80)}` : status,
+        streamingText: '',
+      });
+      store.appendLog(sessionId, {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        level: 'error',
+        source: 'System',
+        message: terminalMsg,
+        data: d,
+      });
+      break;
+    }
+
+    case 'execution_retry': {
+      const retryMsg = `执行将重试${typeof d.retryCount === 'number' ? ` (#${d.retryCount})` : ''}${d.error ? `: ${d.error}` : ''}`;
+      store.updateTask(sessionId, {
+        statusText: '排队重试中',
+        status: 'working',
+        loading: true,
+      });
+      store.appendMessage(sessionId, {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'system',
+        content: retryMsg,
+        timestamp: getCurrentTime(),
+      });
+      store.appendLog(sessionId, {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        level: 'warn',
+        source: 'System',
+        message: retryMsg,
+        data: d,
       });
       break;
     }
@@ -405,12 +541,67 @@ export function handleStreamEvent(
       break;
     }
 
+    case 'cancelled': {
+      const completedTasks = (d.completedTasks as Array<{ id: string; status: string; domain?: string }>) ?? [];
+      const incompleteTasks = (d.incompleteTasks as Array<{ id: string; status: string; domain?: string }>) ?? [];
+      const partialOutput = (d.partialOutput as string) ?? '';
+      const message = (d.message as string) ?? '执行已取消';
+
+      const summaryParts = [
+        message,
+        completedTasks.length > 0
+          ? `已完成 ${completedTasks.length} 项: ${completedTasks.map((t) => t.id).join(', ')}`
+          : '无已完成步骤',
+        incompleteTasks.length > 0
+          ? `未完成 ${incompleteTasks.length} 项: ${incompleteTasks.map((t) => `${t.id}(${t.status})`).join(', ')}`
+          : '无未完成步骤',
+      ];
+      const content = partialOutput
+        ? `${summaryParts.join('\n')}\n\n---\n\n${partialOutput}`
+        : summaryParts.join('\n');
+
+      store.appendMessage(sessionId, {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'system',
+        content,
+        timestamp: getCurrentTime(),
+      });
+
+      store.updateTask(sessionId, {
+        streaming: false,
+        loading: false,
+        status: 'idle',
+        statusText: '已取消',
+        streamingText: '',
+      });
+
+      store.appendTimeline(sessionId, {
+        id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        type: 'phase',
+        title: `已取消 — 完成 ${completedTasks.length} / 未完成 ${incompleteTasks.length}`,
+        status: 'error',
+        detail: incompleteTasks.map((t) => `${t.id}: ${t.status}`).join(', ') || undefined,
+      });
+      store.appendLog(sessionId, {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        level: 'warn',
+        source: 'System',
+        message: '执行已取消',
+        data: { completedTasks, incompleteTasks, partialOutput },
+      });
+      break;
+    }
+
     case 'error': {
       const errMsg = (d.error as string) || '未知错误';
+      const phase = typeof d.phase === 'string' ? d.phase : undefined;
+      const labeled = phase ? `[${phase}] ${errMsg}` : errMsg;
       const msg: ChatMessage = {
         id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
         type: 'system',
-        content: `执行出错: ${errMsg}`,
+        content: `执行出错: ${labeled}`,
         timestamp: getCurrentTime(),
       };
       store.appendMessage(sessionId, msg);
@@ -419,7 +610,7 @@ export function handleStreamEvent(
         streaming: false,
         loading: false,
         status: 'error',
-        statusText: '错误',
+        statusText: `错误: ${errMsg.slice(0, 80)}`,
         streamingText: '',
       });
 
@@ -427,7 +618,7 @@ export function handleStreamEvent(
         id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
         type: 'error',
-        title: `错误: ${errMsg}`,
+        title: `错误: ${labeled}`,
         status: 'error',
       });
       store.appendLog(sessionId, {
@@ -436,7 +627,7 @@ export function handleStreamEvent(
         level: 'error',
         source: 'System',
         message: '执行失败',
-        data: { error: errMsg },
+        data: { error: errMsg, phase, ...d },
       });
 
       const activeTaskId = activeTaskRef.get(sessionId);

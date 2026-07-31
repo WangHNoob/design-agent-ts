@@ -92,16 +92,17 @@ export class UserContextManager {
     ctx: TenantContext,
     maxConcurrent: number,
   ): Promise<boolean> {
-    const { allowed } = await this.tenantPort.checkConcurrencyLimit(ctx.userId, maxConcurrent);
-    if (!allowed) return false;
-    await this.tenantPort.incrementConcurrency(ctx.userId);
-    return true;
+    const { acquired } = await this.tenantPort.acquireConcurrencySlot(
+      ctx.userId,
+      maxConcurrent,
+    );
+    return acquired;
   }
 
   /**
    * Release a concurrency slot for a user.
    */
   async releaseConcurrencySlot(ctx: TenantContext): Promise<void> {
-    await this.tenantPort.decrementConcurrency(ctx.userId);
+    await this.tenantPort.releaseConcurrencySlot(ctx.userId);
   }
 }

@@ -34,7 +34,7 @@ export class PostgresLongTermMemoryAdapter implements LongTermMemoryPort {
         5: params.key,
         6: params.content,
         7: params.importance ?? 0.5,
-        8: params.tags ? JSON.stringify(params.tags) : null,
+        8: params.tags ?? null,
         9: params.ttlMs ?? null,
         10: now,
         11: now,
@@ -106,11 +106,14 @@ export class PostgresLongTermMemoryAdapter implements LongTermMemoryPort {
       paramIdx++;
     }
 
-    // Score: combine text relevance + importance + recency
-    sql += ` ORDER BY (text_score * 0.5 + importance * 0.3 + (1.0 - EXTRACT(EPOCH FROM (now() - created_at)) / 7776000.0) * 0.2) DESC`;
+    // Score: combine text relevance + importance + recency.
+    // PostgreSQL allows SELECT aliases in ORDER BY only as bare names, not inside expressions.
+    const textScoreExpr =
+      `ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', $3))`;
+    sql += ` ORDER BY (${textScoreExpr} * 0.5 + importance * 0.3 + (1.0 - EXTRACT(EPOCH FROM (now() - created_at)) / 7776000.0) * 0.2) DESC`;
 
     const limit = params.limit ?? 10;
-    sql += ` LIMIT $${paramIdx}`;
+    sql += ` LIMIT $${paramIdx}::int`;
     queryParams[paramIdx.toString()] = limit;
 
     const result = await this.db.query(sql, queryParams);

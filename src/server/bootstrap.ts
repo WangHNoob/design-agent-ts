@@ -1,5 +1,6 @@
 import { createApp } from "./app.js";
 import { loadConfig } from "../config/loadConfig.js";
+import type { FrameworkConfig } from "../config/FrameworkConfig.js";
 import { Container } from "./Container.js";
 import { ToolManager } from "../core/tool/ToolManager.js";
 import { SkillManager } from "../core/skill/SkillManager.js";
@@ -7,47 +8,91 @@ import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
-import { setDirector, setConsoleSessionManager, setConsoleHITLManager, hasActiveExecutions } from "./routes/console.js";
-import { setSessionManager, setWorkspaceManager } from "./routes/sessions.js";
-import { setHITLManager } from "./routes/hitl.js";
-import { SessionManager } from "../core/session/SessionManager.js";
-import { HITLManager } from "../core/hitl/HITLManager.js";
+import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
+import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
+import { setSessionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
+import { setHITLRouteDependencies } from "./routes/hitl.js";
+import { DurableHumanReviewGateway } from "../core/hitl/DurableHumanReviewGateway.js";
 import { LoggingHook } from "../core/hook/LoggingHook.js";
 import { ValidationHook } from "../core/hook/ValidationHook.js";
 import { IterationBudgetHook } from "../core/hook/IterationBudgetHook.js";
 import { OutputEnforcementHook } from "../core/hook/OutputEnforcementHook.js";
 import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
+import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
+import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
+import { TracingHook } from "../core/hook/TracingHook.js";
+import { TokenBudgetHook } from "../core/hook/TokenBudgetHook.js";
+import { CancellationHook } from "../core/hook/CancellationHook.js";
+import { AuditCompensateFailureQueue } from "../core/saga/AuditCompensateFailureQueue.js";
+import { InMemoryCompensateFailureQueue } from "../core/saga/InMemoryCompensateFailureQueue.js";
+import type { CompensateFailureQueuePort } from "../port/saga/CompensateFailureQueuePort.js";
+import { CostAccountingHook } from "../core/hook/CostAccountingHook.js";
+import { RateLimitHook } from "../core/hook/RateLimitHook.js";
+import { RateLimitGuard } from "../core/cost/RateLimitGuard.js";
+import { MeteredChatModel } from "../core/cost/MeteredChatModel.js";
+import type { ChatModelPort } from "../port/model/ChatModelPort.js";
+import type { CostStorePort } from "../port/cost/CostStorePort.js";
+import type { RateLimitPort } from "../port/cost/RateLimitPort.js";
+import { ToolLoopDetectorHook } from "../core/hook/ToolLoopDetectorHook.js";
+import { DefaultTracer, NoOpTracer } from "../core/tracing/DefaultTracer.js";
+import { ConsoleTraceExporter } from "../core/tracing/ConsoleTraceExporter.js";
+import { PostgresTraceStoreAdapter } from "../adapter/postgres/PostgresTraceStoreAdapter.js";
+import { setTraceStore } from "./routes/traces.js";
+import type { TracerPort } from "../port/tracing/TracerPort.js";
+import type { TraceRuntimeState } from "../port/tracing/TracerPort.js";
+import type { TraceStorePort } from "../port/tracing/TraceStorePort.js";
 import { WikiPageTool } from "../core/tool/knowledge/WikiPageTool.js";
 import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
 import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
+import { ResilientToolWrapper, type ResilientToolOptions } from "../core/tool/ResilientToolWrapper.js";
+import { ToolCircuitRegistry } from "../core/resilience/ToolCircuitRegistry.js";
 import { BlackboardStore } from "../core/blackboard/BlackboardStore.js";
 import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool, setMCPStatus } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
+import { NodeContextStorageAdapter } from "../adapter/infra/NodeContextStorageAdapter.js";
 import { WorkspaceManager } from "../core/workspace/WorkspaceManager.js";
-import { FileBasedLongTermMemoryAdapter } from "../adapter/memory/FileBasedLongTermMemoryAdapter.js";
 import { MemoryManager } from "../core/memory/MemoryManager.js";
-import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
-import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
 import { PostgresDatabaseAdapter } from "../adapter/postgres/PostgresDatabaseAdapter.js";
-import { PostgresLongTermMemoryAdapter } from "../adapter/postgres/PostgresLongTermMemoryAdapter.js";
 import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
+import { PostgresExecutionRepository } from "../adapter/postgres/PostgresExecutionRepository.js";
+import { PostgresHITLRepository, PostgresHITLTimeoutScanAdapter } from "../adapter/postgres/PostgresHITLRepository.js";
+import { AlwaysFreshHITLCheck } from "../core/hitl/AlwaysFreshHITLCheck.js";
+import { sweepHITLTimeouts } from "../core/hitl/HITLTimeoutSweeper.js";
+import { ExecutionService } from "../core/execution/ExecutionService.js";
+import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
-import { InMemoryTenantIsolationAdapter } from "../core/user/InMemoryTenantIsolationAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
+import type { TenantContext } from "../port/user/TenantIsolationPort.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
+import { RedisExecutionEventStoreAdapter } from "../adapter/redis/RedisExecutionEventStoreAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
-import { setAuthAdapter, setTenantPort, setDatabasePort } from "./app.js";
-import { setUserIdScopedStores } from "./middleware/auth.js";
+import { ExecutionWorker, EXECUTION_QUEUE } from "./worker/ExecutionWorker.js";
+import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
 import type { McpClientPort } from "../port/mcp/McpClientPort.js";
+import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
+import { PostgresAuditStoreAdapter } from "../adapter/postgres/PostgresAuditStoreAdapter.js";
+import { PostgresCostStoreAdapter } from "../adapter/postgres/PostgresCostStoreAdapter.js";
+import { RedisRateLimitAdapter } from "../adapter/redis/RedisRateLimitAdapter.js";
+import { InMemoryToolApprovalStore } from "../core/tool/InMemoryToolApprovalStore.js";
+import { setAuditStore } from "./routes/audit.js";
+import { setCostRouteDependencies } from "./routes/cost.js";
+import { setGlobalAuditStore, appendAudit } from "./security/auditHelpers.js";
+import { buildToolSecurityOptions, wrapToolWithSecurity } from "./security/toolSecurityWiring.js";
+import type { ToolSecurityOptions } from "../core/tool/ToolSecurityWrapper.js";
+import { PostgresVersionStoreAdapter } from "../adapter/postgres/PostgresVersionStoreAdapter.js";
+import { seedVersionStoreFromDisk } from "./VersionSeeder.js";
+import { setVersionStoreDependencies } from "./routes/versions.js";
+import { resolveExecutionOverrides } from "./versioning/sessionVersionBinding.js";
+import type { VersionStorePort } from "../port/versioning/VersionStorePort.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -66,10 +111,52 @@ let bootstrapState: {
   betterAuthAdapter: BetterAuthAdapter | null;
   redisAdapter: TenantIsolationPort | null;
   mqAdapter: RedisMessageQueueAdapter | null;
+  eventStore: RedisExecutionEventStoreAdapter | null;
+  executionWorker: ExecutionWorker | null;
+  durableHitlGateway: DurableHumanReviewGateway | null;
   mcpClients: McpClientPort[];
   mcpToolNames: string[];
   blackboardStore: BlackboardStore;
+  tracer: TracerPort;
+  traceStore: TraceStorePort | null;
+  contextStorage: NodeContextStorageAdapter<TenantContext>;
+  wrapTool?: (tool: import("../port/tool/ToolPort.js").ToolPort) => import("../port/tool/ToolPort.js").ToolPort;
+  costStore: CostStorePort | null;
+  rateLimit: RateLimitPort | null;
+  compensateFailureQueue: CompensateFailureQueuePort;
+  versionStore: VersionStorePort | null;
 } | null = null;
+
+function createDirectorModel(
+  baseModel: ChatModelPort,
+  config: FrameworkConfig,
+  deps: {
+    costStore: CostStorePort | null;
+    rateLimit: RateLimitPort | null;
+    tracer: TracerPort;
+    resolveUserId: () => string | undefined;
+  },
+): ChatModelPort {
+  if (!config.cost.enabled || !deps.costStore || !deps.rateLimit) {
+    return baseModel;
+  }
+  return new MeteredChatModel(baseModel, {
+    costEnabled: true,
+    rateLimitEnabled:
+      config.cost.tpmLimitPerUser > 0 || config.cost.globalTpmLimit > 0,
+    tpmEstimatePerCall: config.cost.tpmEstimatePerCall,
+    rateLimit: deps.rateLimit,
+    costStore: deps.costStore,
+    pricing: {
+      inputPricePer1M: config.cost.inputPricePer1M,
+      outputPricePer1M: config.cost.outputPricePer1M,
+      modelPrices: config.cost.modelPrices,
+    },
+    tracer: deps.tracer,
+    resolveUserId: deps.resolveUserId,
+    defaultAgentName: "Director",
+  });
+}
 
 export function getBootstrapState() {
   return bootstrapState;
@@ -81,7 +168,20 @@ export function isDirectorReady(): boolean {
 
 export async function lateBootstrapDirector(): Promise<void> {
   if (!bootstrapState) throw new Error("Bootstrap not yet called");
-  const { config, toolRegistry, skillRegistry, settingsManager, tavilyTool, directorPrompts, hooks, workspaceManager } = bootstrapState;
+  const {
+    config,
+    toolRegistry,
+    skillRegistry,
+    settingsManager,
+    tavilyTool,
+    directorPrompts,
+    hooks,
+    workspaceManager,
+    contextStorage,
+    tracer,
+    costStore,
+    rateLimit,
+  } = bootstrapState;
 
   const settings = settingsManager.getSettings();
   const apiKey = settings.modelApiKey || config.model.apiKey;
@@ -97,27 +197,31 @@ export async function lateBootstrapDirector(): Promise<void> {
     temperature: settings.temperature,
   };
 
-  const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
+  const container = new Container(
+    { ...config, model: mergedModelConfig },
+    toolRegistry,
+    skillRegistry,
+    { compensateFailureQueue: bootstrapState.compensateFailureQueue },
+  );
   bootstrapState.container = container;
-
-  if (container.humanReviewGateway.configure && config.hitl.enabled) {
-    container.humanReviewGateway.configure(
-      Object.fromEntries(
-        Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
-          k,
-          { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
-        ])
-      ),
-      config.limits.hitlMaxRevisionRounds
-    );
+  if (container.model instanceof LangGraphModelAdapter) {
+    container.model.setTracer(tracer);
   }
 
+  const resolveUserId = () => contextStorage.getStore()?.userId;
+  const directorModel = createDirectorModel(container.model, config, {
+    costStore,
+    rateLimit,
+    tracer,
+    resolveUserId,
+  });
+
   const director = new DirectorAgent({
-    model: container.model,
+    model: directorModel,
     agentFactory: container.agentFactory,
     toolRegistry,
     skillRegistry,
-    humanReviewGateway: container.humanReviewGateway,
+    humanReviewGateway: bootstrapState.durableHitlGateway ?? container.humanReviewGateway,
     hooks,
     prompts: directorPrompts,
     idGenerator: new NodeIdGeneratorAdapter(),
@@ -126,28 +230,89 @@ export async function lateBootstrapDirector(): Promise<void> {
       queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
     },
-    extraToolNames: bootstrapState.mcpToolNames,
+    memory: {
+      archiveEnabled: config.memory.archiveEnabled,
+      protectRecentTurns: config.memory.protectRecentTurns,
+      maxActiveMessages: config.memory.maxActiveMessages,
+      maxTokens: config.limits.contextMaxTokens,
+      compressionThreshold: config.limits.contextCompressionThreshold,
+    },
+    extraToolNames: resolveExposedMcpTools({
+      allMcpToolNames: bootstrapState.mcpToolNames,
+      exposeMode: config.mcp.exposeMode,
+      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+    }),
+    mcp: {
+      exposeMode: config.mcp.exposeMode,
+      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+      skillToolAllowlist: config.mcp.skillToolAllowlist,
+      toolNames: bootstrapState.mcpToolNames,
+    },
     blackboardStore: bootstrapState.blackboardStore,
     blackboardConfig: bootstrapState.config.blackboard,
-  });
+    tracer,
+    resolveUserId,
+    wrapTool: bootstrapState.wrapTool,
+      planHard: {
+        enabled: config.guards.planHardEnabled,
+        maxReplans: config.guards.planMaxReplans,
+        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
+        domainToolDefaults: config.guards.planDomainToolDefaults,
+      },
+      multiAgent: {
+        enabled: config.guards.multiAgentEnabled,
+        maxFanOut: config.guards.multiAgentMaxFanOut,
+        maxDepth: config.guards.multiAgentMaxDepth,
+        detectCycles: config.guards.multiAgentDetectCycles,
+        handoffMaxChars: config.guards.handoffMaxChars,
+        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
+        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
+        allowInvoke: config.guards.multiAgentAllowInvoke,
+      },
+    });
 
-  setDirector(director);
-  setSettingsContainer(container);
-}
+    setDirector(director);
+    await bootstrapState.executionWorker?.start();
+    setSettingsContainer(container);
+  }
 
-export async function bootstrap() {
+  export async function bootstrap() {
   const config = loadConfig();
   const fileSystem = new NodeFileSystemAdapter();
-
-  let apiKey = config.model.apiKey;
+  const contextStorage = new NodeContextStorageAdapter<TenantContext>();
 
   const settingsManager = new SettingsManager(fileSystem);
   await settingsManager.initialize();
 
-  const settings = settingsManager.getSettings();
-  if (settings.modelApiKey) {
-    apiKey = settings.modelApiKey;
+  // If settings.json has no API key yet, seed from env (.env / compose) and persist
+  // so subsequent UI reads and rebuilds keep a single source of truth.
+  {
+    const current = settingsManager.getSettings();
+    const seed: Partial<import("../core/settings/SettingsManager.js").AppSettings> = {};
+    if (!current.modelApiKey && config.model.apiKey) {
+      seed.modelApiKey = config.model.apiKey;
+      seed.modelProvider = config.model.provider;
+      seed.modelName = config.model.modelName;
+      if (config.model.baseUrl) seed.modelBaseUrl = config.model.baseUrl;
+    }
+    if (!current.tavilyApiKey && config.webSearch.tavilyApiKey) {
+      seed.tavilyApiKey = config.webSearch.tavilyApiKey;
+      seed.tavilyEnabled = config.webSearch.tavilyEnabled;
+    }
+    if (Object.keys(seed).length > 0) {
+      settingsManager.updateSettings(seed);
+      try {
+        await settingsManager.save();
+      } catch (err) {
+        console.warn(
+          `[Bootstrap] Failed to persist seeded settings: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
+
+  const settings = settingsManager.getSettings();
+  let apiKey = settings.modelApiKey || config.model.apiKey;
 
   // Load prompts from filesystem (composition root responsibility)
   const subAgentPrompts = {
@@ -191,6 +356,27 @@ export async function bootstrap() {
     return config.enabledToolGroups.includes(groupName);
   };
 
+  // External / MCP tool resilience: four failure decisions + circuit breaker.
+  // Tracer is attached later once tracing is initialized (same options object).
+  const toolCircuitRegistry = new ToolCircuitRegistry({
+    failureThreshold: config.guards.toolCircuitFailureThreshold,
+    cooldownMs: config.guards.toolCircuitCooldownMs,
+  });
+  const externalToolResilience: ResilientToolOptions = {
+    external: true,
+    circuitRegistry: toolCircuitRegistry,
+    timeoutMs: config.guards.toolTimeoutMs,
+    policy: {
+      onError: "retry",
+      maxRetries: config.guards.toolRetryMaxAttempts,
+      retryBackoffMs: config.guards.toolRetryBackoffMs,
+      onRetryExhausted: "return_to_llm",
+    },
+    resolveTool: (name) => toolRegistry.getTool(name),
+  };
+  const wrapExternalTool = (tool: import("../port/tool/ToolPort.js").ToolPort) =>
+    new ResilientToolWrapper(tool, externalToolResilience);
+
   // Register knowledge tools (group: "knowledge")
   if (shouldRegisterGroup("knowledge")) {
     toolRegistry.registerToGroup(new DelegatingTool("wiki_lookup", "在 Wiki 索引中查找主题对应的页面路径。参数: topic (string)", wikiTool, { action: "lookup" }), "knowledge");
@@ -205,11 +391,31 @@ export async function bootstrap() {
     console.log(`[Bootstrap] Tool group "knowledge" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
 
-  // Register web search tools (group: "web")
+  // Register web search tools (group: "web") — external, circuit-breaker wrapped
   if (shouldRegisterGroup("web")) {
-    toolRegistry.registerToGroup(new DelegatingTool("tavily_search", "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)", tavilyTool, { action: "search" }), "web");
-    toolRegistry.registerToGroup(new DelegatingTool("tavily_extract", "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)", tavilyTool, { action: "extract" }), "web");
-    console.log(`[Bootstrap] Tool group "web" enabled: ${toolRegistry.getGroupToolNames("web").length} tools`);
+    toolRegistry.registerToGroup(
+      wrapExternalTool(
+        new DelegatingTool(
+          "tavily_search",
+          "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)",
+          tavilyTool,
+          { action: "search" },
+        ),
+      ),
+      "web",
+    );
+    toolRegistry.registerToGroup(
+      wrapExternalTool(
+        new DelegatingTool(
+          "tavily_extract",
+          "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)",
+          tavilyTool,
+          { action: "extract" },
+        ),
+      ),
+      "web",
+    );
+    console.log(`[Bootstrap] Tool group "web" enabled: ${toolRegistry.getGroupToolNames("web").length} tools (resilient)`);
   } else {
     console.log(`[Bootstrap] Tool group "web" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
@@ -236,7 +442,7 @@ export async function bootstrap() {
     if (entries.length > 0) {
       const { tools, toolNames, failedServers, serverResults } = await loadMcpTools(entries);
       for (const tool of tools) {
-        toolRegistry.register(tool);
+        toolRegistry.register(wrapExternalTool(tool));
       }
       mcpToolNames.push(...toolNames);
       console.log(`[Bootstrap] MCP enabled: registered ${tools.length} tools from ${entries.length - failedServers.length}/${entries.length} servers`);
@@ -324,48 +530,48 @@ export async function bootstrap() {
   const blackboardStore = new BlackboardStore();
   setInterval(() => blackboardStore.evictAll(), 60_000).unref?.();
 
-  // Grant MCP tools to all sub-agents (persists across hot-reload resets).
-  setExtraSubAgentToolNames(mcpToolNames);
+  // MCP exposure: on_demand only injects defaultExposePrefixes into base descriptors;
+  // skill/task-specific MCP tools are merged in DirectorAgent.prepareTaskAgent.
+  const mcpExposedForSubAgents = resolveExposedMcpTools({
+    allMcpToolNames: mcpToolNames,
+    exposeMode: config.mcp.exposeMode,
+    defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+  });
+  setExtraSubAgentToolNames(mcpExposedForSubAgents);
+  console.log(
+    `[Bootstrap] MCP exposeMode=${config.mcp.exposeMode}: `
+    + `${mcpExposedForSubAgents.length}/${mcpToolNames.length} tools in sub-agent base descriptors`,
+  );
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations, config.limits.modelMaxTokens);
 
   // Initialize hooks
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
+    new CancellationHook(),
     new LoggingHook(),
     new ValidationHook(),
     new IterationBudgetHook(config.limits.iterationBudgetDefault),
     new OutputEnforcementHook(),
-    new ContextManagementHook(config.limits.contextCompressionThreshold, config.limits.contextMaxTokens),
+    new ContextManagementHook({
+      compressionThreshold: config.limits.contextCompressionThreshold,
+      maxTokens: config.limits.contextMaxTokens,
+      protectRecentTurns: config.memory.protectRecentTurns,
+      maxActiveMessages: config.memory.maxActiveMessages,
+    }),
   ];
 
-  // Initialize long-term memory (composition root: wire adapter → core)
+  // Trace context (separate ALS from tenant) + store/tracer
+  const traceContextStorage = new NodeContextStorageAdapter<TraceRuntimeState>();
+  const toolApprovalStore = new InMemoryToolApprovalStore();
+  let toolSecurityOptions: ToolSecurityOptions | null = null;
+  let auditStoreAdapter: PostgresAuditStoreAdapter | null = null;
+  let compensateFailureQueue: CompensateFailureQueuePort = new InMemoryCompensateFailureQueue();
+  let traceStore: TraceStorePort | null = null;
+  let tracer: TracerPort = new NoOpTracer();
+
+  // Long-term memory is PostgreSQL-backed and scoped per authenticated user.
   let memoryManager: MemoryManager | null = null;
-  if (config.longTermMemory.enabled) {
-    const ltmAdapter = new FileBasedLongTermMemoryAdapter(
-      config.longTermMemory.storagePath,
-      fileSystem,
-      new NodeIdGeneratorAdapter(),
-    );
-    memoryManager = new MemoryManager(ltmAdapter, {
-      defaultNamespace: config.longTermMemory.defaultNamespace,
-      maxContextMemories: config.longTermMemory.maxContextMemories,
-      minImportanceForContext: config.longTermMemory.minImportanceForContext,
-      autoExtract: config.longTermMemory.autoExtract,
-      autoPrune: config.longTermMemory.autoPrune,
-      maxAgeMs: config.longTermMemory.maxAgeMs,
-      pruneBelowImportance: config.longTermMemory.pruneBelowImportance,
-    });
 
-    // Memory injection hook runs at pre_reasoning (priority 60, before compression)
-    hooks.push(new MemoryInjectionHook(memoryManager, config.longTermMemory.defaultNamespace));
-    // Memory extraction hook runs at post_agent_call (priority 200, after other hooks)
-    if (config.longTermMemory.autoExtract) {
-      hooks.push(new MemoryExtractionHook(memoryManager, config.longTermMemory.defaultNamespace));
-    }
-
-    console.log(`[Bootstrap] Long-term memory enabled: storage=${config.longTermMemory.storagePath}, namespace=${config.longTermMemory.defaultNamespace}`);
-  }
-
-  const workspaceManager = new WorkspaceManager("workspace", fileSystem);
+  const workspaceManager = new WorkspaceManager("workspace", fileSystem, contextStorage);
 
   // ─── User System (Multi-Tenant) ──────────────────────────────────
   let userContextManager: UserContextManager | null = null;
@@ -373,16 +579,87 @@ export async function bootstrap() {
   let betterAuthAdapter: BetterAuthAdapter | null = null;
   let redisAdapter: TenantIsolationPort | null = null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
+  let eventStore: RedisExecutionEventStoreAdapter | null = null;
+  let executionWorker: ExecutionWorker | null = null;
+  let costStoreAdapter: PostgresCostStoreAdapter | null = null;
+  let rateLimitAdapter: RedisRateLimitAdapter | null = null;
 
-  if (config.userSystem.enabled) {
+  {
     console.log("[Bootstrap] Initializing user system (multi-tenant with Better Auth)...");
 
     // PostgreSQL
     dbAdapter = new PostgresDatabaseAdapter(config.userSystem.postgresUrl);
-    if (config.userSystem.autoInitSchema) {
-      await dbAdapter.initializeSchema();
-      console.log("[Bootstrap] PostgreSQL schema initialized");
+    // Schema is owned by drizzle migrations (`pnpm db:migrate`). Startup only verifies connectivity.
+    if (!(await dbAdapter.healthCheck())) {
+      throw new Error("PostgreSQL health check failed; apply migrations with `pnpm db:migrate`");
     }
+    console.log("[Bootstrap] PostgreSQL connected (schema managed by drizzle migrations)");
+
+    if (config.security.auditEnabled) {
+      auditStoreAdapter = new PostgresAuditStoreAdapter(dbAdapter, new NodeIdGeneratorAdapter());
+      setGlobalAuditStore(auditStoreAdapter);
+      setAuditStore(auditStoreAdapter);
+      console.log("[Bootstrap] Audit logging enabled (audit_logs → Postgres)");
+    } else {
+      setGlobalAuditStore(null);
+      setAuditStore(null);
+    }
+
+    if (config.saga.compensateFailureToAudit && auditStoreAdapter) {
+      compensateFailureQueue = new AuditCompensateFailureQueue(
+        auditStoreAdapter,
+        () => contextStorage.getStore()?.userId ?? "system",
+      );
+      console.log("[Bootstrap] Saga compensate failures → audit_logs (saga.compensate_failed)");
+    } else {
+      compensateFailureQueue = new InMemoryCompensateFailureQueue();
+    }
+
+    if (config.tracing.enabled) {
+      traceStore = new PostgresTraceStoreAdapter(dbAdapter);
+      const exporters = config.tracing.consoleExporter ? [new ConsoleTraceExporter()] : [];
+      tracer = new DefaultTracer(
+        traceStore,
+        new NodeIdGeneratorAdapter(),
+        traceContextStorage,
+        exporters,
+      );
+      hooks.unshift(new TracingHook(tracer));
+      setTraceStore(traceStore);
+      console.log("[Bootstrap] Agent tracing enabled (Session/Trace/Span → Postgres)");
+    } else {
+      setTraceStore(null);
+      console.log("[Bootstrap] Agent tracing disabled");
+    }
+
+    // Runtime guards (token budget + tool-loop) — share the active tracer when present.
+    hooks.push(
+      new TokenBudgetHook({
+        budget: config.guards.traceTokenBudget,
+        multiAgentBudget: config.guards.multiAgentTokenBudget,
+        multiAgentEnabled: config.guards.multiAgentEnabled,
+        tracer,
+      }),
+      new ToolLoopDetectorHook({
+        windowSize: config.guards.toolLoopWindowSize,
+        maxRepeats: config.guards.toolLoopMaxRepeats,
+        tracer,
+      }),
+    );
+    // Attach tracer to resilient external tools (same options object used at registration).
+    externalToolResilience.tracer = tracer;
+    console.log(
+      `[Bootstrap] Guards: tokenBudget=${config.guards.traceTokenBudget || "off"} ` +
+        `multiAgentToken=${config.guards.multiAgentEnabled ? (config.guards.multiAgentTokenBudget || "off") : "off"} ` +
+        `fanOut=${config.guards.multiAgentMaxFanOut} depth=${config.guards.multiAgentMaxDepth} ` +
+        `toolLoop=${config.guards.toolLoopMaxRepeats}/${config.guards.toolLoopWindowSize} ` +
+        `toolCircuit=${config.guards.toolCircuitFailureThreshold}/${config.guards.toolCircuitCooldownMs}ms ` +
+        `toolTimeout=${config.guards.toolTimeoutMs || "off"}ms`,
+    );
+    console.log(
+      `[Bootstrap] Saga: compensate=${config.saga.compensateEnabled ? "on" : "off"} ` +
+        `failureAudit=${config.saga.compensateFailureToAudit ? "on" : "off"}`,
+    );
 
     // Better Auth (handles registration, login, sessions, DingTalk SSO)
     const dingtalkConfig = config.userSystem.dingtalk.clientId
@@ -411,64 +688,353 @@ export async function bootstrap() {
       console.log("[Bootstrap] Email+password login disabled (SSO only)");
     }
 
-    // Tenant isolation: Redis (caching/locking/concurrency) or in-process fallback
-    if (config.userSystem.redisEnabled) {
-      redisAdapter = new RedisTenantIsolationAdapter(
-        config.userSystem.redisUrl,
-        betterAuthAdapter,
-      );
-      await (redisAdapter as RedisTenantIsolationAdapter).connect();
-      console.log("[Bootstrap] Redis connected (tenant isolation)");
-    } else {
-      redisAdapter = new InMemoryTenantIsolationAdapter(betterAuthAdapter);
-      console.log("[Bootstrap] Redis disabled — using in-process tenant isolation (single-instance)");
-    }
+    // Tenant isolation always uses Redis.
+    redisAdapter = new RedisTenantIsolationAdapter(
+      config.userSystem.redisUrl,
+      betterAuthAdapter,
+    );
+    await (redisAdapter as RedisTenantIsolationAdapter).connect();
+    console.log("[Bootstrap] Redis connected (tenant isolation)");
 
     // User context manager (core layer: tenant-scoped access)
     userContextManager = new UserContextManager(betterAuthAdapter, redisAdapter);
 
-    // Replace file-based LTM with PostgreSQL-backed LTM per user
     if (config.longTermMemory.enabled) {
-      console.log("[Bootstrap] Long-term memory using PostgreSQL (user-scoped)");
+      const memoryPort = new ContextualPostgresLongTermMemoryAdapter(
+        dbAdapter,
+        new NodeIdGeneratorAdapter(),
+        contextStorage,
+      );
+      memoryManager = new MemoryManager(memoryPort, config.longTermMemory);
+      hooks.push(new MemoryInjectionHook(memoryManager, config.longTermMemory.defaultNamespace));
+      if (config.longTermMemory.autoExtract) {
+        hooks.push(new MemoryExtractionHook(memoryManager, config.longTermMemory.defaultNamespace));
+      }
+      console.log("[Bootstrap] Long-term memory configured for PostgreSQL (user-scoped)");
     }
 
-    // Message Queue (requires Redis)
-    if (config.messageQueue.enabled && config.userSystem.redisEnabled) {
-      mqAdapter = new RedisMessageQueueAdapter(
-        config.userSystem.redisUrl,
+    if (config.cost.enabled) {
+      costStoreAdapter = new PostgresCostStoreAdapter(
+        dbAdapter,
         new NodeIdGeneratorAdapter(),
-        { consumerGroup: config.messageQueue.consumerGroup, pollIntervalMs: config.messageQueue.pollIntervalMs },
       );
-      await mqAdapter.connect();
-      await mqAdapter.start();
-      console.log("[Bootstrap] Message queue started");
-    } else if (config.messageQueue.enabled) {
-      console.log("[Bootstrap] Message queue disabled (requires Redis)");
+      rateLimitAdapter = new RedisRateLimitAdapter(config.userSystem.redisUrl, {
+        rpmLimitPerUser: config.cost.rpmLimitPerUser,
+        tpmLimitPerUser: config.cost.tpmLimitPerUser,
+        globalRpmLimit: config.cost.globalRpmLimit,
+        globalTpmLimit: config.cost.globalTpmLimit,
+        windowMs: config.cost.windowMs,
+      });
+      await rateLimitAdapter.connect();
+
+      const resolveUserId = () => contextStorage.getStore()?.userId;
+      hooks.push(
+        new CostAccountingHook({
+          enabled: true,
+          pricing: {
+            inputPricePer1M: config.cost.inputPricePer1M,
+            outputPricePer1M: config.cost.outputPricePer1M,
+            modelPrices: config.cost.modelPrices,
+          },
+          costStore: costStoreAdapter,
+          defaultModelName: config.model.modelName,
+          tracer,
+          resolveUserId,
+        }),
+        new RateLimitHook({
+          enabled: config.cost.tpmLimitPerUser > 0 || config.cost.globalTpmLimit > 0,
+          rateLimit: rateLimitAdapter,
+          tpmEstimatePerCall: config.cost.tpmEstimatePerCall,
+          tracer,
+          resolveUserId,
+        }),
+      );
+
+      const rpmEnabled =
+        config.cost.rpmLimitPerUser > 0 || config.cost.globalRpmLimit > 0;
+      setCostRouteDependencies({
+        costStore: costStoreAdapter,
+        rateLimit: rateLimitAdapter,
+        enabled: true,
+      });
+      setConsoleRateLimit(new RateLimitGuard(rateLimitAdapter), rpmEnabled);
+      console.log(
+        `[Bootstrap] Cost tracking enabled: rpm=${config.cost.rpmLimitPerUser || "off"}/user ` +
+          `tpm=${config.cost.tpmLimitPerUser || "off"}/user ` +
+          `globalRpm=${config.cost.globalRpmLimit || "off"} globalTpm=${config.cost.globalTpmLimit || "off"}`,
+      );
+    } else {
+      setCostRouteDependencies({ costStore: null, rateLimit: null, enabled: false });
+      setConsoleRateLimit(null, false);
+      console.log("[Bootstrap] Cost tracking disabled");
     }
+
+    // Message queue is a required Redis-backed service.
+    mqAdapter = new RedisMessageQueueAdapter(
+      config.userSystem.redisUrl,
+      new NodeIdGeneratorAdapter(),
+      {
+        consumerGroup: config.messageQueue.consumerGroup,
+        visibilityTimeoutMs: config.messageQueue.visibilityTimeoutMs,
+        blockMs: config.messageQueue.blockMs,
+        maxRetries: config.messageQueue.maxRetries,
+      },
+    );
+    await mqAdapter.connect();
+    console.log("[Bootstrap] Message queue connected");
+
+    eventStore = new RedisExecutionEventStoreAdapter(
+      config.userSystem.redisUrl,
+      { maxLength: config.execution.eventMaxLength },
+    );
+    await eventStore.connect();
+    console.log("[Bootstrap] Execution event store connected");
 
     console.log("[Bootstrap] User system enabled: multi-tenant mode with Better Auth");
   }
 
   // Store bootstrap state for potential late director initialization
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, mcpClients, mcpToolNames, blackboardStore };
+  const idGenerator = new NodeIdGeneratorAdapter();
+  const sessionRepositoryFactory = (userId: string) =>
+    new PostgresSessionRepository(dbAdapter!, userId);
+  const executionRepositoryFactory = (userId: string) =>
+    new PostgresExecutionRepository(dbAdapter!, userId);
 
-  const sessionManager = new SessionManager(fileSystem, "sessions", config.limits.sessionListLimit);
-  await sessionManager.initialize();
+  let versionStoreAdapter: VersionStorePort | null = null;
+  if (dbAdapter && config.versioning.enabled) {
+    versionStoreAdapter = new PostgresVersionStoreAdapter(dbAdapter, idGenerator);
+    await seedVersionStoreFromDisk(versionStoreAdapter);
+    setVersionStoreDependencies(versionStoreAdapter, {
+      defaultCanaryPercent: config.versioning.defaultCanaryPercent,
+    });
+    console.log("[Bootstrap] Artifact versioning enabled");
+  } else if (config.versioning.enabled) {
+    console.warn("[Bootstrap] VERSIONING_ENABLED=true but Postgres is unavailable; versioning disabled");
+  }
 
-  const hitlManager = new HITLManager(fileSystem);
-  await hitlManager.initialize();
+  executionWorker = new ExecutionWorker({
+    queue: mqAdapter!,
+    eventStore: eventStore!,
+    executionRepositoryFactory,
+    sessionRepositoryFactory,
+    userContextManager: userContextManager!,
+    contextStorage,
+    idGenerator,
+    maxConcurrentPerUser: config.userSystem.maxConcurrentPerUser,
+    pollIntervalMs: config.execution.pollIntervalMs,
+    taskTimeoutMs: config.execution.taskTimeoutMs,
+    executionOverridesFactory: async (session, userId) => {
+      if (!config.versioning.enabled || !versionStoreAdapter) {
+        return undefined;
+      }
+      const model = bootstrapState?.container?.model;
+      if (!model) return undefined;
+      return resolveExecutionOverrides({
+        versionStore: versionStoreAdapter,
+        config,
+        sessionMeta: session,
+        sessionUserId: userId,
+        model,
+        defaultPrompts: directorPrompts,
+        defaultQuerySystemPrompt: directorPrompts.querySystem ?? "",
+        fallbackSkillRegistry: skillRegistry,
+      });
+    },
+  });
 
-  setUserIdScopedStores(sessionManager, workspaceManager, hitlManager);
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter, compensateFailureQueue, versionStore: versionStoreAdapter };
 
-  setConsoleSessionManager(sessionManager);
-  setConsoleHITLManager(hitlManager);
-  setSessionManager(sessionManager);
+  const hitlRepositoryFactory = (userId: string) =>
+    new PostgresHITLRepository(dbAdapter!, userId);
+
+  if (dbAdapter) {
+    toolSecurityOptions = buildToolSecurityOptions({
+      config,
+      auditStore: auditStoreAdapter,
+      approvalStore: toolApprovalStore,
+      tenantContextStorage: contextStorage,
+      traceContextStorage,
+      idGenerator,
+      hitlRepositoryFactory,
+    });
+    toolRegistry.rewrapAll((tool) => wrapToolWithSecurity(tool, toolSecurityOptions!));
+    console.log(
+      `[Bootstrap] Tool security enabled: irreversibleHitl=${config.security.irreversibleRequireHitl} ` +
+        `sandboxKeywords=${config.security.sandboxDenyKeywords.length}`,
+    );
+  }
+
+  const wrapTool = toolSecurityOptions
+    ? (tool: import("../port/tool/ToolPort.js").ToolPort) => wrapToolWithSecurity(tool, toolSecurityOptions!)
+    : undefined;
+  if (bootstrapState) {
+    bootstrapState.wrapTool = wrapTool;
+  }
+
+  const durableHitlGateway = new DurableHumanReviewGateway({
+    repositoryFactory: hitlRepositoryFactory,
+    contextStorage,
+    idGenerator,
+  });
+  if (config.hitl.enabled) {
+    durableHitlGateway.configure(
+      Object.fromEntries(
+        Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
+          k,
+          { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
+        ]),
+      ),
+      config.limits.hitlMaxRevisionRounds,
+    );
+  }
+  bootstrapState.durableHitlGateway = durableHitlGateway;
+
+  setConsoleExecutionDependencies({
+    sessionRepositoryFactory,
+    executionRepositoryFactory,
+    queue: mqAdapter!,
+    eventStore: eventStore!,
+    idGenerator,
+    worker: executionWorker,
+    maxRetries: config.messageQueue.maxRetries,
+    config,
+    versionStore: versionStoreAdapter,
+  });
+  setSessionRepositoryFactory(sessionRepositoryFactory);
   setWorkspaceManager(workspaceManager);
-  setHITLManager(hitlManager);
+  setHITLRouteDependencies({
+    repositoryFactory: hitlRepositoryFactory,
+    executionRepositoryFactory,
+    sessionRepositoryFactory,
+    queue: mqAdapter!,
+    tenantPort: redisAdapter!,
+    idGenerator,
+    maxRetries: config.messageQueue.maxRetries,
+    timeoutMs: config.hitl.timeout,
+    freshness: new AlwaysFreshHITLCheck(),
+    auditStore: auditStoreAdapter,
+    toolApprovalStore,
+  });
+
+  // Durable HITL timeout sweeper — CAS-safe; concurrent human resume wins or loses cleanly.
+  if (config.hitl.enabled && config.hitl.timeoutSweepIntervalMs > 0) {
+    const hitlScan = new PostgresHITLTimeoutScanAdapter(dbAdapter!);
+    const timer = setInterval(() => {
+      void sweepHITLTimeouts({
+        scan: hitlScan,
+        timeoutMs: config.hitl.timeout,
+        policy: config.hitl.timeoutPolicy,
+        batchSize: 50,
+        applyDeps: {
+          repositoryFactory: hitlRepositoryFactory,
+          onAutoDecision: async ({ checkpoint, action }) => {
+            await appendAudit({
+              userId: checkpoint.userId,
+              action: "hitl.decision",
+              resourceType: "hitl_checkpoint",
+              resourceId: checkpoint.id,
+              sessionId: checkpoint.sessionId,
+              executionId: checkpoint.executionId,
+              outcome: action === "reject" ? "denied" : "success",
+              detail: {
+                reviewPoint: checkpoint.reviewPoint,
+                reviewAction: action,
+                fallback: true,
+                source: "timeout_sweeper",
+              },
+            });
+            if (!checkpoint.executionId) return;
+            const execRepo = executionRepositoryFactory(checkpoint.userId);
+            const sessionRepo = sessionRepositoryFactory(checkpoint.userId);
+            const service = new ExecutionService(execRepo, idGenerator);
+            const execution = await execRepo.get(checkpoint.executionId);
+            if (!execution) return;
+            if (action === "reject") {
+              const failed = await service.fail(
+                checkpoint.executionId,
+                Object.assign(new Error(checkpoint.reviewComment ?? "HITL timeout reject"), {
+                  errorClass: "permanent",
+                }),
+              );
+              await sessionRepo.update(execution.sessionId, {
+                status: "failed",
+                error: failed.errorMessage ?? "HITL timeout reject",
+                hitlCheckpointId: checkpoint.id,
+              });
+              return;
+            }
+            const resumed = await service.resume(checkpoint.executionId, {
+              checkpointId: checkpoint.id,
+              reviewAction: action,
+              reviewPoint: checkpoint.reviewPoint,
+            });
+            await sessionRepo.update(execution.sessionId, {
+              status: "queued",
+              error: "",
+              hitlCheckpointId: checkpoint.id,
+            });
+            await mqAdapter!.publish(
+              EXECUTION_QUEUE,
+              { executionId: resumed.id, userId: checkpoint.userId },
+              { userId: checkpoint.userId, maxRetries: config.messageQueue.maxRetries },
+            );
+          },
+          onExpired: async (checkpoint) => {
+            await appendAudit({
+              userId: checkpoint.userId,
+              action: "hitl.decision",
+              resourceType: "hitl_checkpoint",
+              resourceId: checkpoint.id,
+              sessionId: checkpoint.sessionId,
+              executionId: checkpoint.executionId,
+              outcome: "denied",
+              detail: {
+                reviewPoint: checkpoint.reviewPoint,
+                reviewAction: "expired",
+                fallback: true,
+                source: "timeout_sweeper",
+              },
+            });
+            if (!checkpoint.executionId) return;
+            const execRepo = executionRepositoryFactory(checkpoint.userId);
+            const sessionRepo = sessionRepositoryFactory(checkpoint.userId);
+            const service = new ExecutionService(execRepo, idGenerator);
+            const execution = await execRepo.get(checkpoint.executionId);
+            if (!execution) return;
+            const failed = await service.fail(
+              checkpoint.executionId,
+              Object.assign(new Error(checkpoint.reviewComment ?? "HITL checkpoint expired"), {
+                errorClass: "permanent",
+              }),
+            );
+            await sessionRepo.update(execution.sessionId, {
+              status: "failed",
+              error: failed.errorMessage ?? "HITL checkpoint expired",
+              hitlCheckpointId: checkpoint.id,
+            });
+          },
+        },
+        onError: (err, checkpointId) => {
+          console.error(`[HITL] Timeout sweep error${checkpointId ? ` for ${checkpointId}` : ""}:`, err);
+        },
+      }).then((stats) => {
+        if (stats.applied > 0) {
+          console.log(
+            `[HITL] Timeout sweep: scanned=${stats.scanned} applied=${stats.applied} skipped=${stats.skipped}`,
+          );
+        }
+      });
+    }, config.hitl.timeoutSweepIntervalMs);
+    timer.unref?.();
+    console.log(
+      `[Bootstrap] HITL timeout sweeper enabled: policy=${config.hitl.timeoutPolicy} ` +
+        `timeout=${config.hitl.timeout}ms interval=${config.hitl.timeoutSweepIntervalMs}ms`,
+    );
+  }
   setSettingsManager(settingsManager);
   setTavilyTool(tavilyTool);
 
-  // Wire user context manager (if user system is enabled)
+  // Wire required user infrastructure.
   if (userContextManager) {
     setUserContextManager(userContextManager);
   }
@@ -477,6 +1043,7 @@ export async function bootstrap() {
     setAuthAdapter(betterAuthAdapter);
   }
   if (redisAdapter) {
+    setTenantContextStorage(contextStorage);
     setTenantPort(redisAdapter);
   }
   if (dbAdapter) {
@@ -495,27 +1062,31 @@ export async function bootstrap() {
       temperature: settings.temperature,
     };
 
-    const container = new Container({ ...config, model: mergedModelConfig }, toolRegistry, skillRegistry);
+    const container = new Container(
+      { ...config, model: mergedModelConfig },
+      toolRegistry,
+      skillRegistry,
+      { compensateFailureQueue },
+    );
     bootstrapState.container = container;
-
-    if (container.humanReviewGateway.configure && config.hitl.enabled) {
-      container.humanReviewGateway.configure(
-        Object.fromEntries(
-          Object.entries(config.hitl.reviewPoints).map(([k, v]) => [
-            k,
-            { enabled: v, timeout: config.hitl.timeout, autoContinueOnTimeout: config.hitl.autoContinueOnTimeout },
-          ])
-        ),
-        config.limits.hitlMaxRevisionRounds
-      );
+    if (container.model instanceof LangGraphModelAdapter) {
+      container.model.setTracer(tracer);
     }
 
+    const resolveUserId = () => contextStorage.getStore()?.userId;
+    const directorModel = createDirectorModel(container.model, config, {
+      costStore: bootstrapState.costStore,
+      rateLimit: bootstrapState.rateLimit,
+      tracer,
+      resolveUserId,
+    });
+
     const director = new DirectorAgent({
-      model: container.model,
+      model: directorModel,
       agentFactory: container.agentFactory,
       toolRegistry,
       skillRegistry,
-      humanReviewGateway: container.humanReviewGateway,
+      humanReviewGateway: durableHitlGateway,
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),
@@ -526,19 +1097,56 @@ export async function bootstrap() {
         grepSearchResultLimit: config.limits.grepSearchResultLimit,
         webSourceResultLimit: config.limits.webSourceResultLimit,
       },
-      extraToolNames: bootstrapState.mcpToolNames,
+      memory: {
+        archiveEnabled: config.memory.archiveEnabled,
+        protectRecentTurns: config.memory.protectRecentTurns,
+        maxActiveMessages: config.memory.maxActiveMessages,
+        maxTokens: config.limits.contextMaxTokens,
+        compressionThreshold: config.limits.contextCompressionThreshold,
+      },
+      extraToolNames: resolveExposedMcpTools({
+        allMcpToolNames: bootstrapState.mcpToolNames,
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+      }),
+      mcp: {
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+        skillToolAllowlist: config.mcp.skillToolAllowlist,
+        toolNames: bootstrapState.mcpToolNames,
+      },
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
+      tracer,
+      resolveUserId,
+      wrapTool,
+      planHard: {
+        enabled: config.guards.planHardEnabled,
+        maxReplans: config.guards.planMaxReplans,
+        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
+        domainToolDefaults: config.guards.planDomainToolDefaults,
+      },
+      multiAgent: {
+        enabled: config.guards.multiAgentEnabled,
+        maxFanOut: config.guards.multiAgentMaxFanOut,
+        maxDepth: config.guards.multiAgentMaxDepth,
+        detectCycles: config.guards.multiAgentDetectCycles,
+        handoffMaxChars: config.guards.handoffMaxChars,
+        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
+        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
+        allowInvoke: config.guards.multiAgentAllowInvoke,
+      },
     });
 
     setDirector(director);
+    await executionWorker.start();
     setSettingsContainer(container);
   } else {
     console.warn("[Bootstrap] No API key configured. Director not initialized. Configure via /api/settings.");
   }
 
   const app = createApp();
-  return { app, config, container: bootstrapState.container, director: null, sessionManager, hitlManager, settingsManager };
+  return { app, config, container: bootstrapState.container, director: null, settingsManager };
 }
 
 /**
@@ -552,7 +1160,7 @@ export async function reloadDirector(): Promise<void> {
     throw new Error("无法在任务执行中重载，请等待当前任务完成后再试");
   }
 
-  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager } = bootstrapState;
+  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer, costStore, rateLimit } = bootstrapState;
 
   // 1. Reload prompts
   clearPromptCache();
@@ -584,12 +1192,20 @@ export async function reloadDirector(): Promise<void> {
 
   // 4. Rebuild DirectorAgent (if container exists)
   if (bootstrapState.container) {
+    const resolveUserId = () => contextStorage.getStore()?.userId;
+    const directorModel = createDirectorModel(bootstrapState.container.model, config, {
+      costStore,
+      rateLimit,
+      tracer,
+      resolveUserId,
+    });
     const director = new DirectorAgent({
-      model: bootstrapState.container.model,
+      model: directorModel,
       agentFactory: bootstrapState.container.agentFactory,
       toolRegistry,
       skillRegistry,
-      humanReviewGateway: bootstrapState.container.humanReviewGateway,
+      humanReviewGateway: bootstrapState.durableHitlGateway
+        ?? bootstrapState.container.humanReviewGateway,
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),
@@ -598,9 +1214,45 @@ export async function reloadDirector(): Promise<void> {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
       },
-      extraToolNames: bootstrapState.mcpToolNames,
+      memory: {
+        archiveEnabled: config.memory.archiveEnabled,
+        protectRecentTurns: config.memory.protectRecentTurns,
+        maxActiveMessages: config.memory.maxActiveMessages,
+        maxTokens: config.limits.contextMaxTokens,
+        compressionThreshold: config.limits.contextCompressionThreshold,
+      },
+      extraToolNames: resolveExposedMcpTools({
+        allMcpToolNames: bootstrapState.mcpToolNames,
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+      }),
+      mcp: {
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+        skillToolAllowlist: config.mcp.skillToolAllowlist,
+        toolNames: bootstrapState.mcpToolNames,
+      },
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
+      tracer,
+      resolveUserId,
+      wrapTool: bootstrapState.wrapTool,
+      planHard: {
+        enabled: config.guards.planHardEnabled,
+        maxReplans: config.guards.planMaxReplans,
+        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
+        domainToolDefaults: config.guards.planDomainToolDefaults,
+      },
+      multiAgent: {
+        enabled: config.guards.multiAgentEnabled,
+        maxFanOut: config.guards.multiAgentMaxFanOut,
+        maxDepth: config.guards.multiAgentMaxDepth,
+        detectCycles: config.guards.multiAgentDetectCycles,
+        handoffMaxChars: config.guards.handoffMaxChars,
+        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
+        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
+        allowInvoke: config.guards.multiAgentAllowInvoke,
+      },
     });
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");

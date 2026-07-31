@@ -13,9 +13,18 @@ import type { TimelineEntry } from '@/components/Console/StepsTimeline';
 import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import ResultPanel from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
-import { executeDesignStream, getConfigStatus, type SessionMeta } from '@/lib/api';
+import HitlReviewModal from '@/components/Console/HitlReviewModal';
+import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, type SessionMeta, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking } from '@/lib/streamHandler';
+
+const MAX_STREAM_RESUMES = 2;
+const TERMINAL_EXECUTION_STATUSES = new Set([
+  'completed', 'failed', 'cancelled', 'timed_out',
+]);
+const WAITING_EXECUTION_STATUSES = new Set([
+  'waiting_hitl',
+]);
 
 interface Props {
   mode: TaskMode;
@@ -97,6 +106,8 @@ export default function ConsolePage({ mode }: Props) {
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [hitlModalOpen, setHitlModalOpen] = useState(false);
+  const [hitlFallbackContent, setHitlFallbackContent] = useState<string | undefined>();
 
   // Check config status on mount
   useEffect(() => {
@@ -109,6 +120,170 @@ export default function ConsolePage({ mode }: Props) {
       })
       .catch(() => {});
   }, []);
+
+  // Refresh: if we have an executionId and task still looks in-flight, pull terminal/waiting state.
+  useEffect(() => {
+    if (!task?.executionId || (!task.loading && task.status !== 'waiting')) return;
+    let cancelled = false;
+
+    const applyExecution = (execution: Awaited<ReturnType<typeof getExecution>>) => {
+      if (cancelled || !mountedRef.current) return;
+      if (WAITING_EXECUTION_STATUSES.has(execution.status)) {
+        store.updateTask(task.sessionId, {
+          loading: false,
+          streaming: false,
+          status: 'waiting',
+          statusText: '等待人工审阅',
+          streamRef: null,
+        });
+        // Resolve checkpoint id if stream event was missed.
+        if (!store.getTask(task.sessionId)?.hitlCheckpointId) {
+          listHITLCheckpoints(task.sessionId)
+            .then((res) => {
+              const pending = res.checkpoints.find(
+                (cp) => cp.status === 'waiting_review' || cp.status === 'escalated',
+              );
+              if (pending) {
+                store.updateTask(task.sessionId, { hitlCheckpointId: pending.id });
+                setHitlModalOpen(true);
+              }
+            })
+            .catch(() => {});
+        } else {
+          setHitlModalOpen(true);
+        }
+        setRefreshTick((t) => t + 1);
+        return;
+      }
+      if (!TERMINAL_EXECUTION_STATUSES.has(execution.status)) return;
+      const output = typeof execution.output === 'string' ? execution.output
+        : typeof execution.result === 'string' ? execution.result
+        : null;
+      if (output) {
+        store.appendMessage(task.sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'ai',
+          content: output,
+          timestamp: getCurrentTime(),
+        });
+      }
+      if (execution.errorMessage) {
+        store.appendMessage(task.sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'system',
+          content: `执行结束（${execution.status}）: ${execution.errorMessage}`,
+          timestamp: getCurrentTime(),
+        });
+      } else if (execution.status === 'failed') {
+        store.appendMessage(task.sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'system',
+          content: `执行失败（未返回详细错误信息，请查看右侧日志或服务端日志）`,
+          timestamp: getCurrentTime(),
+        });
+      }
+      store.updateTask(task.sessionId, {
+        loading: false,
+        streaming: false,
+        status: execution.status === 'completed' ? 'idle' : 'error',
+        statusText: execution.status === 'completed'
+          ? '完成'
+          : (execution.errorMessage
+            ? `错误: ${String(execution.errorMessage).slice(0, 80)}`
+            : execution.status),
+        streamRef: null,
+      });
+      setRefreshTick((t) => t + 1);
+    };
+
+    getExecution(task.executionId).then(applyExecution).catch(() => {});
+    // Keep polling while loading so silent worker failures still surface.
+    const timer = task.loading
+      ? setInterval(() => {
+          if (!task.executionId) return;
+          getExecution(task.executionId).then(applyExecution).catch(() => {});
+        }, 4000)
+      : null;
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [task?.executionId, task?.sessionId, task?.loading, task?.status]);
+
+  const syncStreamMeta = useCallback((sessionId: string, handle: StreamHandle) => {
+    const executionId = handle.getExecutionId();
+    const lastEventId = handle.getLastEventId();
+    const patch: Partial<import('@/lib/stores/taskStore').TaskState> = {};
+    if (executionId) patch.executionId = executionId;
+    if (lastEventId) patch.lastEventId = lastEventId;
+    if (Object.keys(patch).length > 0) store.updateTask(sessionId, patch);
+  }, [store]);
+
+  const attachStream = useCallback((
+    sessionId: string,
+    handle: StreamHandle,
+  ) => {
+    store.setStreamRef(sessionId, handle);
+    // Headers arrive async; poll briefly for execution id / last event id.
+    let ticks = 0;
+    const timer = setInterval(() => {
+      syncStreamMeta(sessionId, handle);
+      ticks += 1;
+      if (ticks >= 40 || !store.getTask(sessionId)?.loading) {
+        clearInterval(timer);
+      }
+    }, 250);
+  }, [store, syncStreamMeta]);
+
+  const onStreamEventRef = useRef<(sessionId: string, event: string, data: unknown) => void>(() => {});
+
+  const tryResumeStream = useCallback((sessionId: string, reason: string) => {
+    const current = store.getTask(sessionId);
+    if (!current?.executionId) return false;
+    if (current.streamResumeAttempts >= MAX_STREAM_RESUMES) return false;
+
+    const attempts = current.streamResumeAttempts + 1;
+    store.updateTask(sessionId, {
+      streamResumeAttempts: attempts,
+      loading: true,
+      streaming: true,
+      status: 'working',
+      statusText: `重连中 (${attempts}/${MAX_STREAM_RESUMES})`,
+    });
+    store.appendLog(sessionId, {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      time: getCurrentTime(),
+      level: 'warn',
+      source: 'SSE',
+      message: `流中断，尝试续订 #${attempts}: ${reason}`,
+    });
+
+    const resume = resumeExecutionStream(
+      current.executionId,
+      current.lastEventId ?? current.streamRef?.getLastEventId() ?? undefined,
+      (event, data) => onStreamEventRef.current(sessionId, event, data),
+      (err) => {
+        if (!mountedRef.current) return;
+        if (!tryResumeStream(sessionId, err.message)) {
+          store.updateTask(sessionId, {
+            loading: false,
+            streaming: false,
+            status: 'error',
+            statusText: '错误',
+            streamingText: '',
+          });
+          store.appendMessage(sessionId, {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+            type: 'system',
+            content: `网络错误: ${err.message}`,
+            timestamp: getCurrentTime(),
+          });
+        }
+      },
+    );
+    attachStream(sessionId, resume);
+    return true;
+  }, [store, attachStream]);
 
   // Timer for active task
   useEffect(() => {
@@ -144,6 +319,8 @@ export default function ConsolePage({ mode }: Props) {
       if (process.env.NODE_ENV === 'development') {
         console.debug(`[GDT:${event}]`, data);
       }
+      const handle = store.getTask(sessionId)?.streamRef;
+      if (handle) syncStreamMeta(sessionId, handle);
       handleStreamEvent(sessionId, event, data, store);
 
       // Scroll on chunk
@@ -156,19 +333,103 @@ export default function ConsolePage({ mode }: Props) {
         }
       }
 
+      if (event === 'hitl') {
+        const d = data as Record<string, unknown>;
+        const plan = d.plan;
+        if (plan && typeof plan === 'object') {
+          try {
+            setHitlFallbackContent(JSON.stringify(plan, null, 2));
+          } catch {
+            setHitlFallbackContent(undefined);
+          }
+        }
+        setHitlModalOpen(true);
+      }
+
+      if (event === 'execution_status') {
+        const d = data as Record<string, unknown>;
+        if (d.status === 'waiting_hitl') {
+          const checkpointId = d.checkpointId as string | undefined;
+          if (checkpointId) {
+            store.updateTask(sessionId, { hitlCheckpointId: checkpointId });
+          }
+          setHitlModalOpen(true);
+        }
+      }
+
       if (event === 'complete') {
         const taskRole = store.getTask(sessionId)?.role;
         if (taskRole === 'chief_designer') {
           setRightPanelTab('files');
         }
+        store.updateTask(sessionId, { streamResumeAttempts: 0, hitlCheckpointId: null });
       }
 
-      if (event === 'complete' || event === 'error') {
+      if (event === 'complete' || event === 'error' || event === 'hitl' || event === 'execution_terminal') {
         setRefreshTick((t) => t + 1);
       }
     },
-    [store]
+    [store, syncStreamMeta]
   );
+
+  onStreamEventRef.current = onStreamEvent;
+
+  const handleHitlReviewed = useCallback((result: {
+    action: 'approve' | 'reject' | 'modify';
+    checkpoint: { id: string; executionId?: string };
+    executionId?: string;
+  }) => {
+    if (!task) return;
+    const sid = task.sessionId;
+    const actionLabel =
+      result.action === 'approve' ? '已通过' : result.action === 'reject' ? '已驳回' : '已修改并确认';
+    store.appendMessage(sid, {
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+      type: 'system',
+      content: `人工审阅${actionLabel}`,
+      timestamp: getCurrentTime(),
+    });
+    store.updateTask(sid, {
+      hitlCheckpointId: null,
+      status: result.action === 'reject' ? 'error' : 'working',
+      statusText: result.action === 'reject' ? '审阅驳回' : '审阅通过，继续执行…',
+      loading: result.action !== 'reject',
+      streaming: result.action !== 'reject',
+    });
+    setHitlModalOpen(false);
+    setHitlFallbackContent(undefined);
+    setRefreshTick((t) => t + 1);
+
+    if (result.action === 'reject') return;
+
+    const executionId = result.executionId || result.checkpoint.executionId || task.executionId;
+    if (!executionId) return;
+
+    store.updateTask(sid, { executionId, streamResumeAttempts: 0 });
+    const resume = resumeExecutionStream(
+      executionId,
+      task.lastEventId ?? undefined,
+      (event, data) => onStreamEventRef.current(sid, event, data),
+      (err) => {
+        if (!mountedRef.current) return;
+        if (!tryResumeStream(sid, err.message)) {
+          store.updateTask(sid, {
+            loading: false,
+            streaming: false,
+            status: 'error',
+            statusText: '错误',
+          });
+          store.appendMessage(sid, {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+            type: 'system',
+            content: `续订失败: ${err.message}`,
+            timestamp: getCurrentTime(),
+          });
+        }
+      },
+    );
+    attachStream(sid, resume);
+  }, [task, store, attachStream, tryResumeStream]);
 
   const handleSubmit = async () => {
     if (!requirement.trim()) return;
@@ -209,11 +470,23 @@ export default function ConsolePage({ mode }: Props) {
     setRequirement('');
 
     if (useStream) {
+      store.updateTask(sid, {
+        loading: true,
+        streaming: true,
+        status: 'working',
+        statusText: '执行中',
+        startedAt: Date.now(),
+        streamResumeAttempts: 0,
+        executionId: null,
+        lastEventId: null,
+      });
       const stream = executeDesignStream(
         { requirement: reqText, mode, role: effectiveRole, sessionId: sid, history },
         (event, data) => onStreamEvent(sid, event, data),
         (err) => {
           if (!mountedRef.current) return;
+          syncStreamMeta(sid, stream);
+          if (tryResumeStream(sid, err.message)) return;
           store.updateTask(sid, {
             loading: false,
             streaming: false,
@@ -236,7 +509,7 @@ export default function ConsolePage({ mode }: Props) {
           });
         }
       );
-      store.setStreamRef(sid, stream);
+      attachStream(sid, stream);
     } else {
       try {
         const { executeDesign } = await import('@/lib/api');
@@ -412,6 +685,23 @@ export default function ConsolePage({ mode }: Props) {
 
           {/* Input */}
           <div className="shrink-0 border-t border-ink/6 px-4 py-3">
+            {task?.status === 'waiting' && (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-coral/20 bg-coral/5 px-4 py-2.5">
+                <div className="text-xs text-ink/70">
+                  执行已暂停，等待人工审阅
+                  {task.hitlCheckpointId ? (
+                    <span className="ml-1 text-ink/40">· {task.hitlCheckpointId.slice(0, 8)}…</span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHitlModalOpen(true)}
+                  className="shrink-0 rounded-lg bg-coral px-3 py-1.5 text-xs font-medium text-white hover:bg-coral/90"
+                >
+                  打开审阅
+                </button>
+              </div>
+            )}
             <div className="max-w-none mx-0">
               <div className="rounded-xl border border-ink/8 bg-white shadow-sm">
                 <textarea
@@ -509,6 +799,14 @@ export default function ConsolePage({ mode }: Props) {
         onClose={() => setShowSetupModal(false)}
         onConfigured={() => { setShowSetupModal(false); setIsFirstTimeSetup(false); }}
         isFirstTime={isFirstTimeSetup}
+      />
+
+      <HitlReviewModal
+        open={hitlModalOpen}
+        checkpointId={task?.hitlCheckpointId ?? null}
+        fallbackContent={hitlFallbackContent}
+        onClose={() => setHitlModalOpen(false)}
+        onReviewed={handleHitlReviewed}
       />
     </div>
   );

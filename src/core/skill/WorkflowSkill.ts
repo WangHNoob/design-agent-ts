@@ -28,6 +28,7 @@ export class WorkflowSkill implements SkillPort {
     private readonly keywords: readonly string[],
     private readonly tasks: readonly WorkflowTask[],
     private readonly content: string,
+    private readonly mcpTools: readonly string[] = [],
   ) {}
 
   getName(): string {
@@ -82,5 +83,9 @@ export class WorkflowSkill implements SkillPort {
 
   getContent(): string {
     return this.content;
+  }
+
+  getMcpTools(): readonly string[] {
+    return this.mcpTools;
   }
 }

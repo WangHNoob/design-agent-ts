@@ -21,11 +21,17 @@ export class PostgresDatabaseAdapter implements DatabasePort {
   async query(sql: string, params?: QueryParams): Promise<QueryResult> {
     // Convert named params ($name) to positional ($1, $2, ...) for pg driver
     const { positionalSql, values } = this.convertParams(sql, params);
-    const result = await this.pool.query(positionalSql, values);
-    return {
-      rows: result.rows as Record<string, unknown>[],
-      rowCount: result.rowCount ?? 0,
-    };
+    try {
+      const result = await this.pool.query(positionalSql, values);
+      return {
+        rows: result.rows as Record<string, unknown>[],
+        rowCount: result.rowCount ?? 0,
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const preview = positionalSql.replace(/\s+/g, " ").trim().slice(0, 180);
+      throw new Error(`${detail} | sql=${preview}`, { cause: err });
+    }
   }
 
   async transaction<T>(fn: (tx: DatabasePort) => Promise<T>, options?: TransactionOptions): Promise<T> {
@@ -63,11 +69,8 @@ export class PostgresDatabaseAdapter implements DatabasePort {
   }
 
   /**
-   * Initialize the database schema.
-   * Called once at startup — idempotent (uses IF NOT EXISTS).
-   *
-   * Note: Better Auth tables ("user", "session", "account", "verification")
-   * are also created here for convenience (idempotent via IF NOT EXISTS).
+   * @deprecated Prefer drizzle migrations (`pnpm db:migrate`).
+   * Kept only for emergency local bootstraps; production bootstrap must not call this.
    */
   async initializeSchema(): Promise<void> {
     // Enable pgvector extension first (required for VECTOR type)
@@ -100,7 +103,7 @@ export class PostgresDatabaseAdapter implements DatabasePort {
       -- Application sessions table (game design sessions, not auth sessions)
       CREATE TABLE IF NOT EXISTS sessions (
         id VARCHAR(100) PRIMARY KEY,
-        user_id VARCHAR(36),
+        user_id VARCHAR(36) NOT NULL,
         requirement TEXT NOT NULL,
         mode VARCHAR(20) NOT NULL,
         role VARCHAR(50) NOT NULL,
@@ -204,25 +207,42 @@ export class PostgresDatabaseAdapter implements DatabasePort {
   }
 
   /**
-   * Convert named parameter syntax to pg positional syntax.
-   * Input:  "SELECT * FROM users WHERE id = $id AND email = $email", { id: "123", email: "a@b.c" }
-   * Output: "SELECT * FROM users WHERE id = $1 AND email = $2", ["123", "a@b.c"]
+   * Convert named / sparse parameter maps to pg positional values.
+   * - Numeric keys (`$1`, `$2`, …): keep placeholders; build values by index.
+   *   Reusing the same `$n` in SQL is intentional and must NOT expand to new slots.
+   * - Named keys (`$id`): each unique name maps to one positional index.
    */
   private convertParams(sql: string, params?: QueryParams): { positionalSql: string; values: unknown[] } {
     if (!params || Object.keys(params).length === 0) {
       return { positionalSql: sql, values: [] };
     }
 
-    const values: unknown[] = [];
-    let positionalSql = sql;
-    let idx = 1;
+    const keys = Object.keys(params);
+    const allNumeric = keys.every((key) => /^\d+$/.test(key));
+    if (allNumeric) {
+      const max = Math.max(...keys.map(Number));
+      const values: unknown[] = [];
+      for (let i = 1; i <= max; i++) {
+        values.push(params[String(i)]);
+      }
+      return { positionalSql: sql, values };
+    }
 
-    for (const [key, value] of Object.entries(params)) {
-      const regex = new RegExp(`\\$${key}\\b`, "g");
-      positionalSql = positionalSql.replace(regex, () => {
-        values.push(value);
-        return `$${idx++}`;
-      });
+    const values: unknown[] = [];
+    const keyToIndex = new Map<string, number>();
+    const namedPlaceholder = /\$([A-Za-z_][A-Za-z0-9_]*)\b/g;
+    for (const match of sql.matchAll(namedPlaceholder)) {
+      const key = match[1]!;
+      if (!(key in params) || keyToIndex.has(key)) continue;
+      keyToIndex.set(key, values.length + 1);
+      values.push(params[key]);
+    }
+
+    // Longer keys first so `$user_id` is not partially matched by `$user`.
+    let positionalSql = sql;
+    for (const key of [...keyToIndex.keys()].sort((a, b) => b.length - a.length)) {
+      const index = keyToIndex.get(key)!;
+      positionalSql = positionalSql.replace(new RegExp(`\\$${key}\\b`, "g"), `$${index}`);
     }
 
     return { positionalSql, values };

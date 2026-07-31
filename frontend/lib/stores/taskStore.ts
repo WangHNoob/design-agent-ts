@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import type { TimelineEntry } from '@/components/Console/StepsTimeline';
 import type { DetailedLog } from '@/components/Console/DetailedLogs';
-import { cancelExecution } from '@/lib/api';
+import { cancelExecution, type StreamHandle } from '@/lib/api';
 
 export type TaskMode = 'design' | 'query' | 'table';
 
@@ -59,7 +59,13 @@ export interface TaskState {
   loading: boolean;
   streaming: boolean;
   streamingText: string;
-  streamRef: { close: () => void } | null;
+  streamRef: StreamHandle | null;
+  /** Server execution id for resume / refresh. */
+  executionId: string | null;
+  /** Pending HITL checkpoint id when status === 'waiting'. */
+  hitlCheckpointId: string | null;
+  lastEventId: string | null;
+  streamResumeAttempts: number;
   startedAt: number;
 }
 
@@ -74,7 +80,7 @@ export interface TaskStore {
   appendLog: (sessionId: string, log: DetailedLog) => void;
   updateTimelineEntry: (sessionId: string, entryId: string, updates: Partial<TimelineEntry>) => void;
   addToolToTask: (sessionId: string, taskId: string, tool: TimelineEntry) => void;
-  setStreamRef: (sessionId: string, ref: { close: () => void } | null) => void;
+  setStreamRef: (sessionId: string, ref: StreamHandle | null) => void;
   setActiveSession: (mode: TaskMode, sessionId: string | null) => void;
   cancelTask: (sessionId: string) => void;
   removeTask: (sessionId: string) => void;
@@ -106,6 +112,10 @@ function createInitialTaskState(mode: TaskMode, role: string, requirement: strin
     streaming: false,
     streamingText: '',
     streamRef: null,
+    executionId: null,
+    hitlCheckpointId: null,
+    lastEventId: null,
+    streamResumeAttempts: 0,
     startedAt: 0,
   };
 }

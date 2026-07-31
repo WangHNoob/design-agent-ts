@@ -1,8 +1,13 @@
 import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
 import type { SkillPort } from "../../../port/skill/SkillPort.js";
-import type { TaskPlan, SubTask, WorkflowTask } from "../../schema/TaskPlan.js";
+import type { TaskPlan, SubTask, WorkflowTask, Domain } from "../../schema/TaskPlan.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
 import { type Role, canAccessDomain } from "../../schema/Role.js";
+import { generateStructured } from "../../structured/generateStructured.js";
+import {
+  TaskPlanSchema,
+  RefinedRequirementsArraySchema,
+} from "../../structured/schemas.js";
 
 // ---------------------------------------------------------------------------
 // LLM-based planning (fallback when no workflow matched)
@@ -48,38 +53,6 @@ const REFINE_PROMPT_TEMPLATE = `你是一个游戏策划任务规划助手。下
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function extractJson(text: string): string {
-  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (codeBlockMatch) return codeBlockMatch[1]!.trim();
-  const braceMatch = text.match(/\{[\s\S]*\}/);
-  if (braceMatch) return braceMatch[0];
-  return text;
-}
-
-function extractJsonArray(text: string): string {
-  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (codeBlockMatch) return codeBlockMatch[1]!.trim();
-  const arrayMatch = text.match(/\[[\s\S]*\]/);
-  if (arrayMatch) return arrayMatch[0];
-  return text;
-}
-
-function normalizeSubTasks(raw: unknown[]): SubTask[] {
-  return raw.map((item: unknown, idx: number) => {
-    const t = item as Record<string, unknown>;
-    const id = (t.id ?? t.taskId ?? `T${idx + 1}`) as string;
-    const domain = ((t.domain as string) ?? "system_design").toLowerCase().replace(/-/g, "_");
-    return {
-      id,
-      fragmentId: (t.fragmentId ?? id) as string,
-      domain: domain as SubTask["domain"],
-      description: (t.description ?? t.requirement ?? t.assignment ?? "") as string,
-      dependencies: (t.dependencies ?? []) as string[],
-      priority: (t.priority ?? 1) as number,
-    };
-  });
-}
 
 /**
  * Remove dependencies that reference tasks no longer in the list (filtered by role).
@@ -130,10 +103,41 @@ function workflowTasksToSubTasks(
       description,
       dependencies: [...wt.dependencies],
       priority: priority++,
+      ...(wt.allowedTools !== undefined ? { allowedTools: [...wt.allowedTools] } : {}),
     });
   }
 
   return cleanupDependencies(tasks);
+}
+
+function buildSingleTaskFallbackPlan(requirement: string, role: string): TaskPlan {
+  const typedRole = role as Role;
+  const preferredDomains: Domain[] = [
+    "system_design",
+    "combat_design",
+    "gameplay_design",
+    "numerical_planning",
+    "executive_planning",
+    "qa",
+  ];
+  const domain = preferredDomains.find((d) => canAccessDomain(typedRole, d)) ?? "system_design";
+
+  return {
+    planId: "auto-fallback",
+    requirement,
+    subTasks: [
+      {
+        id: "T1",
+        fragmentId: "T1",
+        domain,
+        description: requirement,
+        dependencies: [],
+        priority: 1,
+      },
+    ],
+    fallback: true,
+    parseFallback: true,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -172,13 +176,16 @@ export class TaskPlanner {
     skillId: string,
   ): Promise<TaskPlan> {
     const typedRole = role as Role;
+    const warnings: string[] = [];
 
     // Try LLM refinement; fall back to template substitution on failure.
     let refinedReqs: Map<string, string>;
     try {
       refinedReqs = await this.refineRequirements(workflowTasks, requirement);
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       console.warn("[TaskPlanner] LLM refinement failed, using template substitution:", err);
+      warnings.push(`任务细化 LLM 失败，已用模板降级：${detail}`);
       refinedReqs = new Map();
       for (const wt of workflowTasks) {
         refinedReqs.set(wt.taskId, wt.requirementTemplate.replace(/\{requirement\}/g, requirement));
@@ -192,6 +199,7 @@ export class TaskPlanner {
       requirement,
       subTasks,
       skillId,
+      ...(warnings.length > 0 ? { warnings, fallback: true } : {}),
     };
   }
 
@@ -211,32 +219,47 @@ export class TaskPlanner {
       .replace(/\{requirement\}/g, requirement)
       .replace(/\{taskList\}/g, taskList);
 
-    const response = await this.model.generate([
+    const messages = [
       ChatMessage.text("system", "system", prompt),
       ChatMessage.text("user", "user", "请根据以上规则为每个任务生成具体需求描述。"),
-    ]);
+    ];
 
-    const rawText = ChatMessage.textContent(response.message) ?? "[]";
-    const jsonStr = extractJsonArray(rawText);
-    const parsed = JSON.parse(jsonStr) as Record<string, unknown>[];
+    const result = await generateStructured<import("../../structured/schemas.js").RefinedRequirementsParsed[]>(
+      this.model,
+      messages,
+      RefinedRequirementsArraySchema,
+      {
+        preferArray: true,
+        maxRetries: 2,
+        onExhausted: "degrade",
+        degradeValue: () =>
+          workflowTasks.map((wt) => ({
+            taskId: wt.taskId,
+            refinedRequirement: wt.requirementTemplate.replace(/\{requirement\}/g, requirement),
+          })),
+      },
+    );
 
-    const result = new Map<string, string>();
-    for (const item of parsed) {
-      const taskId = (item.taskId ?? "") as string;
-      const refined = (item.refinedRequirement ?? "") as string;
-      if (taskId && refined) {
-        result.set(taskId, refined);
-      }
+    if (result.degraded) {
+      const issues = result.issues?.join("; ") ?? "structured parse degraded";
+      console.warn("[TaskPlanner] refineRequirements structured parse degraded:", issues);
+      // Throw so planFromWorkflow records an auditable warning for the UI.
+      throw new Error(`任务细化结构化输出降级：${issues}`);
+    }
+
+    const map = new Map<string, string>();
+    for (const item of result.value) {
+      map.set(item.taskId, item.refinedRequirement);
     }
 
     // Fill any missing tasks with template substitution.
     for (const wt of workflowTasks) {
-      if (!result.has(wt.taskId)) {
-        result.set(wt.taskId, wt.requirementTemplate.replace(/\{requirement\}/g, requirement));
+      if (!map.has(wt.taskId)) {
+        map.set(wt.taskId, wt.requirementTemplate.replace(/\{requirement\}/g, requirement));
       }
     }
 
-    return result;
+    return map;
   }
 
   // ---- LLM-based planning (fallback) ----
@@ -252,34 +275,64 @@ export class TaskPlanner {
       .replace(/\{skillHint\}/g, skillHint)
       .replace(/\{requirement\}/g, requirement);
 
-    const response = await this.model.generate([
+    const messages = [
       ChatMessage.text("system", "system", prompt),
       ChatMessage.text("user", "user", requirement),
-    ]);
+    ];
 
-    try {
-      const rawText = ChatMessage.textContent(response.message);
-      const jsonStr = extractJson(rawText ?? "{}");
-      const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
-      const rawTasks = (parsed.subTasks ?? parsed.sub_tasks ?? []) as unknown[];
-      const allTasks = normalizeSubTasks(rawTasks);
+    const result = await generateStructured<import("../../structured/schemas.js").TaskPlanParsed>(
+      this.model,
+      messages,
+      TaskPlanSchema,
+      {
+        maxRetries: 2,
+        onExhausted: "degrade",
+        degradeValue: () => ({
+          planId: "auto-fallback",
+          subTasks: [
+            {
+              id: "T1",
+              fragmentId: "T1",
+              domain: "system_design" as const,
+              description: requirement,
+              dependencies: [] as string[],
+              priority: 1,
+            },
+          ],
+        }),
+      },
+    );
 
-      const typedRole = role as Role;
-      const filtered = allTasks.filter((t) => canAccessDomain(typedRole, t.domain));
-      const cleaned = cleanupDependencies(filtered);
-
+    if (result.degraded) {
+      const issues = result.issues?.join("; ") ?? "structured parse degraded";
+      console.warn(
+        "[TaskPlanner] planFromLLM structured parse degraded → single-task fallback:",
+        issues,
+      );
       return {
-        planId: (parsed.planId as string) ?? "auto",
-        requirement,
-        subTasks: cleaned,
-      };
-    } catch (err) {
-      console.error("[TaskPlanner] Failed to parse plan:", err, "Raw text:", ChatMessage.textContent(response.message));
-      return {
-        planId: "auto",
-        requirement,
-        subTasks: [],
+        ...buildSingleTaskFallbackPlan(requirement, role),
+        warnings: [`LLM 任务规划解析失败，已降级为单任务：${issues}`],
       };
     }
+
+    const typedRole = role as Role;
+    const filtered = result.value.subTasks.filter((t) => canAccessDomain(typedRole, t.domain));
+    const cleaned = cleanupDependencies(filtered);
+
+    if (cleaned.length === 0) {
+      console.warn(
+        "[TaskPlanner] planFromLLM produced no role-accessible subTasks → single-task fallback",
+      );
+      return {
+        ...buildSingleTaskFallbackPlan(requirement, role),
+        warnings: ["LLM 规划结果无可访问子任务，已降级为单任务"],
+      };
+    }
+
+    return {
+      planId: result.value.planId,
+      requirement,
+      subTasks: cleaned,
+    };
   }
 }

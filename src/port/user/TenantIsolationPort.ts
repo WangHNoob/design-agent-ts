@@ -91,14 +91,17 @@ export interface TenantIsolationPort {
 
   // ─── Concurrency Control ─────────────────────────────────────
 
-  /** Check if a user has reached their concurrent execution limit. */
-  checkConcurrencyLimit(userId: string, maxConcurrent: number): Promise<{ allowed: boolean; current: number }>;
+  /**
+   * Atomically check and acquire a user's concurrent execution slot.
+   * Implementations must not split the limit check from the increment.
+   */
+  acquireConcurrencySlot(
+    userId: string,
+    maxConcurrent: number,
+  ): Promise<{ acquired: boolean; current: number }>;
 
-  /** Increment a user's concurrent execution counter. */
-  incrementConcurrency(userId: string): Promise<number>;
-
-  /** Decrement a user's concurrent execution counter. */
-  decrementConcurrency(userId: string): Promise<number>;
+  /** Release a previously acquired concurrent execution slot. */
+  releaseConcurrencySlot(userId: string): Promise<number>;
 
   // ─── Health ──────────────────────────────────────────────────
 

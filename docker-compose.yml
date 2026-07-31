@@ -1,8 +1,9 @@
 services:
   # ─── Infrastructure ────────────────────────────────────────────
   postgres:
-    profiles: ["infra"]
-    image: pgvector/pgvector:pg18
+    # Keep PG 16 to match README/migrate client; pg18 changes the data dir layout
+    # and rejects existing /var/lib/postgresql/data volumes without pg_upgrade.
+    image: pgvector/pgvector:pg16
     container_name: gdt-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-game_designer}
@@ -15,10 +16,13 @@ services:
       - pg_backups:/backups
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-game_designer}"]
+      # Must authenticate as POSTGRES_USER — pg_isready alone stays healthy even when
+      # an old volume only has the default "postgres" role and migrate cannot connect.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} && psql -U $${POSTGRES_USER} -d $${POSTGRES_DB} -c 'SELECT 1' >/dev/null"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
   # PostgreSQL backup cron (runs daily at 2:00 AM)
   pg-backup:
@@ -47,7 +51,6 @@ services:
     restart: unless-stopped
 
   redis:
-    profiles: ["infra"]
     image: redis:7-alpine
     container_name: gdt-redis
     ports:
@@ -90,15 +93,12 @@ services:
       - TAVILY_API_KEY=${TAVILY_API_KEY}
       # Long-Term Memory
       - LTM_ENABLED=${LTM_ENABLED:-true}
-      - LTM_STORAGE_PATH=./data/long-term-memory
       # User System (Better Auth)
-      - USER_SYSTEM_ENABLED=${USER_SYSTEM_ENABLED:-true}
-      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-in-production}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       - BETTER_AUTH_BASE_URL=http://backend:3000
-      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@host.docker.internal:5433/${POSTGRES_DB:-game_designer}
-      - REDIS_URL=redis://host.docker.internal:${REDIS_PORT:-6379}/0
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-game_designer}:${POSTGRES_PASSWORD:-game_designer}@postgres:5432/${POSTGRES_DB:-game_designer}
+      - REDIS_URL=redis://redis:6379/0
       - MAX_CONCURRENT_PER_USER=${MAX_CONCURRENT_PER_USER:-3}
-      - AUTO_INIT_SCHEMA=${AUTO_INIT_SCHEMA:-true}
       # Admin domains (comma-separated email domains for auto admin role)
       - ADMIN_EMAIL_DOMAINS=${ADMIN_EMAIL_DOMAINS:-}
       # DingTalk SSO
@@ -107,23 +107,42 @@ services:
       - ALLOW_EMAIL_PASSWORD=${ALLOW_EMAIL_PASSWORD:-true}
       - TRUSTED_ORIGINS=${TRUSTED_ORIGINS:-http://localhost:3001}
       # Message Queue
-      - MQ_ENABLED=${MQ_ENABLED:-true}
+      - MQ_ENABLED=true
       - MQ_CONSUMER_GROUP=${MQ_CONSUMER_GROUP:-gd-workers}
     volumes:
-      - ./sessions:/app/sessions
-      - ./settings.json:/app/settings.json
       - ./contrib:/app/contrib
       - ./prompts:/app/prompts
       - ./knowledge:/app/knowledge
-      - ltm_data:/app/data/long-term-memory
+      # Persist UI-saved LLM / HITL / Tavily config across rebuilds.
+      # SettingsManager writes settings.json; syncEnvFromSettings writes .env.
+      - ./settings.json:/app/settings.json
+      - ./.env:/app/.env
     depends_on:
       postgres:
         condition: service_healthy
-        required: false
       redis:
         condition: service_healthy
-        required: false
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+
+  migrate:
+    image: postgres:16-alpine
+    container_name: gdt-migrate
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-game_designer}
+    volumes:
+      - ./drizzle:/migrations:ro
+      - ./scripts/apply-drizzle-migrations.sh:/apply-drizzle-migrations.sh:ro
+    entrypoint: ["/bin/sh", "/apply-drizzle-migrations.sh"]
+    command:
+      - ${POSTGRES_USER:-game_designer}
+      - postgres
+      - ${POSTGRES_DB:-game_designer}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # ─── Frontend ──────────────────────────────────────────────────
   frontend:
@@ -185,6 +204,5 @@ volumes:
   postgres_data:
   pg_backups:
   redis_data:
-  ltm_data:
   prometheus_data:
   grafana_data:

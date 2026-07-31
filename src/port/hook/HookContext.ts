@@ -10,6 +10,13 @@ export interface HookContext {
   error?: Error;
   iteration?: number;
   maxIterations?: number;
+  /** Active model name for the latest model call (set by adapter). */
+  modelName?: string;
+  /** Tokens reported by the latest model call (post_reasoning). */
+  inputTokenCount?: number;
+  outputTokenCount?: number;
+  /** Fail-loud reason when abort=true (token budget, tool loop, etc.). */
+  abortReason?: string;
   metadata: Record<string, unknown>;
   abort: boolean;
 }

@@ -73,4 +73,15 @@ export class ToolManager implements ToolRegistry {
     }
     return tool.execute(args);
   }
+
+  /**
+   * Replace each registered tool (skips already-wrapped ToolSecurityWrapper instances).
+   */
+  rewrapAll(transform: (tool: ToolPort, name: string) => ToolPort): void {
+    for (const [name, tool] of this.tools) {
+      const ctor = (tool as { constructor?: { name?: string } }).constructor?.name;
+      if (ctor === "ToolSecurityWrapper") continue;
+      this.tools.set(name, transform(tool, name));
+    }
+  }
 }

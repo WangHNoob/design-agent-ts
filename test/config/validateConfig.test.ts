@@ -2,13 +2,19 @@ import { describe, expect, test } from "vitest";
 import type { FrameworkConfig } from "../../src/config/FrameworkConfig.js";
 import { validateConfig } from "../../src/config/validateConfig.js";
 
-function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): FrameworkConfig {
+function config(
+  overrides: Partial<FrameworkConfig["userSystem"]> = {},
+  messageQueueEnabled = true,
+): FrameworkConfig {
   return {
     framework: "mock",
     model: {
       provider: "openai",
       modelName: "gpt-4o",
       apiKey: "",
+      fallbackModels: [],
+      fallbackFailureThreshold: 3,
+      fallbackCooldownMs: 60000,
     },
     hitl: {
       enabled: false,
@@ -16,6 +22,8 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       maxRevisionRounds: 3,
       timeout: 300000,
       autoContinueOnTimeout: false,
+      timeoutPolicy: "auto_reject",
+      timeoutSweepIntervalMs: 15000,
     },
     knowledge: {
       wikiPath: "./knowledge/wiki",
@@ -26,7 +34,6 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
     },
     longTermMemory: {
       enabled: false,
-      storagePath: "./data/long-term-memory",
       defaultNamespace: "global",
       maxContextMemories: 10,
       minImportanceForContext: 0.4,
@@ -36,28 +43,43 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       pruneBelowImportance: 0.3,
     },
     userSystem: {
-      enabled: false,
-      betterAuthSecret: "change-me-in-production",
+      betterAuthSecret: "local-development-secret-32-characters",
       betterAuthBaseUrl: "http://localhost:4527",
       maxConcurrentPerUser: 3,
-      postgresUrl: "",
-      redisUrl: "",
-      redisEnabled: true,
-      autoInitSchema: true,
+      postgresUrl: "postgresql://postgres:postgres@localhost:15432/game_designer",
+      redisUrl: "redis://localhost:16379/0",
       adminEmailDomains: "",
       dingtalk: { clientId: "", clientSecret: "" },
       allowEmailPassword: true,
+      trustedOrigins: "http://localhost:3001",
       ...overrides,
     },
     messageQueue: {
-      enabled: false,
+      enabled: messageQueueEnabled,
       consumerGroup: "gd-workers",
-      pollIntervalMs: 100,
+      visibilityTimeoutMs: 30000,
+      blockMs: 1000,
+      maxRetries: 3,
+    },
+    execution: {
+      taskTimeoutMs: 300000,
+      pollIntervalMs: 1000,
+      eventMaxLength: 10000,
+      sseHeartbeatMs: 15000,
+    },
+    memory: {
+      archiveEnabled: true,
+      protectRecentTurns: 10,
+      maxActiveMessages: 40,
     },
     mcp: {
       enabled: false,
       servers: [],
+      exposeMode: "on_demand",
+      defaultExposePrefixes: ["kb_"],
+      skillToolAllowlist: {},
     },
+    enabledToolGroups: [],
     limits: {
       subAgentMaxIterations: 20,
       queryAgentMaxIterations: 20,
@@ -71,69 +93,155 @@ function config(overrides: Partial<FrameworkConfig["userSystem"]> = {}): Framewo
       hitlMaxRevisionRounds: 10,
       modelMaxTokens: 65536,
     },
+    blackboard: {
+      enabled: true,
+      defaultTtlSeconds: 300,
+      webTtlSeconds: 600,
+      recentInjectCount: 5,
+      cachedTools: [],
+    },
+    tracing: {
+      enabled: true,
+      consoleExporter: false,
+    },
+    guards: {
+      traceTokenBudget: 500000,
+      toolLoopWindowSize: 8,
+      toolLoopMaxRepeats: 3,
+      toolCircuitFailureThreshold: 3,
+      toolCircuitCooldownMs: 60000,
+      toolRetryMaxAttempts: 2,
+      toolRetryBackoffMs: 200,
+      toolTimeoutMs: 30000,
+      planHardEnabled: true,
+      planMaxReplans: 2,
+      planRejectUnauthorizedTools: true,
+      planDomainToolDefaults: {},
+      multiAgentEnabled: true,
+      multiAgentTokenBudget: 500000,
+      multiAgentMaxFanOut: 8,
+      multiAgentMaxDepth: 3,
+      multiAgentDetectCycles: true,
+      handoffMaxChars: 4000,
+      handoffMaxKeyPoints: 12,
+      handoffMaxTotalChars: 12000,
+      multiAgentAllowInvoke: true,
+    },
+    eval: {
+      defaultDatasetPath: "eval/datasets/design-golden.v1.json",
+      offlineExactOnlyDefault: true,
+    },
+    security: {
+      auditEnabled: true,
+      irreversibleRequireHitl: true,
+      toolRiskOverrides: {},
+      irreversibleToolNames: [],
+      irreversibleNameKeywords: ["delete", "drop", "rm"],
+      sandboxDenyKeywords: ["DROP TABLE", "DELETE FROM", "rm -rf", "eval(", "exec("],
+      sandboxBlockPathTraversal: true,
+    },
+    cost: {
+      enabled: true,
+      inputPricePer1M: 2.5,
+      outputPricePer1M: 10,
+      rpmLimitPerUser: 60,
+      tpmLimitPerUser: 200000,
+      windowMs: 60000,
+      globalRpmLimit: 0,
+      globalTpmLimit: 0,
+      tpmEstimatePerCall: 8000,
+    },
+    saga: {
+      compensateEnabled: true,
+      compensateFailureToAudit: true,
+    },
+    versioning: {
+      enabled: false,
+      defaultCanaryPercent: 0,
+      snapshotTtlMs: 0,
+    },
   };
 }
 
 describe("validateConfig", () => {
-  test("allows default local mode when user system is disabled", () => {
+  test("accepts an explicit local development configuration", () => {
     expect(() => validateConfig(config(), { port: 4527 })).not.toThrow();
   });
 
-  test("accepts default BETTER_AUTH_SECRET for local dev when enabled", () => {
+  test("rejects empty BETTER_AUTH_SECRET", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
-        postgresUrl: "postgresql://localhost:5432/game_designer",
-      }), { port: 4527 }),
-    ).not.toThrow();
-  });
-
-  test("rejects empty BETTER_AUTH_SECRET when user system is enabled", () => {
-    expect(() =>
-      validateConfig(config({
-        enabled: true,
         betterAuthSecret: "",
-        postgresUrl: "postgresql://localhost:5432/game_designer",
       }), { port: 4527 }),
-    ).toThrow(/BETTER_AUTH_SECRET must be set/);
+    ).toThrow(/BETTER_AUTH_SECRET is required/);
   });
 
-  test("requires Postgres URL when user system is enabled", () => {
+  test("rejects placeholder BETTER_AUTH_SECRET", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
+        betterAuthSecret: "change-me-in-production-change-me",
+      }), { port: 4527 }),
+    ).toThrow(/must not be a placeholder/);
+  });
+
+  test("requires POSTGRES_URL", () => {
+    expect(() =>
+      validateConfig(config({
         postgresUrl: "",
       }), { port: 4527 }),
     ).toThrow(/POSTGRES_URL is required/);
   });
 
-  test("requires Redis URL when redisEnabled is true", () => {
+  test("rejects invalid POSTGRES_URL", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
-        postgresUrl: "postgresql://localhost:5432/game_designer",
-        redisUrl: "",
+        postgresUrl: "http://localhost:5432/game_designer",
       }), { port: 4527 }),
-    ).toThrow(/REDIS_URL is required when.*USER_SYSTEM_REDIS_ENABLED=true/);
+    ).toThrow(/POSTGRES_URL must be a valid/);
   });
 
-  test("accepts valid user system configuration", () => {
+  test("requires REDIS_URL", () => {
     expect(() =>
       validateConfig(config({
-        enabled: true,
-        betterAuthSecret: "local-secret-at-least-32-characters",
-        postgresUrl: "postgresql://postgres:postgres@localhost:15432/game_designer",
+        redisUrl: "",
       }), { port: 4527 }),
-    ).not.toThrow();
+    ).toThrow(/REDIS_URL is required/);
+  });
+
+  test("rejects invalid REDIS_URL", () => {
+    expect(() =>
+      validateConfig(config({
+        redisUrl: "http://localhost:6379",
+      }), { port: 4527 }),
+    ).toThrow(/REDIS_URL must be a valid/);
+  });
+
+  test("requires the message queue", () => {
+    expect(() => validateConfig(config({}, false), { port: 4527 }))
+      .toThrow(/MQ_ENABLED must be true/);
   });
 
   test("rejects stdio MCP server without command", () => {
-    const cfg = { ...config(), mcp: { enabled: true, servers: [{ name: "s1", transport: "stdio" as const, enabled: true }] } };
+    const cfg = {
+      ...config(),
+      mcp: {
+        ...config().mcp,
+        enabled: true,
+        servers: [{ name: "s1", transport: "stdio" as const, enabled: true }],
+      },
+    };
     expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/command is required for stdio transport/);
   });
 
   test("rejects http MCP server with invalid url", () => {
-    const cfg = { ...config(), mcp: { enabled: true, servers: [{ name: "s1", transport: "http" as const, enabled: true, url: "not-a-url" }] } };
+    const cfg = {
+      ...config(),
+      mcp: {
+        ...config().mcp,
+        enabled: true,
+        servers: [{ name: "s1", transport: "http" as const, enabled: true, url: "not-a-url" }],
+      },
+    };
     expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/a valid url is required for http transport/);
   });
 
@@ -141,6 +249,7 @@ describe("validateConfig", () => {
     const cfg = {
       ...config(),
       mcp: {
+        ...config().mcp,
         enabled: true,
         servers: [
           { name: "stdio-srv", transport: "stdio" as const, enabled: true, command: "node", args: ["srv.js"] },
@@ -149,5 +258,37 @@ describe("validateConfig", () => {
       },
     };
     expect(() => validateConfig(cfg, { port: 4527 })).not.toThrow();
+  });
+
+  test("rejects invalid MCP_EXPOSE_MODE", () => {
+    const cfg = {
+      ...config(),
+      mcp: {
+        ...config().mcp,
+        exposeMode: "maybe" as "all",
+      },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/MCP_EXPOSE_MODE/);
+  });
+
+  test("rejects invalid MEMORY_PROTECT_RECENT_TURNS", () => {
+    const cfg = { ...config(), memory: { ...config().memory, protectRecentTurns: 0 } };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/MEMORY_PROTECT_RECENT_TURNS/);
+  });
+
+  test("rejects MEMORY_MAX_ACTIVE_MESSAGES below protectRecentTurns", () => {
+    const cfg = {
+      ...config(),
+      memory: { archiveEnabled: true, protectRecentTurns: 10, maxActiveMessages: 5 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/MEMORY_MAX_ACTIVE_MESSAGES/);
+  });
+
+  test("rejects negative SSE_HEARTBEAT_MS", () => {
+    const cfg = {
+      ...config(),
+      execution: { ...config().execution, sseHeartbeatMs: -1 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/SSE_HEARTBEAT_MS/);
   });
 });
