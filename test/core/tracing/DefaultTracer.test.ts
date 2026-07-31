@@ -142,4 +142,24 @@ describe("DefaultTracer + TracingHook", () => {
     });
     await expect(store.getTrace("user-b", handle.traceId)).resolves.toBeNull();
   });
+
+  test("propagates executionId into trace runtime state", async () => {
+    const store = new InMemoryTraceStore();
+    const context = new MemoryContext<TraceRuntimeState>();
+    const tracer = new DefaultTracer(store, new FakeIds(), context);
+
+    const handle = await tracer.startTrace({
+      sessionId: "sess-exec",
+      userId: "user-1",
+      name: "director.design",
+      executionId: "exec-123",
+    });
+
+    await tracer.withTrace(handle, async () => {
+      const runtime = tracer.getCurrentTrace();
+      expect(runtime?.executionId).toBe("exec-123");
+      expect(handle.rootSpan.attributes["trace.executionId"]).toBe("exec-123");
+      await tracer.endTrace(handle.traceId, "ok");
+    });
+  });
 });

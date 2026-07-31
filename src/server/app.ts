@@ -10,6 +10,7 @@ import { skillsRoute } from "./routes/skills.js";
 import { workflowsRoute } from "./routes/workflows.js";
 import { usersRoute } from "./routes/users.js";
 import { tracesRoute } from "./routes/traces.js";
+import { auditRoute } from "./routes/audit.js";
 import type { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
 import type { TenantContext } from "../port/user/TenantIsolationPort.js";
@@ -86,6 +87,7 @@ export function createApp() {
   app.route("/api/console", consoleRoute);
   app.route("/api/sessions", sessionsRoute);
   app.route("/api/traces", tracesRoute);
+  app.route("/api/audit", auditRoute);
   app.route("/api/hitl", hitlRoute);
   app.route("/api/settings", settingsRoute);
   app.route("/api/prompts", promptsRoute);

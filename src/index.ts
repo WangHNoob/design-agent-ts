@@ -73,3 +73,11 @@ export type {
   TraceDetail,
 } from "./port/tracing/types.js";
 export { NINE_SPAN_PHASES, isSpanPhase } from "./port/tracing/types.js";
+
+// Port 接口层 — 审计
+export type { AuditAction, AuditOutcome, AuditEntry, AppendAuditInput, AuditListOptions } from "./port/audit/types.js";
+export type { AuditStorePort } from "./port/audit/AuditStorePort.js";
+
+// Port 接口层 — 工具安全
+export type { ToolRiskLevel } from "./port/tool/ToolRiskLevel.js";
+export type { ToolApprovalPort, ToolApprovalKey, GrantToolApprovalInput } from "./port/tool/ToolApprovalPort.js";

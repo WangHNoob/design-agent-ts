@@ -6,6 +6,7 @@ import type { ModelResponse } from "../../../port/model/ModelResponse.js";
 import type { AgentFactory } from "../../../port/agent/AgentFactory.js";
 import type { AgentDescriptor } from "../../../port/agent/AgentDescriptor.js";
 import type { ToolRegistry } from "../../../port/tool/ToolRegistry.js";
+import type { ToolPort } from "../../../port/tool/ToolPort.js";
 import type { SkillRegistry } from "../../../port/skill/SkillRegistry.js";
 import type { HumanReviewGateway } from "./HumanReviewGateway.js";
 import type { AgentHook } from "../../../port/hook/AgentHook.js";
@@ -30,6 +31,7 @@ import { DelegatingTool } from "../../tool/DelegatingTool.js";
 import { BlackboardTool } from "../../tool/BlackboardTool.js";
 import { CachingToolRegistry } from "../../tool/CachingToolRegistry.js";
 import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPort.js";
+import { isToolHitlRequiredError, type ToolHitlRequiredError } from "../../tool/ToolHitlRequiredError.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -135,6 +137,8 @@ export interface DirectorDeps {
   tracer?: TracerPort;
   /** Resolve tenant userId when options.userId is omitted (e.g. from ALS). */
   resolveUserId?: () => string | undefined;
+  /** Optional security wrapper for session-scoped tools. */
+  wrapTool?: (tool: ToolPort) => ToolPort;
 }
 
 export class DirectorAgent {
@@ -613,9 +617,10 @@ export class DirectorAgent {
 
   private buildSessionToolRegistry(sessionId: string, agentType: string): ToolRegistry {
     let registry: ToolRegistry = this.deps.toolRegistry;
+    const wrap = this.deps.wrapTool ?? ((t) => t);
     if (this.deps.workspace) {
-      const wsReadTool = new WorkspaceReadTool(this.deps.workspace, sessionId);
-      const wsListTool = new WorkspaceListTool(this.deps.workspace, sessionId);
+      const wsReadTool = wrap(new WorkspaceReadTool(this.deps.workspace, sessionId));
+      const wsListTool = wrap(new WorkspaceListTool(this.deps.workspace, sessionId));
       registry = new SessionToolRegistry(registry, [wsReadTool, wsListTool]);
     }
     return this.wrapWithBlackboard(registry, sessionId, agentType);
@@ -636,11 +641,12 @@ export class DirectorAgent {
 
     // 1) session-scoped blackboard_* 工具
     const bbTool = new BlackboardTool(bb, agentType, cfg.defaultTtlSeconds);
+    const wrap = this.deps.wrapTool ?? ((t) => t);
     const withBbTools = new SessionToolRegistry(base, [
-      new DelegatingTool("blackboard_write", "向团队共享黑板写入一条关键要点。参数: key (string), value (string), ttl_seconds (number, optional)", bbTool, { action: "write" }),
-      new DelegatingTool("blackboard_read", "按 key 读取黑板中的要点。参数: key (string)", bbTool, { action: "read" }),
-      new DelegatingTool("blackboard_search", "按关键字检索黑板中的要点。参数: keyword (string)", bbTool, { action: "search" }),
-      new DelegatingTool("blackboard_recent", "列出黑板中最近写入的要点。参数: limit (number, optional, default 5)", bbTool, { action: "recent" }),
+      wrap(new DelegatingTool("blackboard_write", "向团队共享黑板写入一条关键要点。参数: key (string), value (string), ttl_seconds (number, optional)", bbTool, { action: "write" })),
+      wrap(new DelegatingTool("blackboard_read", "按 key 读取黑板中的要点。参数: key (string)", bbTool, { action: "read" })),
+      wrap(new DelegatingTool("blackboard_search", "按关键字检索黑板中的要点。参数: keyword (string)", bbTool, { action: "search" })),
+      wrap(new DelegatingTool("blackboard_recent", "列出黑板中最近写入的要点。参数: limit (number, optional, default 5)", bbTool, { action: "recent" })),
     ]);
 
     // 2) 透明缓存：联网类工具用 webTtl，其余用 defaultTtl
@@ -873,6 +879,13 @@ export class DirectorAgent {
 
       yield { type: "complete", data: { success: true, output: finalOutput } };
     } catch (err) {
+      if (isToolHitlRequiredError(err)) {
+        for (const event of eventBus.drain()) {
+          yield event;
+        }
+        yield this.toolHitlStreamEvent(err);
+        return;
+      }
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
@@ -1085,6 +1098,13 @@ export class DirectorAgent {
       yield { type: "integrate", data: { message: "汇总完成，产出已保存到工作空间", conflictCount: integration.conflictCount } };
       yield { type: "complete", data: { success: true, output: summary } };
     } catch (err) {
+      if (isToolHitlRequiredError(err)) {
+        for (const event of eventBus.drain()) {
+          yield event;
+        }
+        yield this.toolHitlStreamEvent(err);
+        return;
+      }
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
@@ -1245,8 +1265,25 @@ export class DirectorAgent {
       for (const event of eventBus.drain()) {
         yield event;
       }
+      if (isToolHitlRequiredError(err)) {
+        yield this.toolHitlStreamEvent(err);
+        return;
+      }
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
+  }
+
+  private toolHitlStreamEvent(err: ToolHitlRequiredError): StreamEvent {
+    return {
+      type: "hitl",
+      data: {
+        checkpointId: err.checkpointId,
+        reviewPoint: "hitl-tool-irreversible",
+        status: "waiting_review",
+        toolName: err.toolName,
+        argsHash: err.argsHash,
+      },
+    };
   }
 
   private async executeTableFlow(

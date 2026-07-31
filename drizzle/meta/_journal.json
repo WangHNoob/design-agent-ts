@@ -36,6 +36,13 @@
       "when": 1785600000000,
       "tag": "0004_hitl_ops",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785700000000,
+      "tag": "0005_audit_logs",
+      "breakpoints": true
     }
   ]
 }

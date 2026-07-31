@@ -11,6 +11,9 @@ import { isPendingHITLStatus } from "../../port/hitl/HITLPendingItem.js";
 import type { IdGeneratorPort } from "../../port/infra/IdGeneratorPort.js";
 import type { MessageQueuePort } from "../../port/queue/MessageQueuePort.js";
 import type { SessionRepository } from "../../port/session/SessionRepository.js";
+import type { AuditStorePort } from "../../port/audit/AuditStorePort.js";
+import type { ToolApprovalPort } from "../../port/tool/ToolApprovalPort.js";
+import { appendAudit } from "../security/auditHelpers.js";
 import type {
   TenantContext,
   TenantIsolationPort,
@@ -30,6 +33,8 @@ export interface HITLRouteDependencies {
   /** HITL timeout SLA used for overdue flags on the pending board. */
   timeoutMs: number;
   freshness?: HITLFreshnessPort;
+  auditStore?: AuditStorePort | null;
+  toolApprovalStore?: ToolApprovalPort;
 }
 
 let dependencies: HITLRouteDependencies | null = null;
@@ -203,6 +208,36 @@ hitlRoute.post("/checkpoints/:id/review", async (c) => {
     if (!checkpoint) {
       return c.json({ error: "Checkpoint changed concurrently", code: "HITL_CAS_CONFLICT" }, 409);
     }
+
+    if (
+      dependencies.toolApprovalStore
+      && checkpoint.reviewPoint === "hitl-tool-irreversible"
+      && (body.action === "approve" || body.action === "modify")
+    ) {
+      const payload = checkpoint.resumePayload ?? {};
+      dependencies.toolApprovalStore.grant({
+        userId: tenant.userId,
+        sessionId: String(payload.sessionId ?? checkpoint.sessionId),
+        toolName: String(payload.toolName ?? ""),
+        argsHash: typeof payload.argsHash === "string" ? payload.argsHash : undefined,
+        approvalId: checkpoint.id,
+      });
+    }
+
+    await appendAudit({
+      userId: tenant.userId,
+      action: "hitl.decision",
+      resourceType: "hitl_checkpoint",
+      resourceId: checkpoint.id,
+      sessionId: checkpoint.sessionId,
+      executionId: checkpoint.executionId,
+      outcome: body.action === "reject" ? "denied" : "success",
+      detail: {
+        reviewPoint: checkpoint.reviewPoint,
+        reviewAction: body.action,
+        fallback: checkpoint.fallback,
+      },
+    });
 
     if (!checkpoint.executionId) {
       return c.json({ checkpoint });

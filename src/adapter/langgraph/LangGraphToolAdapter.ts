@@ -4,6 +4,7 @@ import type { ToolPort } from "../../port/tool/ToolPort.js";
 import type { ParameterDescriptor } from "../../port/tool/ToolDescriptor.js";
 import { ToolResult } from "../../port/tool/ToolResult.js";
 import { isToolFastFailError } from "../../core/tool/ToolFastFailError.js";
+import { isToolHitlRequiredError } from "../../core/tool/ToolHitlRequiredError.js";
 
 export class LangGraphToolAdapter {
   readonly lastToolMetadata = new Map<string, Record<string, unknown>>();
@@ -60,6 +61,7 @@ export class LangGraphToolAdapter {
         } catch (err) {
           // FastFail must abort the agent loop — do not swallow as observation.
           if (isToolFastFailError(err)) throw err;
+          if (isToolHitlRequiredError(err)) throw err;
           return ToolResult.error(err instanceof Error ? err.message : String(err)).output;
         }
       },
