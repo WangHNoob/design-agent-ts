@@ -52,6 +52,7 @@ export const sessions = pgTable(
     output: text("output"),
     error: text("error"),
     hitlCheckpointId: varchar("hitl_checkpoint_id", { length: 100 }),
+    versionSnapshotId: uuid("version_snapshot_id"),
     createdAt,
     updatedAt,
   },
@@ -358,4 +359,44 @@ export const costUsage = pgTable(
     index("idx_cost_usage_user_created").on(table.userId, table.createdAt),
     index("idx_cost_usage_created").on(table.createdAt),
   ],
+);
+
+/** Prompt / skill / workflow artifact versions (MVCC registry). */
+export const artifactVersions = pgTable(
+  "artifact_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: varchar("kind", { length: 20 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    version: varchar("version", { length: 50 }).notNull(),
+    content: text("content").notNull(),
+    metadata: jsonb("metadata").notNull().default({}),
+    isActive: boolean("is_active").notNull().default(false),
+    canaryPercent: integer("canary_percent").notNull().default(0),
+    whitelistUserIds: jsonb("whitelist_user_ids").notNull().default([]),
+    createdAt,
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+  },
+  (table) => [
+    unique("artifact_versions_kind_name_version_unique").on(table.kind, table.name, table.version),
+    index("idx_artifact_versions_kind_name").on(table.kind, table.name),
+    index("idx_artifact_versions_active").on(table.kind, table.name, table.isActive),
+    check("artifact_versions_kind_check", sql`${table.kind} in ('prompt', 'skill', 'workflow')`),
+    check(
+      "artifact_versions_canary_check",
+      sql`${table.canaryPercent} >= 0 and ${table.canaryPercent} <= 100`,
+    ),
+  ],
+);
+
+/** Immutable artifact bindings pinned at session creation. */
+export const sessionVersionSnapshots = pgTable(
+  "session_version_snapshots",
+  {
+    id: uuid("id").primaryKey(),
+    userId,
+    bindings: jsonb("bindings").notNull().default([]),
+    createdAt,
+  },
+  (table) => [index("idx_session_version_snapshots_user").on(table.userId, table.createdAt)],
 );

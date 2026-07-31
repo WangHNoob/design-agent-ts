@@ -233,4 +233,14 @@ export interface FrameworkConfig {
     /** Enqueue compensate failures to audit_logs (action=saga.compensate_failed). */
     compensateFailureToAudit: boolean;
   };
+  /**
+   * Prompt / Skill / Workflow versioning (MVCC session snapshots + canary release).
+   */
+  versioning: {
+    enabled: boolean;
+    /** Default canary percent for newly published versions (0 = full rollout requires explicit release). */
+    defaultCanaryPercent: number;
+    /** TTL for in-flight snapshot references (ms). 0 = no automatic cleanup. */
+    snapshotTtlMs: number;
+  };
 }

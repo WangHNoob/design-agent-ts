@@ -87,6 +87,11 @@ import { setCostRouteDependencies } from "./routes/cost.js";
 import { setGlobalAuditStore, appendAudit } from "./security/auditHelpers.js";
 import { buildToolSecurityOptions, wrapToolWithSecurity } from "./security/toolSecurityWiring.js";
 import type { ToolSecurityOptions } from "../core/tool/ToolSecurityWrapper.js";
+import { PostgresVersionStoreAdapter } from "../adapter/postgres/PostgresVersionStoreAdapter.js";
+import { seedVersionStoreFromDisk } from "./VersionSeeder.js";
+import { setVersionStoreDependencies } from "./routes/versions.js";
+import { resolveExecutionOverrides } from "./versioning/sessionVersionBinding.js";
+import type { VersionStorePort } from "../port/versioning/VersionStorePort.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -118,6 +123,7 @@ let bootstrapState: {
   costStore: CostStorePort | null;
   rateLimit: RateLimitPort | null;
   compensateFailureQueue: CompensateFailureQueuePort;
+  versionStore: VersionStorePort | null;
 } | null = null;
 
 function createDirectorModel(
@@ -717,6 +723,19 @@ export async function bootstrap() {
     new PostgresSessionRepository(dbAdapter!, userId);
   const executionRepositoryFactory = (userId: string) =>
     new PostgresExecutionRepository(dbAdapter!, userId);
+
+  let versionStoreAdapter: VersionStorePort | null = null;
+  if (dbAdapter && config.versioning.enabled) {
+    versionStoreAdapter = new PostgresVersionStoreAdapter(dbAdapter, idGenerator);
+    await seedVersionStoreFromDisk(versionStoreAdapter);
+    setVersionStoreDependencies(versionStoreAdapter, {
+      defaultCanaryPercent: config.versioning.defaultCanaryPercent,
+    });
+    console.log("[Bootstrap] Artifact versioning enabled");
+  } else if (config.versioning.enabled) {
+    console.warn("[Bootstrap] VERSIONING_ENABLED=true but Postgres is unavailable; versioning disabled");
+  }
+
   executionWorker = new ExecutionWorker({
     queue: mqAdapter!,
     eventStore: eventStore!,
@@ -728,9 +747,26 @@ export async function bootstrap() {
     maxConcurrentPerUser: config.userSystem.maxConcurrentPerUser,
     pollIntervalMs: config.execution.pollIntervalMs,
     taskTimeoutMs: config.execution.taskTimeoutMs,
+    executionOverridesFactory: async (session, userId) => {
+      if (!config.versioning.enabled || !versionStoreAdapter) {
+        return undefined;
+      }
+      const model = bootstrapState?.container?.model;
+      if (!model) return undefined;
+      return resolveExecutionOverrides({
+        versionStore: versionStoreAdapter,
+        config,
+        sessionMeta: session,
+        sessionUserId: userId,
+        model,
+        defaultPrompts: directorPrompts,
+        defaultQuerySystemPrompt: directorPrompts.querySystem ?? "",
+        fallbackSkillRegistry: skillRegistry,
+      });
+    },
   });
 
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter, compensateFailureQueue };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter, compensateFailureQueue, versionStore: versionStoreAdapter };
 
   const hitlRepositoryFactory = (userId: string) =>
     new PostgresHITLRepository(dbAdapter!, userId);
@@ -785,6 +821,8 @@ export async function bootstrap() {
     idGenerator,
     worker: executionWorker,
     maxRetries: config.messageQueue.maxRetries,
+    config,
+    versionStore: versionStoreAdapter,
   });
   setSessionRepositoryFactory(sessionRepositoryFactory);
   setWorkspaceManager(workspaceManager);

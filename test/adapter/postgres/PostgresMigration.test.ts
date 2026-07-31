@@ -75,6 +75,14 @@ describe("Postgres Drizzle migrations", () => {
     expect(migration).toContain("idx_cost_usage_created");
   });
 
+  test("adds artifact version tables in 0007", () => {
+    const migration = readFileSync(resolve("drizzle/0007_artifact_versions.sql"), "utf8");
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "artifact_versions"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "session_version_snapshots"');
+    expect(migration).toContain('"version_snapshot_id"');
+    expect(migration).toContain("artifact_versions_canary_check");
+  });
+
   test("keeps the migration journal and snapshot in sync", () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
@@ -95,10 +103,11 @@ describe("Postgres Drizzle migrations", () => {
       "0004_hitl_ops",
       "0005_audit_logs",
       "0006_cost_usage",
+      "0007_artifact_versions",
     ]);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 6,
-      tag: "0006_cost_usage",
+      idx: 7,
+      tag: "0007_artifact_versions",
     });
     expect(Object.keys(snapshot.tables)).toEqual(
       expect.arrayContaining([

@@ -31,7 +31,7 @@ todos:
     status: completed
   - id: p2-versioning
     content: Prompt/Skill/Workflow 版本绑定会话 + 灰度/回滚
-    status: pending
+    status: completed
   - id: p2-plan-hard
     content: Plan 硬保障（代码驱动步骤、步骤工具白名单、最大重规划）
     status: pending

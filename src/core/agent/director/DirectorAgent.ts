@@ -36,6 +36,7 @@ import { BlackboardTool } from "../../tool/BlackboardTool.js";
 import { CachingToolRegistry } from "../../tool/CachingToolRegistry.js";
 import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPort.js";
 import { isToolHitlRequiredError, type ToolHitlRequiredError } from "../../tool/ToolHitlRequiredError.js";
+import type { ExecutionOverrides } from "../../versioning/buildExecutionOverrides.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -71,6 +72,8 @@ export interface DirectorStreamOptions {
   executionId?: string;
   /** Tenant user id for Trace persistence (Worker/ALS usually supplies via resolveUserId). */
   userId?: string;
+  /** MVCC execution overrides built from session version snapshot. */
+  executionOverrides?: ExecutionOverrides;
 }
 
 export interface KnowledgeSource {
@@ -156,6 +159,33 @@ export class DirectorAgent {
     this.router = new Router(deps.model, deps.prompts?.router);
     this.integrator = new Integrator();
     this.querySystemPrompt = deps.prompts?.querySystem ?? "";
+  }
+
+  private skillRegistry(options?: DirectorStreamOptions): SkillRegistry {
+    return options?.executionOverrides?.skillRegistry ?? this.deps.skillRegistry;
+  }
+
+  private getTaskPlanner(options?: DirectorStreamOptions): TaskPlanner {
+    return options?.executionOverrides?.taskPlanner ?? this.taskPlanner;
+  }
+
+  private getRouter(options?: DirectorStreamOptions): Router {
+    return options?.executionOverrides?.router ?? this.router;
+  }
+
+  private getQuerySystemPrompt(options?: DirectorStreamOptions): string {
+    return options?.executionOverrides?.querySystemPrompt ?? this.querySystemPrompt;
+  }
+
+  private getAgentDescriptor(
+    agentName: string,
+    options?: DirectorStreamOptions,
+  ): AgentDescriptor | undefined {
+    const override = options?.executionOverrides?.subAgentPrompts?.[agentName];
+    const base = getSubAgentDescriptor(agentName);
+    if (!base) return undefined;
+    if (override) return { ...base, systemPrompt: override };
+    return base;
   }
 
   async execute(
@@ -259,7 +289,7 @@ export class DirectorAgent {
     const signal = options?.signal;
     switch (mode) {
       case "query":
-        yield* this.executeQueryStream(requirement, sessionId, history, signal);
+        yield* this.executeQueryStream(requirement, sessionId, history, signal, options);
         break;
       case "design":
       case "table":
@@ -308,16 +338,16 @@ export class DirectorAgent {
   ): Promise<AgentResponse> {
     const signal = options?.signal;
     if (role !== "chief_designer") {
-      return this.executeSingleRoleFlow(requirement, sessionId, role, traceId, signal);
+      return this.executeSingleRoleFlow(requirement, sessionId, role, traceId, signal, options);
     }
 
     if (this.deps.workspace) {
       await this.deps.workspace.initialize(sessionId);
     }
 
-    const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+    const skill = this.skillRegistry(options).matchSkill(requirement, role);
     console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
-    const plan = await this.taskPlanner.plan(requirement, role, skill);
+    const plan = await this.getTaskPlanner(options).plan(requirement, role, skill);
 
     const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
       sessionId,
@@ -352,12 +382,12 @@ export class DirectorAgent {
       };
     }
 
-    const routing = await this.router.route(reviewedPlan.modifications ?? plan, role);
+    const routing = await this.getRouter(options).route(reviewedPlan.modifications ?? plan, role);
 
     // Map RouteDecision[] to TaskAssignment[]
     const assignments: TaskAssignment[] = routing
       .map((decision): TaskAssignment | null => {
-        const descriptor = getSubAgentDescriptor(decision.agentName);
+        const descriptor = this.getAgentDescriptor(decision.agentName, options);
         if (!descriptor) {
           console.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
           return null;
@@ -403,12 +433,14 @@ export class DirectorAgent {
           taskId: task.id,
           domain: task.domain,
           assignment: task.description,
-          agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor ?? getSubAgentDescriptor("SystemDesigner")!,
+          agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor
+            ?? this.getAgentDescriptor("SystemDesigner", options)!,
           dependencies: task.dependencies,
         },
         sessionId,
         traceId,
-        taskSignal
+        taskSignal,
+        options,
       ),
       signal
     );
@@ -479,11 +511,12 @@ export class DirectorAgent {
   private augmentDescriptorWithSkill(
     descriptor: AgentDescriptor,
     assignment: string,
+    options?: DirectorStreamOptions,
   ): AgentDescriptor {
     const role = AGENT_NAME_TO_ROLE[descriptor.name];
     if (!role) return descriptor;
 
-    const skill = this.deps.skillRegistry.matchSkill(assignment, role);
+    const skill = this.skillRegistry(options).matchSkill(assignment, role);
     if (!skill) return descriptor;
 
     const skillContent = skill.getContent();
@@ -500,7 +533,8 @@ export class DirectorAgent {
     task: TaskAssignment,
     sessionId: string,
     traceId?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: DirectorStreamOptions,
   ): Promise<TaskResult> {
     // Early abort check
     if (signal?.aborted) {
@@ -520,7 +554,7 @@ export class DirectorAgent {
       const toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
 
       // Inject matched skill content into the sub-agent's system prompt
-      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment);
+      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
 
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
@@ -574,7 +608,8 @@ export class DirectorAgent {
     sessionId: string,
     traceId?: string,
     additionalHook?: AgentHook,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: DirectorStreamOptions,
   ): Promise<TaskResult> {
     // Early abort check
     if (signal?.aborted) {
@@ -594,7 +629,7 @@ export class DirectorAgent {
       const toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
 
       // Inject matched skill content into the sub-agent's system prompt
-      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment);
+      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
 
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
@@ -736,10 +771,10 @@ export class DirectorAgent {
     return `\n\n---\n## 团队共享黑板（近期要点，避免重复搜索）\n\n${lines.join("\n")}\n\n> 可用 blackboard_read/blackboard_search 获取完整内容，或 blackboard_write 记录新要点。`;
   }
 
-  private async createQueryAgent(sessionId: string) {
+  private async createQueryAgent(sessionId: string, querySystemPrompt?: string) {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
-      systemPrompt: this.querySystemPrompt,
+      systemPrompt: querySystemPrompt ?? this.querySystemPrompt,
       maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
       toolNames: [
         "wiki_lookup", "wiki_read", "wiki_list",
@@ -760,10 +795,14 @@ export class DirectorAgent {
     );
   }
 
-  private async createQueryAgentWithHooks(hooks: AgentHook[], sessionId: string) {
+  private async createQueryAgentWithHooks(
+    hooks: AgentHook[],
+    sessionId: string,
+    querySystemPrompt?: string,
+  ) {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
-      systemPrompt: this.querySystemPrompt,
+      systemPrompt: querySystemPrompt ?? this.querySystemPrompt,
       maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
       toolNames: [
         "wiki_lookup", "wiki_read", "wiki_list",
@@ -842,7 +881,8 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     history?: Array<{ role: "user" | "assistant"; content: string }>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: DirectorStreamOptions,
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
 
@@ -855,7 +895,11 @@ export class DirectorAgent {
     const hooksWithEmitter = [...this.deps.hooks, streamEmitterHook];
 
     try {
-      const agent = await this.createQueryAgentWithHooks(hooksWithEmitter, sessionId);
+      const agent = await this.createQueryAgentWithHooks(
+        hooksWithEmitter,
+        sessionId,
+        this.getQuerySystemPrompt(options),
+      );
 
       const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
       if (history?.length) {
@@ -935,7 +979,7 @@ export class DirectorAgent {
   ): AsyncIterable<StreamEvent> {
     const signal = options?.signal;
     if (role !== "chief_designer") {
-      yield* this.executeSingleRoleStream(requirement, sessionId, role, signal);
+      yield* this.executeSingleRoleStream(requirement, sessionId, role, signal, options);
       return;
     }
 
@@ -953,14 +997,14 @@ export class DirectorAgent {
         await this.deps.workspace.initialize(sessionId);
       }
 
-      const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+      const skill = this.skillRegistry(options).matchSkill(requirement, role);
       console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       let plan = options?.resumePlan;
       if (plan) {
         yield { type: "plan", data: { message: `Resuming ${plan.subTasks.length} tasks`, plan, resumed: true } };
       } else {
         yield { type: "plan", data: { message: "Planning tasks...", matchedSkill: skill?.getName() ?? null } };
-        plan = await this.taskPlanner.plan(requirement, role, skill);
+        plan = await this.getTaskPlanner(options).plan(requirement, role, skill);
         yield { type: "plan", data: { message: `Planned ${plan.subTasks.length} tasks`, plan, matchedSkill: skill?.getName() ?? null } };
       }
 
@@ -1002,12 +1046,12 @@ export class DirectorAgent {
       }
 
       yield { type: "route", data: { message: "Routing tasks to agents..." } };
-      const routing = await this.router.route(reviewedPlan.modifications ?? plan, role);
+      const routing = await this.getRouter(options).route(reviewedPlan.modifications ?? plan, role);
       yield { type: "route", data: { message: `Routed to ${routing.length} agents`, routing } };
 
       const assignments: TaskAssignment[] = routing
         .map((decision): TaskAssignment | null => {
-          const descriptor = getSubAgentDescriptor(decision.agentName);
+          const descriptor = this.getAgentDescriptor(decision.agentName, options);
           if (!descriptor) return null;
           const originalSubTask = plan.subTasks.find((st) => st.id === decision.fragmentId || st.fragmentId === decision.fragmentId);
           return {
@@ -1051,13 +1095,14 @@ export class DirectorAgent {
             domain: task.domain,
             assignment: task.description,
             agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor
-              ?? getSubAgentDescriptor("SystemDesigner")!,
+              ?? this.getAgentDescriptor("SystemDesigner", options)!,
             dependencies: task.dependencies,
           },
           sessionId,
           undefined,
           streamEmitterHook,
           taskSignal,
+          options,
         ),
         {
           signal,
@@ -1171,12 +1216,13 @@ export class DirectorAgent {
     sessionId: string,
     role: string,
     traceId?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: DirectorStreamOptions,
   ): Promise<AgentResponse> {
     const { RoleAgentMap, parseRole } = await import("../../schema/Role.js");
     const typedRole = parseRole(role);
     const agentName = RoleAgentMap[typedRole];
-    const descriptor = getSubAgentDescriptor(agentName);
+    const descriptor = this.getAgentDescriptor(agentName, options);
 
     if (!descriptor) {
       return {
@@ -1192,12 +1238,12 @@ export class DirectorAgent {
       await this.deps.workspace.initialize(sessionId);
     }
 
-    const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+    const skill = this.skillRegistry(options).matchSkill(requirement, role);
     console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
 
     // Inject full skill content into descriptor, not just the name in assignment
     const enrichedDescriptor = skill
-      ? this.augmentDescriptorWithSkill(descriptor, requirement)
+      ? this.augmentDescriptorWithSkill(descriptor, requirement, options)
       : descriptor;
     const assignment = skill
       ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
@@ -1213,7 +1259,8 @@ export class DirectorAgent {
       },
       sessionId,
       traceId,
-      signal
+      signal,
+      options,
     );
 
     return {
@@ -1229,7 +1276,8 @@ export class DirectorAgent {
     requirement: string,
     sessionId: string,
     role: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: DirectorStreamOptions,
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "design", role } };
 
@@ -1247,7 +1295,7 @@ export class DirectorAgent {
       const { RoleAgentMap, parseRole } = await import("../../schema/Role.js");
       const typedRole = parseRole(role);
       const agentName = RoleAgentMap[typedRole];
-      const descriptor = getSubAgentDescriptor(agentName);
+      const descriptor = this.getAgentDescriptor(agentName, options);
 
       if (!descriptor) {
         yield { type: "error", data: { error: `未找到角色 ${role} 对应的 Agent` } };
@@ -1257,13 +1305,13 @@ export class DirectorAgent {
       yield { type: "plan", data: { message: `直接执行 ${descriptor.name} 任务` } };
       yield { type: "route", data: { message: `分配给 ${descriptor.name}` } };
 
-      const skill = this.deps.skillRegistry.matchSkill(requirement, role);
+      const skill = this.skillRegistry(options).matchSkill(requirement, role);
       console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       yield { type: "skill_matched", data: { skillName: skill?.getName() ?? null, role } };
 
       // Inject full skill content into descriptor
       const enrichedDescriptor = skill
-        ? this.augmentDescriptorWithSkill(descriptor, requirement)
+        ? this.augmentDescriptorWithSkill(descriptor, requirement, options)
         : descriptor;
       const assignment = skill
         ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
@@ -1297,7 +1345,8 @@ export class DirectorAgent {
         sessionId,
         undefined,
         streamEmitterHook,
-        signal
+        signal,
+        options,
       ).finally(() => { done.value = true; });
 
       for await (const event of this.concurrentDrain(eventBus, done)) {

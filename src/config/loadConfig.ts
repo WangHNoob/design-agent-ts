@@ -255,6 +255,11 @@ export function loadConfig(): FrameworkConfig {
       compensateEnabled: process.env.SAGA_COMPENSATE_ENABLED !== "false",
       compensateFailureToAudit: process.env.SAGA_COMPENSATE_FAILURE_TO_AUDIT !== "false",
     },
+    versioning: {
+      enabled: process.env.VERSIONING_ENABLED === "true",
+      defaultCanaryPercent: Number(process.env.VERSIONING_DEFAULT_CANARY_PERCENT ?? 0),
+      snapshotTtlMs: Number(process.env.VERSIONING_SNAPSHOT_TTL_MS ?? 0),
+    },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
   return config;

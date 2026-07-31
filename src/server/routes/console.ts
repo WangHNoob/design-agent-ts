@@ -13,6 +13,9 @@ import {
   type ExecutionWorker,
 } from "../worker/ExecutionWorker.js";
 import type { RateLimitGuard } from "../../core/cost/RateLimitGuard.js";
+import type { FrameworkConfig } from "../../config/FrameworkConfig.js";
+import type { VersionStorePort } from "../../port/versioning/VersionStorePort.js";
+import { ensureSessionVersionSnapshot } from "../versioning/sessionVersionBinding.js";
 
 interface ExecuteRequest {
   requirement: string;
@@ -31,6 +34,8 @@ export interface ConsoleExecutionDependencies {
   idGenerator: IdGeneratorPort;
   worker: ExecutionWorker;
   maxRetries: number;
+  config?: FrameworkConfig;
+  versionStore?: VersionStorePort | null;
 }
 
 let dependencies: ConsoleExecutionDependencies | null = null;
@@ -75,6 +80,7 @@ function queuedSession(
   id: string,
   body: ExecuteRequest,
   role: string,
+  versionSnapshotId?: string,
 ): SessionMeta {
   const now = new Date().toISOString();
   return {
@@ -85,6 +91,7 @@ function queuedSession(
     status: "queued",
     createdAt: now,
     updatedAt: now,
+    versionSnapshotId,
   };
 }
 
@@ -108,8 +115,26 @@ async function createExecution(
   const requestedSessionId = body.sessionId ?? crypto.randomUUID();
   const role = body.role ?? "chief_designer";
   const sessionRepository = dependencies.sessionRepositoryFactory(tenant.userId);
-  if (!await sessionRepository.get(requestedSessionId)) {
-    await sessionRepository.create(queuedSession(requestedSessionId, body, role));
+  let existingSession = await sessionRepository.get(requestedSessionId);
+  if (!existingSession) {
+    let versionSnapshotId: string | undefined;
+    if (dependencies.config?.versioning.enabled) {
+      if (!dependencies.versionStore) {
+        throw new Error("VERSIONING_ENABLED but version store is unavailable");
+      }
+      const snapshot = await dependencies.versionStore.bindSnapshot(tenant.userId);
+      versionSnapshotId = snapshot.id;
+    }
+    await sessionRepository.create(queuedSession(requestedSessionId, body, role, versionSnapshotId));
+    existingSession = await sessionRepository.get(requestedSessionId);
+  } else if (dependencies.config?.versioning.enabled) {
+    await ensureSessionVersionSnapshot({
+      sessionRepository,
+      userId: tenant.userId,
+      sessionId: requestedSessionId,
+      config: dependencies.config,
+      versionStore: dependencies.versionStore ?? null,
+    });
   }
 
   const service = new ExecutionService(

@@ -24,8 +24,9 @@ import type {
   MessageResult,
   QueueMessage,
 } from "../../port/queue/MessageQueuePort.js";
-import type { SessionRepository } from "../../port/session/SessionRepository.js";
+import type { SessionRepository, SessionMeta } from "../../port/session/SessionRepository.js";
 import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
+import type { ExecutionOverrides } from "../../core/versioning/buildExecutionOverrides.js";
 
 export const EXECUTION_QUEUE = "executions";
 
@@ -53,6 +54,11 @@ export interface ExecutionWorkerDependencies {
   pollIntervalMs: number;
   taskTimeoutMs: number;
   now?: () => Date;
+  /** Build MVCC execution overrides from session metadata. */
+  executionOverridesFactory?: (
+    session: SessionMeta | null,
+    userId: string,
+  ) => Promise<ExecutionOverrides | undefined>;
 }
 
 export class ExecutionWorker {
@@ -235,6 +241,10 @@ export class ExecutionWorker {
       const tasks = await repository.listTasks(execution.id);
       const initialTaskResults = this.initialTaskResults(tasks);
       const resumePlan = this.parseTaskPlan(execution.planPayload);
+      const sessionMeta = await sessionRepository.get(execution.sessionId);
+      const executionOverrides = this.deps.executionOverridesFactory
+        ? await this.deps.executionOverridesFactory(sessionMeta, context.userId)
+        : undefined;
       const options: DirectorStreamOptions = {
         signal: abortController.signal,
         taskTimeoutMs: this.deps.taskTimeoutMs,
@@ -242,6 +252,7 @@ export class ExecutionWorker {
         initialTaskResults,
         executionId: execution.id,
         userId: context.userId,
+        executionOverrides,
       };
       const attempts = new Map<string, ExecutionAttempt>();
       let completedOutput = "";

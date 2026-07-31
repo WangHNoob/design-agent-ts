@@ -83,6 +83,23 @@ export type { SessionPort } from "./port/session/SessionPort.js";
 export type { SkillWorkflow, SkillPort } from "./port/skill/SkillPort.js";
 export type { SkillRegistry } from "./port/skill/SkillRegistry.js";
 
+// Port 接口层 — 版本化 (Prompt / Skill / Workflow MVCC)
+export type {
+  ArtifactKind,
+  ArtifactVersion,
+  VersionBinding,
+  VersionSnapshot,
+  UpsertArtifactVersionInput,
+  ReleaseConfig,
+  RollbackInput,
+} from "./port/versioning/types.js";
+export type { VersionStorePort } from "./port/versioning/VersionStorePort.js";
+export { InMemoryVersionStore } from "./core/versioning/InMemoryVersionStore.js";
+export { VersionedSkillRegistry } from "./core/versioning/VersionedSkillRegistry.js";
+export { selectCanaryVersion, hashToPercent } from "./core/versioning/selectCanaryVersion.js";
+export { buildExecutionOverrides } from "./core/versioning/buildExecutionOverrides.js";
+export type { ExecutionOverrides } from "./core/versioning/buildExecutionOverrides.js";
+
 // Port 接口层 — 追踪
 export type { SpanContext, TracerPort, TraceHandle, TraceRuntimeState } from "./port/tracing/TracerPort.js";
 export type { TraceStorePort } from "./port/tracing/TraceStorePort.js";
