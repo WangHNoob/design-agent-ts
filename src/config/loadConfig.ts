@@ -240,6 +240,19 @@ export function loadConfig(): FrameworkConfig {
       planMaxReplans: Number(process.env.PLAN_MAX_REPLANS ?? 2),
       planRejectUnauthorizedTools: process.env.PLAN_REJECT_UNAUTHORIZED_TOOLS !== "false",
       planDomainToolDefaults: parseDomainToolDefaults(process.env.PLAN_DOMAIN_TOOL_DEFAULTS),
+      multiAgentEnabled: process.env.MULTI_AGENT_ENABLED !== "false",
+      multiAgentTokenBudget: Number(
+        process.env.MULTI_AGENT_TOKEN_BUDGET
+          ?? process.env.TRACE_TOKEN_BUDGET
+          ?? 500000,
+      ),
+      multiAgentMaxFanOut: Number(process.env.MULTI_AGENT_MAX_FAN_OUT ?? 8),
+      multiAgentMaxDepth: Number(process.env.MULTI_AGENT_MAX_DEPTH ?? 3),
+      multiAgentDetectCycles: process.env.MULTI_AGENT_DETECT_CYCLES !== "false",
+      handoffMaxChars: Number(process.env.HANDOFF_MAX_CHARS ?? 4000),
+      handoffMaxKeyPoints: Number(process.env.HANDOFF_MAX_KEY_POINTS ?? 12),
+      handoffMaxTotalChars: Number(process.env.HANDOFF_MAX_TOTAL_CHARS ?? 12000),
+      multiAgentAllowInvoke: process.env.MULTI_AGENT_ALLOW_INVOKE !== "false",
     },
     eval: {
       defaultDatasetPath: process.env.EVAL_DEFAULT_DATASET ?? "eval/datasets/design-golden.v1.json",

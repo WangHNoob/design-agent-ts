@@ -199,6 +199,38 @@ export interface FrameworkConfig {
      * Merged over core defaults; missing domains keep core defaults.
      */
     planDomainToolDefaults: Record<string, string[]>;
+    /**
+     * Multi-agent runaway guards (paradigm III): shared token budget,
+     * fan-out / depth caps, call-cycle detection, handoff distillation.
+     * When false, fan-out batching / call-stack / handoff hard limits are no-ops.
+     */
+    multiAgentEnabled: boolean;
+    /**
+     * Shared hard token ceiling across all sub-agents under one root Trace.
+     * 0 = disable this independent budget (TRACE_TOKEN_BUDGET still applies).
+     * Default mirrors TRACE_TOKEN_BUDGET so multi-agent and single-agent share the same ceiling.
+     */
+    multiAgentTokenBudget: number;
+    /** Max parallel sub-tasks in one DAG layer; excess are batched (not rejected). */
+    multiAgentMaxFanOut: number;
+    /** Max Director→sub-agent call-stack depth (Director depth=0; first sub-agent=1). */
+    multiAgentMaxDepth: number;
+    /** Abort when agent call graph forms a cycle (A→B→A). */
+    multiAgentDetectCycles: boolean;
+    /** Max characters in distilled Handoff summary (+ keyPoints text). */
+    handoffMaxChars: number;
+    /** Max keyPoints entries in a Handoff payload. */
+    handoffMaxKeyPoints: number;
+    /**
+     * Max total characters when injecting multiple predecessor handoffs into one prompt.
+     * 0 disables the aggregate cap.
+     */
+    handoffMaxTotalChars: number;
+    /**
+     * When true, sub-agents get `invoke_agent` (Agent-as-Tool) for nested calls
+     * under AgentCallGuard (depth / cycle). Default true for acceptance wiring.
+     */
+    multiAgentAllowInvoke: boolean;
   };
   /**
    * Eval V1: Offline/Online scoring against golden datasets.

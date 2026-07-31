@@ -40,6 +40,22 @@ import type { ExecutionOverrides } from "../../versioning/buildExecutionOverride
 import { PlanHardGuard } from "../../plan/PlanHardGuard.js";
 import { PlanReplanner } from "../../plan/PlanReplanner.js";
 import { runPlanWithReplan } from "../../plan/runPlanWithReplan.js";
+import {
+  AgentCallGuard,
+  AgentInvokeTool,
+  AGENT_INVOKE_TOOL_NAME,
+  type CallContext,
+  distillHandoff,
+  isHandoffViolationError,
+  isMultiAgentGuardError,
+  seedHandoffsFromResults,
+  validateHandoff,
+  collectHandoffsForPrompt,
+  type HandoffLimits,
+  type HandoffPayload,
+} from "../../multiagent/index.js";
+import { TokenBudgetHook } from "../../hook/TokenBudgetHook.js";
+import { SubAgentDescriptors } from "../subagents/SubAgentFactory.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -77,6 +93,11 @@ export interface DirectorStreamOptions {
   userId?: string;
   /** MVCC execution overrides built from session version snapshot. */
   executionOverrides?: ExecutionOverrides;
+  /**
+   * Parent CallContext for nested Agent-as-Tool invocations.
+   * When omitted, Director uses the design-run root (Director depth=0).
+   */
+  callParent?: CallContext;
 }
 
 export interface KnowledgeSource {
@@ -123,6 +144,18 @@ export interface DirectorPlanHardConfig {
   domainToolDefaults: Record<string, string[]>;
 }
 
+/** Multi-agent runaway / handoff knobs from FrameworkConfig.guards. */
+export interface DirectorMultiAgentConfig {
+  enabled: boolean;
+  maxFanOut: number;
+  maxDepth: number;
+  detectCycles: boolean;
+  handoffMaxChars: number;
+  handoffMaxKeyPoints: number;
+  handoffMaxTotalChars: number;
+  allowInvoke: boolean;
+}
+
 export interface DirectorDeps {
   model: ChatModelPort;
   agentFactory: AgentFactory;
@@ -159,6 +192,8 @@ export interface DirectorDeps {
   wrapTool?: (tool: ToolPort) => ToolPort;
   /** Plan hard guards (step tools / replan budget). Defaults: enabled. */
   planHard?: DirectorPlanHardConfig;
+  /** Multi-agent runaway guards + handoff. Defaults: enabled. */
+  multiAgent?: DirectorMultiAgentConfig;
 }
 
 export class DirectorAgent {
@@ -166,12 +201,23 @@ export class DirectorAgent {
   private router: Router;
   private integrator: Integrator;
   private querySystemPrompt: string;
+  private callGuard: AgentCallGuard;
+  private callRoot: CallContext;
+  private activeCallParent: CallContext;
+  private readonly handoffByTask = new Map<string, HandoffPayload>();
 
   constructor(private deps: DirectorDeps) {
     this.taskPlanner = new TaskPlanner(deps.model, deps.prompts?.taskPlanner);
     this.router = new Router(deps.model, deps.prompts?.router);
     this.integrator = new Integrator();
     this.querySystemPrompt = deps.prompts?.querySystem ?? "";
+    const multi = this.multiAgentConfig();
+    this.callGuard = new AgentCallGuard({
+      maxDepth: multi.maxDepth,
+      detectCycles: multi.detectCycles,
+    });
+    this.callRoot = this.callGuard.root("Director");
+    this.activeCallParent = this.callRoot;
   }
 
   private skillRegistry(options?: DirectorStreamOptions): SkillRegistry {
@@ -208,6 +254,83 @@ export class DirectorAgent {
       rejectUnauthorizedTools: this.deps.planHard?.rejectUnauthorizedTools !== false,
       domainToolDefaults: this.deps.planHard?.domainToolDefaults ?? {},
     };
+  }
+
+  private multiAgentConfig(): DirectorMultiAgentConfig {
+    return {
+      enabled: this.deps.multiAgent?.enabled !== false,
+      maxFanOut: this.deps.multiAgent?.maxFanOut ?? 8,
+      maxDepth: this.deps.multiAgent?.maxDepth ?? 3,
+      detectCycles: this.deps.multiAgent?.detectCycles !== false,
+      handoffMaxChars: this.deps.multiAgent?.handoffMaxChars ?? 4000,
+      handoffMaxKeyPoints: this.deps.multiAgent?.handoffMaxKeyPoints ?? 12,
+      handoffMaxTotalChars: this.deps.multiAgent?.handoffMaxTotalChars ?? 12000,
+      allowInvoke: this.deps.multiAgent?.allowInvoke !== false,
+    };
+  }
+
+  private handoffLimits(): HandoffLimits {
+    const multi = this.multiAgentConfig();
+    return {
+      maxChars: multi.handoffMaxChars,
+      maxKeyPoints: multi.handoffMaxKeyPoints,
+    };
+  }
+
+  /** Reset per-design call root + seed handoffs from resumed task results. */
+  private async beginMultiAgentRun(initialResults?: readonly TaskResult[]): Promise<void> {
+    const multi = this.multiAgentConfig();
+    this.callGuard = new AgentCallGuard({
+      maxDepth: multi.maxDepth,
+      detectCycles: multi.detectCycles,
+    });
+    this.callRoot = this.callGuard.root("Director");
+    this.activeCallParent = this.callRoot;
+    this.handoffByTask.clear();
+
+    const seeded = seedHandoffsFromResults(
+      initialResults ?? [],
+      this.handoffLimits(),
+      (info) => {
+        void this.safeRecordPlanSpan("guard.handoff_violation", { ...info });
+      },
+    );
+    for (const [taskId, handoff] of seeded) {
+      this.handoffByTask.set(taskId, handoff);
+    }
+  }
+
+  private clearTraceTokenBudget(traceId?: string): void {
+    if (!traceId) return;
+    for (const hook of this.deps.hooks) {
+      if (hook instanceof TokenBudgetHook) {
+        hook.clear(traceId);
+        continue;
+      }
+      const maybeClear = (hook as unknown as { clear?: (id: string) => void }).clear;
+      if (typeof maybeClear === "function") {
+        maybeClear.call(hook, traceId);
+      }
+    }
+  }
+
+  private buildTaskHandoff(
+    task: TaskAssignment,
+    output: string,
+  ): HandoffPayload | undefined {
+    const multi = this.multiAgentConfig();
+    if (!multi.enabled) return undefined;
+    const limits = this.handoffLimits();
+    const handoff = distillHandoff({
+      taskId: task.taskId,
+      domain: task.domain,
+      output,
+      artifacts: ["output.md"],
+      limits,
+    });
+    validateHandoff(handoff, limits);
+    this.handoffByTask.set(task.taskId, handoff);
+    return handoff;
   }
 
   private async safeRecordPlanSpan(
@@ -297,13 +420,23 @@ export class DirectorAgent {
     options?: DirectorStreamOptions,
   ): { descriptor: AgentDescriptor; toolRegistry: ToolRegistry } {
     const planHard = this.planHardConfig();
+    const multi = this.multiAgentConfig();
     // Resolve here: undefined → domain defaults; [] → no external tools
-    const allowedTools = this.resolveTaskAllowedTools({
+    let allowedTools = [...this.resolveTaskAllowedTools({
       domain: task.domain,
       allowedTools: task.allowedTools,
-    });
+    })];
+    if (multi.enabled && multi.allowInvoke && !allowedTools.includes(AGENT_INVOKE_TOOL_NAME)) {
+      allowedTools = [...allowedTools, AGENT_INVOKE_TOOL_NAME];
+    }
 
     let descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
+    if (multi.enabled && multi.allowInvoke) {
+      descriptor = {
+        ...descriptor,
+        toolNames: Array.from(new Set([...descriptor.toolNames, AGENT_INVOKE_TOOL_NAME])),
+      };
+    }
     if (planHard.enabled) {
       descriptor = {
         ...descriptor,
@@ -311,7 +444,7 @@ export class DirectorAgent {
       };
     }
 
-    let toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
+    let toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name, options);
     if (planHard.enabled) {
       toolRegistry = new WhitelistToolRegistry(toolRegistry, {
         taskId: task.taskId,
@@ -410,6 +543,7 @@ export class DirectorAgent {
       throw err;
     } finally {
       await tracer.endTrace(handle.traceId, status);
+      this.clearTraceTokenBudget(handle.traceId);
       unbind();
     }
   }
@@ -461,6 +595,7 @@ export class DirectorAgent {
         throw err;
       } finally {
         await tracer.endTrace(handle.traceId, status);
+        this.clearTraceTokenBudget(handle.traceId);
       }
     });
   }
@@ -480,6 +615,8 @@ export class DirectorAgent {
     if (this.deps.workspace) {
       await this.deps.workspace.initialize(sessionId);
     }
+
+    await this.beginMultiAgentRun(options?.initialTaskResults);
 
     const skill = this.skillRegistry(options).matchSkill(requirement, role);
     console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
@@ -587,6 +724,8 @@ export class DirectorAgent {
         signal,
         taskTimeoutMs: options?.taskTimeoutMs,
         planHardEnabled: planHard.enabled,
+        maxFanOut: this.multiAgentConfig().enabled ? this.multiAgentConfig().maxFanOut : 0,
+        onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
       },
     });
 
@@ -698,11 +837,10 @@ export class DirectorAgent {
   private async executeSingleTask(
     task: TaskAssignment,
     sessionId: string,
-    traceId?: string,
+    _traceId?: string,
     signal?: AbortSignal,
     options?: DirectorStreamOptions,
   ): Promise<TaskResult> {
-    // Early abort check
     if (signal?.aborted) {
       return {
         taskId: task.taskId,
@@ -713,10 +851,19 @@ export class DirectorAgent {
       };
     }
 
+    const multi = this.multiAgentConfig();
+    const prevCallParent = this.activeCallParent;
     try {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
 
       const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
+
+      const parent = options?.callParent ?? this.callRoot;
+      if (multi.enabled) {
+        this.activeCallParent = this.callGuard.enter(descriptor.name, parent);
+      } else {
+        this.activeCallParent = parent;
+      }
 
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
@@ -725,7 +872,6 @@ export class DirectorAgent {
         this.deps.hooks
       );
 
-      // Inject predecessor context into assignment message
       const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
       const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
@@ -741,13 +887,36 @@ export class DirectorAgent {
         };
       }
 
-      // Write output to workspace
       let output = AR.getTextContent(response) ?? "";
       if (!output.trim()) {
         output = "(子 Agent 返回空内容)";
       }
       if (this.deps.workspace && output) {
         await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
+      }
+
+      let handoff: HandoffPayload | undefined;
+      if (response.success) {
+        try {
+          handoff = this.buildTaskHandoff(task, output);
+        } catch (err) {
+          if (isHandoffViolationError(err)) {
+            await this.safeRecordPlanSpan("guard.handoff_violation", {
+              taskId: task.taskId,
+              reason: err.reason,
+              field: err.field,
+            });
+            return {
+              taskId: task.taskId,
+              domain: task.domain,
+              status: "error",
+              output,
+              errorMessage: err.message,
+              errorClass: "permanent",
+            };
+          }
+          throw err;
+        }
       }
 
       return {
@@ -759,21 +928,40 @@ export class DirectorAgent {
         errorClass: response.success
           ? undefined
           : ErrorClassifier.classify(response.errorMessage ?? "Agent execution failed"),
+        handoff,
       };
     } catch (err) {
+      if (isMultiAgentGuardError(err)) {
+        await this.safeRecordPlanSpan(`guard.${err.code}`, {
+          agentName: err.agentName,
+          path: err.path,
+          depth: err.depth,
+          maxDepth: err.maxDepth,
+          reason: err.reason,
+        });
+        return {
+          taskId: task.taskId,
+          domain: task.domain,
+          status: "error",
+          output: "",
+          errorMessage: err.message,
+          errorClass: "permanent",
+        };
+      }
       throw err;
+    } finally {
+      this.activeCallParent = prevCallParent;
     }
   }
 
   private async executeSingleTaskWithHooks(
     task: TaskAssignment,
     sessionId: string,
-    traceId?: string,
+    _traceId?: string,
     additionalHook?: AgentHook,
     signal?: AbortSignal,
     options?: DirectorStreamOptions,
   ): Promise<TaskResult> {
-    // Early abort check
     if (signal?.aborted) {
       return {
         taskId: task.taskId,
@@ -784,11 +972,20 @@ export class DirectorAgent {
       };
     }
 
+    const multi = this.multiAgentConfig();
+    const prevCallParent = this.activeCallParent;
     try {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
 
       const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
+
+      const parent = options?.callParent ?? this.callRoot;
+      if (multi.enabled) {
+        this.activeCallParent = this.callGuard.enter(descriptor.name, parent);
+      } else {
+        this.activeCallParent = parent;
+      }
 
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
@@ -821,6 +1018,30 @@ export class DirectorAgent {
         await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
       }
 
+      let handoff: HandoffPayload | undefined;
+      if (response.success) {
+        try {
+          handoff = this.buildTaskHandoff(task, output);
+        } catch (err) {
+          if (isHandoffViolationError(err)) {
+            await this.safeRecordPlanSpan("guard.handoff_violation", {
+              taskId: task.taskId,
+              reason: err.reason,
+              field: err.field,
+            });
+            return {
+              taskId: task.taskId,
+              domain: task.domain,
+              status: "error",
+              output,
+              errorMessage: err.message,
+              errorClass: "permanent",
+            };
+          }
+          throw err;
+        }
+      }
+
       return {
         taskId: task.taskId,
         domain: task.domain,
@@ -830,19 +1051,127 @@ export class DirectorAgent {
         errorClass: response.success
           ? undefined
           : ErrorClassifier.classify(response.errorMessage ?? "Agent execution failed"),
+        handoff,
       };
     } catch (err) {
+      if (isMultiAgentGuardError(err)) {
+        await this.safeRecordPlanSpan(`guard.${err.code}`, {
+          agentName: err.agentName,
+          path: err.path,
+          depth: err.depth,
+          maxDepth: err.maxDepth,
+          reason: err.reason,
+        });
+        return {
+          taskId: task.taskId,
+          domain: task.domain,
+          status: "error",
+          output: "",
+          errorMessage: err.message,
+          errorClass: "permanent",
+        };
+      }
       throw err;
+    } finally {
+      this.activeCallParent = prevCallParent;
     }
   }
 
-  private buildSessionToolRegistry(sessionId: string, agentType: string): ToolRegistry {
+  /**
+   * Nested Agent-as-Tool runner. CallContext for `agentName` was already entered
+   * by {@link AgentInvokeTool} / invokeSubAgent — do not enter again.
+   */
+  private async runNestedAgentInvoke(input: {
+    agentName: string;
+    assignment: string;
+    callParent: CallContext;
+    sessionId: string;
+    signal?: AbortSignal;
+    options?: DirectorStreamOptions;
+  }): Promise<string> {
+    const prev = this.activeCallParent;
+    this.activeCallParent = input.callParent;
+    try {
+      const base = this.getAgentDescriptor(input.agentName, input.options);
+      if (!base) {
+        throw new Error(`Unknown agent for invoke_agent: ${input.agentName}`);
+      }
+      const multi = this.multiAgentConfig();
+      let descriptor: AgentDescriptor = { ...base };
+      if (multi.enabled && multi.allowInvoke) {
+        descriptor = {
+          ...descriptor,
+          toolNames: Array.from(new Set([...descriptor.toolNames, AGENT_INVOKE_TOOL_NAME])),
+        };
+      }
+      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+      const toolRegistry = this.buildSessionToolRegistry(
+        input.sessionId,
+        input.agentName,
+        input.options,
+      );
+      const agent = this.deps.agentFactory.createAgent(
+        descriptor,
+        toolRegistry,
+        new InMemoryMemoryPort(),
+        this.deps.hooks,
+      );
+      const message = ChatMessage.text("user", "director", input.assignment);
+      const response = await agent.process(
+        input.sessionId,
+        [message],
+        input.signal ? { signal: input.signal } : undefined,
+      );
+      return AR.getTextContent(response) ?? "";
+    } finally {
+      this.activeCallParent = prev;
+    }
+  }
+
+  private buildSessionToolRegistry(
+    sessionId: string,
+    agentType: string,
+    options?: DirectorStreamOptions,
+  ): ToolRegistry {
     let registry: ToolRegistry = this.deps.toolRegistry;
     const wrap = this.deps.wrapTool ?? ((t) => t);
+    const sessionTools: ToolPort[] = [];
     if (this.deps.workspace) {
-      const wsReadTool = wrap(new WorkspaceReadTool(this.deps.workspace, sessionId));
-      const wsListTool = wrap(new WorkspaceListTool(this.deps.workspace, sessionId));
-      registry = new SessionToolRegistry(registry, [wsReadTool, wsListTool]);
+      sessionTools.push(wrap(new WorkspaceReadTool(this.deps.workspace, sessionId)));
+      sessionTools.push(wrap(new WorkspaceListTool(this.deps.workspace, sessionId)));
+    }
+    const multi = this.multiAgentConfig();
+    if (multi.enabled && multi.allowInvoke) {
+      sessionTools.push(
+        wrap(
+          new AgentInvokeTool({
+            guard: this.callGuard,
+            getParent: () => this.activeCallParent ?? this.callRoot,
+            allowedAgentNames: Object.keys(SubAgentDescriptors),
+            runNested: ({ agentName, assignment, callParent }) =>
+              this.runNestedAgentInvoke({
+                agentName,
+                assignment,
+                callParent,
+                sessionId,
+                signal: options?.signal,
+                options,
+              }),
+            onGuardViolation: (err) =>
+              this.safeRecordPlanSpan(`guard.${err.code}`, {
+                agentName: err.agentName,
+                path: err.path,
+                depth: err.depth,
+                maxDepth: err.maxDepth,
+                reason: err.reason,
+                via: AGENT_INVOKE_TOOL_NAME,
+              }),
+          }),
+        ),
+      );
+    }
+    if (sessionTools.length > 0) {
+      registry = new SessionToolRegistry(registry, sessionTools);
     }
     return this.wrapWithBlackboard(registry, sessionId, agentType);
   }
@@ -884,30 +1213,81 @@ export class DirectorAgent {
   private async injectPredecessorContext(task: TaskAssignment, sessionId: string): Promise<string> {
     const blackboardBlock = this.buildBlackboardContext(sessionId);
 
-    if (!this.deps.workspace || !task.dependencies || task.dependencies.length === 0) {
+    if (!task.dependencies || task.dependencies.length === 0) {
       return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
     }
 
-    const sections: string[] = [];
-    for (const depId of task.dependencies) {
-      const files = await this.deps.workspace.listTaskFiles(sessionId, depId);
-      if (files.length === 0) continue;
+    const multi = this.multiAgentConfig();
+    const limits = this.handoffLimits();
+    const accepted: HandoffPayload[] = [];
 
-      for (const fileName of files) {
-        const content = await this.deps.workspace.readTaskOutput(sessionId, depId, fileName);
-        if (!content) continue;
-        const truncated = content.length > 2000
-          ? content.substring(0, 2000) + "\n...(已截断，使用 workspace_read 读取完整内容)"
-          : content;
-        sections.push(`### ${depId} / ${fileName}\n${truncated}`);
+    for (const depId of task.dependencies) {
+      let handoff = this.handoffByTask.get(depId);
+
+      if (handoff) {
+        try {
+          validateHandoff(handoff, limits);
+        } catch (err) {
+          await this.safeRecordPlanSpan("guard.handoff_violation", {
+            taskId: depId,
+            reason: isHandoffViolationError(err) ? err.reason : String(err),
+            field: isHandoffViolationError(err) ? err.field : undefined,
+            source: "cache",
+          });
+          this.handoffByTask.delete(depId);
+          handoff = undefined;
+        }
+      }
+
+      // Prefer cached handoff; otherwise distill from workspace (never dump full text).
+      if (!handoff && this.deps.workspace) {
+        const content = await this.deps.workspace.readTaskOutput(sessionId, depId, "output.md");
+        if (content) {
+          const distilled = distillHandoff({
+            taskId: depId,
+            domain: "unknown",
+            output: content,
+            artifacts: ["output.md"],
+            limits,
+          });
+          try {
+            validateHandoff(distilled, limits);
+            handoff = distilled;
+            this.handoffByTask.set(depId, handoff);
+          } catch (err) {
+            await this.safeRecordPlanSpan("guard.handoff_violation", {
+              taskId: depId,
+              reason: isHandoffViolationError(err) ? err.reason : String(err),
+              field: isHandoffViolationError(err) ? err.field : undefined,
+              source: "workspace_distill",
+            });
+            handoff = undefined;
+          }
+        }
+      }
+
+      if (handoff) {
+        accepted.push(handoff);
       }
     }
 
-    if (sections.length === 0) {
+    if (accepted.length === 0) {
       return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
     }
 
-    return `${task.assignment}${blackboardBlock}\n\n---\n## 前驱任务产出（摘要）\n\n${sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
+    const collected = collectHandoffsForPrompt(accepted, multi.handoffMaxTotalChars);
+    if (collected.truncatedAtIndex !== undefined) {
+      const skipped = accepted[collected.truncatedAtIndex];
+      await this.safeRecordPlanSpan("guard.handoff_total_truncated", {
+        taskId: task.taskId,
+        skippedDepId: skipped?.taskId,
+        totalChars: collected.totalChars,
+        maxTotal: multi.handoffMaxTotalChars,
+        truncatedAtIndex: collected.truncatedAtIndex,
+      });
+    }
+
+    return `${task.assignment}${blackboardBlock}\n\n---\n## 前驱任务 Handoff（蒸馏结论）\n\n${collected.sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
   }
 
   /**
@@ -1156,6 +1536,8 @@ export class DirectorAgent {
         await this.deps.workspace.initialize(sessionId);
       }
 
+      await this.beginMultiAgentRun(options?.initialTaskResults);
+
       const skill = this.skillRegistry(options).matchSkill(requirement, role);
       console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       let plan = options?.resumePlan;
@@ -1286,6 +1668,8 @@ export class DirectorAgent {
           signal,
           taskTimeoutMs: options?.taskTimeoutMs,
           planHardEnabled: planHard.enabled,
+          maxFanOut: this.multiAgentConfig().enabled ? this.multiAgentConfig().maxFanOut : 0,
+          onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
           onTaskStart: (task) => eventBus.emit({
             type: "task_start",
             data: {

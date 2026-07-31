@@ -4,6 +4,7 @@ import { ErrorClassifier } from "../execution/ErrorClassifier.js";
 import { isToolHitlRequiredError } from "../tool/ToolHitlRequiredError.js";
 import { PlanHardGuard } from "../plan/PlanHardGuard.js";
 import { isPlanViolationError } from "../plan/PlanViolationError.js";
+import { runFanOutBatches, type FanOutBatchInfo } from "../multiagent/FanOutLimiter.js";
 
 export type TaskExecutor = (task: SubTask, signal?: AbortSignal) => Promise<TaskResult>;
 
@@ -18,6 +19,13 @@ export interface PlanPipelineOptions {
    * Failed-deps → skipped path is unchanged.
    */
   planHardEnabled?: boolean;
+  /**
+   * Max concurrent tasks per DAG layer. When layer size exceeds this, tasks are
+   * executed in ordered batches via Promise.all. 0 / undefined = unlimited.
+   */
+  maxFanOut?: number;
+  /** Audit callback when a fan-out layer is split into batches. */
+  onFanOutBatch?: (info: FanOutBatchInfo) => void | Promise<void>;
 }
 
 class TaskTimeoutError extends Error {
@@ -74,18 +82,27 @@ export class PlanPipeline {
         .filter((t): t is SubTask => t !== undefined)
         .filter((task) => !resultByTaskId.has(task.id));
 
-      const layerResults = await Promise.all(
-        layerTasks.map(async (task) => {
-          const failedDependencies = task.dependencies.filter(
-            (dependencyId) => resultByTaskId.get(dependencyId)?.status !== "success",
-          );
-          if (failedDependencies.length > 0) {
-            const result = this.skippedResult(task, failedDependencies);
-            await this.options.onTaskResult?.(task, result);
-            return result;
-          }
-          return this.executeTask(task, resultByTaskId);
-        }),
+      const runBatch = (batch: readonly SubTask[]) =>
+        Promise.all(
+          batch.map(async (task) => {
+            const failedDependencies = task.dependencies.filter(
+              (dependencyId) => resultByTaskId.get(dependencyId)?.status !== "success",
+            );
+            if (failedDependencies.length > 0) {
+              const result = this.skippedResult(task, failedDependencies);
+              await this.options.onTaskResult?.(task, result);
+              return result;
+            }
+            return this.executeTask(task, resultByTaskId);
+          }),
+        );
+
+      const maxFanOut = this.options.maxFanOut ?? 0;
+      const layerResults = await runFanOutBatches(
+        layerTasks,
+        maxFanOut,
+        runBatch,
+        this.options.onFanOutBatch,
       );
 
       for (const result of layerResults) {

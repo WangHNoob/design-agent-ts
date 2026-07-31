@@ -235,20 +235,30 @@ export async function lateBootstrapDirector(): Promise<void> {
     tracer,
     resolveUserId,
     wrapTool: bootstrapState.wrapTool,
-    planHard: {
-      enabled: config.guards.planHardEnabled,
-      maxReplans: config.guards.planMaxReplans,
-      rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
-      domainToolDefaults: config.guards.planDomainToolDefaults,
-    },
-  });
+      planHard: {
+        enabled: config.guards.planHardEnabled,
+        maxReplans: config.guards.planMaxReplans,
+        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
+        domainToolDefaults: config.guards.planDomainToolDefaults,
+      },
+      multiAgent: {
+        enabled: config.guards.multiAgentEnabled,
+        maxFanOut: config.guards.multiAgentMaxFanOut,
+        maxDepth: config.guards.multiAgentMaxDepth,
+        detectCycles: config.guards.multiAgentDetectCycles,
+        handoffMaxChars: config.guards.handoffMaxChars,
+        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
+        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
+        allowInvoke: config.guards.multiAgentAllowInvoke,
+      },
+    });
 
-  setDirector(director);
-  await bootstrapState.executionWorker?.start();
-  setSettingsContainer(container);
-}
+    setDirector(director);
+    await bootstrapState.executionWorker?.start();
+    setSettingsContainer(container);
+  }
 
-export async function bootstrap() {
+  export async function bootstrap() {
   const config = loadConfig();
   const fileSystem = new NodeFileSystemAdapter();
   const contextStorage = new NodeContextStorageAdapter<TenantContext>();
@@ -570,6 +580,8 @@ export async function bootstrap() {
     hooks.push(
       new TokenBudgetHook({
         budget: config.guards.traceTokenBudget,
+        multiAgentBudget: config.guards.multiAgentTokenBudget,
+        multiAgentEnabled: config.guards.multiAgentEnabled,
         tracer,
       }),
       new ToolLoopDetectorHook({
@@ -582,6 +594,8 @@ export async function bootstrap() {
     externalToolResilience.tracer = tracer;
     console.log(
       `[Bootstrap] Guards: tokenBudget=${config.guards.traceTokenBudget || "off"} ` +
+        `multiAgentToken=${config.guards.multiAgentEnabled ? (config.guards.multiAgentTokenBudget || "off") : "off"} ` +
+        `fanOut=${config.guards.multiAgentMaxFanOut} depth=${config.guards.multiAgentMaxDepth} ` +
         `toolLoop=${config.guards.toolLoopMaxRepeats}/${config.guards.toolLoopWindowSize} ` +
         `toolCircuit=${config.guards.toolCircuitFailureThreshold}/${config.guards.toolCircuitCooldownMs}ms ` +
         `toolTimeout=${config.guards.toolTimeoutMs || "off"}ms`,
@@ -1039,6 +1053,16 @@ export async function bootstrap() {
         rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
         domainToolDefaults: config.guards.planDomainToolDefaults,
       },
+      multiAgent: {
+        enabled: config.guards.multiAgentEnabled,
+        maxFanOut: config.guards.multiAgentMaxFanOut,
+        maxDepth: config.guards.multiAgentMaxDepth,
+        detectCycles: config.guards.multiAgentDetectCycles,
+        handoffMaxChars: config.guards.handoffMaxChars,
+        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
+        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
+        allowInvoke: config.guards.multiAgentAllowInvoke,
+      },
     });
 
     setDirector(director);
@@ -1128,6 +1152,16 @@ export async function reloadDirector(): Promise<void> {
         maxReplans: config.guards.planMaxReplans,
         rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
         domainToolDefaults: config.guards.planDomainToolDefaults,
+      },
+      multiAgent: {
+        enabled: config.guards.multiAgentEnabled,
+        maxFanOut: config.guards.multiAgentMaxFanOut,
+        maxDepth: config.guards.multiAgentMaxDepth,
+        detectCycles: config.guards.multiAgentDetectCycles,
+        handoffMaxChars: config.guards.handoffMaxChars,
+        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
+        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
+        allowInvoke: config.guards.multiAgentAllowInvoke,
       },
     });
     setDirector(director);
