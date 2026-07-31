@@ -136,4 +136,16 @@ export interface FrameworkConfig {
     /** When true, also log completed spans to stdout (dev aid). */
     consoleExporter: boolean;
   };
+  /**
+   * Hard runtime guards (token budget, tool-loop detection).
+   * Combined with maxIterations / task timeout — whichever trips first wins.
+   */
+  guards: {
+    /** Per-trace input+output token hard ceiling. 0 disables. */
+    traceTokenBudget: number;
+    /** Sliding window of recent tool calls for loop detection. */
+    toolLoopWindowSize: number;
+    /** Abort when the same (tool, paramsHash) appears this many times in the window. */
+    toolLoopMaxRepeats: number;
+  };
 }
