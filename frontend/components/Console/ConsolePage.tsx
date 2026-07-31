@@ -21,6 +21,9 @@ const MAX_STREAM_RESUMES = 2;
 const TERMINAL_EXECUTION_STATUSES = new Set([
   'completed', 'failed', 'cancelled', 'timed_out',
 ]);
+const WAITING_EXECUTION_STATUSES = new Set([
+  'waiting_hitl',
+]);
 
 interface Props {
   mode: TaskMode;
@@ -115,45 +118,78 @@ export default function ConsolePage({ mode }: Props) {
       .catch(() => {});
   }, []);
 
-  // Refresh: if we have an executionId and task still looks in-flight, pull terminal state.
+  // Refresh: if we have an executionId and task still looks in-flight, pull terminal/waiting state.
   useEffect(() => {
-    if (!task?.executionId || !task.loading) return;
+    if (!task?.executionId || (!task.loading && task.status !== 'waiting')) return;
     let cancelled = false;
-    getExecution(task.executionId)
-      .then((execution) => {
-        if (cancelled || !mountedRef.current) return;
-        if (!TERMINAL_EXECUTION_STATUSES.has(execution.status)) return;
-        const output = typeof execution.output === 'string' ? execution.output
-          : typeof execution.result === 'string' ? execution.result
-          : null;
-        if (output) {
-          store.appendMessage(task.sessionId, {
-            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
-            type: 'ai',
-            content: output,
-            timestamp: getCurrentTime(),
-          });
-        }
-        if (execution.errorMessage) {
-          store.appendMessage(task.sessionId, {
-            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
-            type: 'system',
-            content: `执行结束: ${execution.errorMessage}`,
-            timestamp: getCurrentTime(),
-          });
-        }
+
+    const applyExecution = (execution: Awaited<ReturnType<typeof getExecution>>) => {
+      if (cancelled || !mountedRef.current) return;
+      if (WAITING_EXECUTION_STATUSES.has(execution.status)) {
         store.updateTask(task.sessionId, {
           loading: false,
           streaming: false,
-          status: execution.status === 'completed' ? 'idle' : 'error',
-          statusText: execution.status === 'completed' ? '完成' : execution.status,
+          status: 'waiting',
+          statusText: '等待人工审阅',
           streamRef: null,
         });
         setRefreshTick((t) => t + 1);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [task?.executionId, task?.sessionId]);
+        return;
+      }
+      if (!TERMINAL_EXECUTION_STATUSES.has(execution.status)) return;
+      const output = typeof execution.output === 'string' ? execution.output
+        : typeof execution.result === 'string' ? execution.result
+        : null;
+      if (output) {
+        store.appendMessage(task.sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'ai',
+          content: output,
+          timestamp: getCurrentTime(),
+        });
+      }
+      if (execution.errorMessage) {
+        store.appendMessage(task.sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'system',
+          content: `执行结束（${execution.status}）: ${execution.errorMessage}`,
+          timestamp: getCurrentTime(),
+        });
+      } else if (execution.status === 'failed') {
+        store.appendMessage(task.sessionId, {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          type: 'system',
+          content: `执行失败（未返回详细错误信息，请查看右侧日志或服务端日志）`,
+          timestamp: getCurrentTime(),
+        });
+      }
+      store.updateTask(task.sessionId, {
+        loading: false,
+        streaming: false,
+        status: execution.status === 'completed' ? 'idle' : 'error',
+        statusText: execution.status === 'completed'
+          ? '完成'
+          : (execution.errorMessage
+            ? `错误: ${String(execution.errorMessage).slice(0, 80)}`
+            : execution.status),
+        streamRef: null,
+      });
+      setRefreshTick((t) => t + 1);
+    };
+
+    getExecution(task.executionId).then(applyExecution).catch(() => {});
+    // Keep polling while loading so silent worker failures still surface.
+    const timer = task.loading
+      ? setInterval(() => {
+          if (!task.executionId) return;
+          getExecution(task.executionId).then(applyExecution).catch(() => {});
+        }, 4000)
+      : null;
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [task?.executionId, task?.sessionId, task?.loading, task?.status]);
 
   const syncStreamMeta = useCallback((sessionId: string, handle: StreamHandle) => {
     const executionId = handle.getExecutionId();
@@ -286,7 +322,7 @@ export default function ConsolePage({ mode }: Props) {
         store.updateTask(sessionId, { streamResumeAttempts: 0 });
       }
 
-      if (event === 'complete' || event === 'error') {
+      if (event === 'complete' || event === 'error' || event === 'hitl' || event === 'execution_terminal') {
         setRefreshTick((t) => t + 1);
       }
     },

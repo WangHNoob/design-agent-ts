@@ -176,13 +176,16 @@ export class TaskPlanner {
     skillId: string,
   ): Promise<TaskPlan> {
     const typedRole = role as Role;
+    const warnings: string[] = [];
 
     // Try LLM refinement; fall back to template substitution on failure.
     let refinedReqs: Map<string, string>;
     try {
       refinedReqs = await this.refineRequirements(workflowTasks, requirement);
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       console.warn("[TaskPlanner] LLM refinement failed, using template substitution:", err);
+      warnings.push(`任务细化 LLM 失败，已用模板降级：${detail}`);
       refinedReqs = new Map();
       for (const wt of workflowTasks) {
         refinedReqs.set(wt.taskId, wt.requirementTemplate.replace(/\{requirement\}/g, requirement));
@@ -196,6 +199,7 @@ export class TaskPlanner {
       requirement,
       subTasks,
       skillId,
+      ...(warnings.length > 0 ? { warnings, fallback: true } : {}),
     };
   }
 
@@ -237,10 +241,10 @@ export class TaskPlanner {
     );
 
     if (result.degraded) {
-      console.warn(
-        "[TaskPlanner] refineRequirements structured parse degraded:",
-        result.issues?.join("; "),
-      );
+      const issues = result.issues?.join("; ") ?? "structured parse degraded";
+      console.warn("[TaskPlanner] refineRequirements structured parse degraded:", issues);
+      // Throw so planFromWorkflow records an auditable warning for the UI.
+      throw new Error(`任务细化结构化输出降级：${issues}`);
     }
 
     const map = new Map<string, string>();
@@ -300,11 +304,15 @@ export class TaskPlanner {
     );
 
     if (result.degraded) {
+      const issues = result.issues?.join("; ") ?? "structured parse degraded";
       console.warn(
         "[TaskPlanner] planFromLLM structured parse degraded → single-task fallback:",
-        result.issues?.join("; "),
+        issues,
       );
-      return buildSingleTaskFallbackPlan(requirement, role);
+      return {
+        ...buildSingleTaskFallbackPlan(requirement, role),
+        warnings: [`LLM 任务规划解析失败，已降级为单任务：${issues}`],
+      };
     }
 
     const typedRole = role as Role;
@@ -315,7 +323,10 @@ export class TaskPlanner {
       console.warn(
         "[TaskPlanner] planFromLLM produced no role-accessible subTasks → single-task fallback",
       );
-      return buildSingleTaskFallbackPlan(requirement, role);
+      return {
+        ...buildSingleTaskFallbackPlan(requirement, role),
+        warnings: ["LLM 规划结果无可访问子任务，已降级为单任务"],
+      };
     }
 
     return {
