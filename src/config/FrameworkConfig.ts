@@ -224,4 +224,13 @@ export interface FrameworkConfig {
     sandboxDenyKeywords: string[];
     sandboxBlockPathTraversal: boolean;
   };
+  /**
+   * Saga compensate: reverse-order rollback for side-effect tools on failure/abort.
+   */
+  saga: {
+    /** When false, journal/compensate paths are no-ops. */
+    compensateEnabled: boolean;
+    /** Enqueue compensate failures to audit_logs (action=saga.compensate_failed). */
+    compensateFailureToAudit: boolean;
+  };
 }

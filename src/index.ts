@@ -28,6 +28,28 @@ export {
   DEFAULT_TOOL_FAILURE_POLICY,
   DEFAULT_EXTERNAL_TOOL_FAILURE_POLICY,
 } from "./port/tool/ToolFailurePolicy.js";
+export type { CompensateHandler, CompensateContext } from "./port/tool/ToolCompensate.js";
+export type {
+  CompensateFailureQueuePort,
+  CompensateFailureRecord,
+} from "./port/saga/CompensateFailureQueuePort.js";
+export { SagaCoordinator } from "./core/saga/SagaCoordinator.js";
+export type {
+  SagaCoordinatorOptions,
+  SagaCompensateSummary,
+  SagaJournalEntry,
+} from "./core/saga/SagaCoordinator.js";
+export { InMemoryCompensateFailureQueue } from "./core/saga/InMemoryCompensateFailureQueue.js";
+export { AuditCompensateFailureQueue } from "./core/saga/AuditCompensateFailureQueue.js";
+export { CancellationHook } from "./core/hook/CancellationHook.js";
+export {
+  buildCancellationPayload,
+  isCancellationScenario,
+} from "./core/execution/CancellationPayload.js";
+export type {
+  CancellationStreamPayload,
+  CancelledTaskSummary,
+} from "./core/execution/CancellationPayload.js";
 
 // Port 接口层 — Eval
 export type {

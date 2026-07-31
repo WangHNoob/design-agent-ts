@@ -20,6 +20,9 @@ class TaskTimeoutError extends Error {
   }
 }
 
+/** Short grace period to collect partial output from an in-flight task after abort. */
+const IN_FLIGHT_PARTIAL_OUTPUT_TIMEOUT_MS = 2000;
+
 export class PlanPipeline {
   private layers: string[][];
   private signal?: AbortSignal;
@@ -173,8 +176,8 @@ export class PlanPipeline {
       : undefined;
 
     let result: TaskResult;
+    const execution = Promise.resolve().then(() => this.executor(task, controller.signal));
     try {
-      const execution = Promise.resolve().then(() => this.executor(task, controller.signal));
       const aborted = new Promise<never>((_resolve, reject) => {
         const rejectForAbort = () => reject(
           controller.signal.reason ?? new DOMException("Task aborted", "AbortError"),
@@ -190,17 +193,22 @@ export class PlanPipeline {
       if (isToolHitlRequiredError(error)) {
         throw error;
       }
-      const errorClass = this.signal?.aborted
-        ? "cancelled"
-        : ErrorClassifier.classify(error);
-      result = {
-        taskId: task.id,
-        domain: task.domain,
-        status: errorClass === "cancelled" ? "cancelled" : "error",
-        output: "",
-        errorMessage: ErrorClassifier.message(error),
-        errorClass,
-      };
+      const recovered = await this.tryRecoverInFlightResult(execution);
+      if (recovered) {
+        result = recovered;
+      } else {
+        const errorClass = this.signal?.aborted
+          ? "cancelled"
+          : ErrorClassifier.classify(error);
+        result = {
+          taskId: task.id,
+          domain: task.domain,
+          status: errorClass === "cancelled" ? "cancelled" : "error",
+          output: "",
+          errorMessage: ErrorClassifier.message(error),
+          errorClass,
+        };
+      }
     } finally {
       if (timeout !== undefined) {
         clearTimeout(timeout);
@@ -220,6 +228,31 @@ export class PlanPipeline {
       output: "",
       errorMessage: `Skipped because dependencies did not succeed: ${failedDependencies.join(", ")}`,
     };
+  }
+
+  private async tryRecoverInFlightResult(
+    execution: Promise<TaskResult>,
+  ): Promise<TaskResult | null> {
+    try {
+      const resolved = await Promise.race([
+        execution,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), IN_FLIGHT_PARTIAL_OUTPUT_TIMEOUT_MS)),
+      ]);
+      if (!resolved) {
+        return null;
+      }
+      if (resolved.status === "cancelled" || this.signal?.aborted) {
+        return {
+          ...resolved,
+          status: "cancelled",
+          errorClass: "cancelled",
+          errorMessage: resolved.errorMessage ?? "Cancelled by user",
+        };
+      }
+    } catch {
+      // In-flight executor rejected after abort — no recoverable partial result.
+    }
+    return null;
   }
 
   private async appendCancelledResults(

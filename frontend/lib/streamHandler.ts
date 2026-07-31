@@ -405,6 +405,59 @@ export function handleStreamEvent(
       break;
     }
 
+    case 'cancelled': {
+      const completedTasks = (d.completedTasks as Array<{ id: string; status: string; domain?: string }>) ?? [];
+      const incompleteTasks = (d.incompleteTasks as Array<{ id: string; status: string; domain?: string }>) ?? [];
+      const partialOutput = (d.partialOutput as string) ?? '';
+      const message = (d.message as string) ?? '执行已取消';
+
+      const summaryParts = [
+        message,
+        completedTasks.length > 0
+          ? `已完成 ${completedTasks.length} 项: ${completedTasks.map((t) => t.id).join(', ')}`
+          : '无已完成步骤',
+        incompleteTasks.length > 0
+          ? `未完成 ${incompleteTasks.length} 项: ${incompleteTasks.map((t) => `${t.id}(${t.status})`).join(', ')}`
+          : '无未完成步骤',
+      ];
+      const content = partialOutput
+        ? `${summaryParts.join('\n')}\n\n---\n\n${partialOutput}`
+        : summaryParts.join('\n');
+
+      store.appendMessage(sessionId, {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'system',
+        content,
+        timestamp: getCurrentTime(),
+      });
+
+      store.updateTask(sessionId, {
+        streaming: false,
+        loading: false,
+        status: 'idle',
+        statusText: '已取消',
+        streamingText: '',
+      });
+
+      store.appendTimeline(sessionId, {
+        id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        type: 'phase',
+        title: `已取消 — 完成 ${completedTasks.length} / 未完成 ${incompleteTasks.length}`,
+        status: 'error',
+        detail: incompleteTasks.map((t) => `${t.id}: ${t.status}`).join(', ') || undefined,
+      });
+      store.appendLog(sessionId, {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        time: getCurrentTime(),
+        level: 'warn',
+        source: 'System',
+        message: '执行已取消',
+        data: { completedTasks, incompleteTasks, partialOutput },
+      });
+      break;
+    }
+
     case 'error': {
       const errMsg = (d.error as string) || '未知错误';
       const msg: ChatMessage = {

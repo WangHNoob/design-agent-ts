@@ -14,6 +14,13 @@ import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
 import type { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
 import { isToolFastFailError } from "../../core/tool/ToolFastFailError.js";
 import { isToolHitlRequiredError } from "../../core/tool/ToolHitlRequiredError.js";
+import { SagaCoordinator } from "../../core/saga/SagaCoordinator.js";
+import type { CompensateFailureQueuePort } from "../../port/saga/CompensateFailureQueuePort.js";
+
+export interface LangGraphSagaOptions {
+  readonly enabled: boolean;
+  readonly failureQueue?: CompensateFailureQueuePort;
+}
 
 const AgentState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -27,16 +34,19 @@ export class LangGraphAgentAdapter implements AgentPort {
   private descriptor: AgentDescriptor;
   private compiledGraph: unknown;
   private messageMapper = new LangGraphMessageMapper();
-  private toolAdapter = new LangGraphToolAdapter();
+  private sagaRef = { coordinator: null as SagaCoordinator | null };
+  private toolAdapter: LangGraphToolAdapter;
 
   constructor(
     descriptor: AgentDescriptor,
     tools: ToolPort[],
     private modelAdapter: LangGraphModelAdapter,
     private hooks: AgentHook[],
-    private checkpointer?: MemorySaver
+    private checkpointer?: MemorySaver,
+    private sagaOptions: LangGraphSagaOptions = { enabled: true },
   ) {
     this.descriptor = descriptor;
+    this.toolAdapter = new LangGraphToolAdapter({ sagaRef: this.sagaRef });
     this.compiledGraph = this.buildGraph(tools);
   }
 
@@ -158,6 +168,27 @@ export class LangGraphAgentAdapter implements AgentPort {
     return ctx;
   }
 
+  private beginSaga(sessionId: string): void {
+    this.sagaRef.coordinator = new SagaCoordinator({
+      enabled: this.sagaOptions.enabled,
+      sessionId,
+      agentName: this.descriptor.name,
+      failureQueue: this.sagaOptions.failureQueue,
+    });
+  }
+
+  private commitSaga(): void {
+    this.sagaRef.coordinator?.clear();
+    this.sagaRef.coordinator = null;
+  }
+
+  private async rollbackSaga(reason: string): Promise<void> {
+    const coordinator = this.sagaRef.coordinator;
+    if (!coordinator) return;
+    await coordinator.compensateAll(reason);
+    this.sagaRef.coordinator = null;
+  }
+
   private buildGraph(tools: ToolPort[]) {
     const lgTools = this.toolAdapter.toLangGraphTools(tools);
     const descriptor = this.descriptor;
@@ -183,10 +214,10 @@ export class LangGraphAgentAdapter implements AgentPort {
     };
 
     const llmCall = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {
-      // Early abort check
+      // Early abort check — must propagate, not swallow
       if (config?.signal?.aborted) {
         console.log(`[LangGraphAgentAdapter:${descriptor.name}] Aborted before LLM call`);
-        return { messages: [], iteration: state.iteration };
+        throw new DOMException("Execution cancelled", "AbortError");
       }
 
       const hookCtx = HookContext.create({
@@ -196,11 +227,15 @@ export class LangGraphAgentAdapter implements AgentPort {
         maxIterations: descriptor.maxIterations,
         modelName: modelAdapter.getActiveModelName(),
         messages: state.messages.map((m) => this.messageMapper.fromLangGraph(m)),
+        metadata: { abortSignal: config?.signal },
       });
       const preCtx = await runHooks("pre_reasoning", hookCtx);
       if (preCtx.abort) {
         const reason = preCtx.abortReason ?? "Aborted by pre_reasoning hook";
         console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${reason}`);
+        if (reason === "CANCELLED") {
+          throw new DOMException("Execution cancelled", "AbortError");
+        }
         throw new Error(reason);
       }
 
@@ -281,7 +316,7 @@ export class LangGraphAgentAdapter implements AgentPort {
         );
         if (isAbort) {
           console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM call aborted by signal`);
-          return { messages: [], iteration: state.iteration };
+          throw err instanceof Error ? err : new DOMException("Execution cancelled", "AbortError");
         }
 
         const error = err instanceof Error ? err : new Error(String(err));
@@ -303,7 +338,12 @@ export class LangGraphAgentAdapter implements AgentPort {
     };
 
     const toolNode = new ToolNode(lgTools);
-    const wrappedToolNode = async (state: typeof AgentState.State) => {
+    const wrappedToolNode = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {
+      if (config?.signal?.aborted) {
+        await this.rollbackSaga("aborted_before_tools");
+        throw new DOMException("Execution cancelled", "AbortError");
+      }
+
       const lastMessage = state.messages.at(-1) as AIMessageType | undefined;
       const toolCalls = lastMessage?.tool_calls ?? [];
 
@@ -313,12 +353,16 @@ export class LangGraphAgentAdapter implements AgentPort {
           sessionId: state.sessionId,
           toolName: tc.name,
           toolArguments: tc.args as Record<string, unknown>,
+          metadata: { abortSignal: config?.signal },
         });
         const afterPre = await runHooks("pre_tool_execution", preCtx);
         if (afterPre.abort) {
           const reason = afterPre.abortReason ?? `Tool execution aborted: ${tc.name}`;
           console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${reason}`);
-          throw new Error(reason);
+          await this.rollbackSaga(reason);
+          throw reason === "CANCELLED"
+            ? new DOMException("Execution cancelled", "AbortError")
+            : new Error(reason);
         }
       }
 
@@ -328,12 +372,14 @@ export class LangGraphAgentAdapter implements AgentPort {
       } catch (err) {
         if (isToolFastFailError(err)) {
           console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${err.message}`);
+          await this.rollbackSaga(`tool_fast_fail:${err.toolName}`);
           throw err;
         }
         if (isToolHitlRequiredError(err)) {
           console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${err.message}`);
           throw err;
         }
+        await this.rollbackSaga(err instanceof Error ? err.message : String(err));
         throw err;
       }
 
@@ -344,9 +390,21 @@ export class LangGraphAgentAdapter implements AgentPort {
           sessionId: state.sessionId,
           toolName: tc.name,
           toolResult: JSON.stringify(result.messages.at(-1)?.content ?? ""),
-          metadata: { toolResultMetadata: metadata },
+          metadata: { abortSignal: config?.signal, toolResultMetadata: metadata },
         });
-        await runHooks("post_tool_execution", postCtx);
+        const afterPost = await runHooks("post_tool_execution", postCtx);
+        if (afterPost.abort) {
+          const reason = afterPost.abortReason ?? "Aborted after tool execution";
+          await this.rollbackSaga(reason);
+          throw reason === "CANCELLED"
+            ? new DOMException("Execution cancelled", "AbortError")
+            : new Error(reason);
+        }
+      }
+
+      if (config?.signal?.aborted) {
+        await this.rollbackSaga("aborted_after_tools");
+        throw new DOMException("Execution cancelled", "AbortError");
       }
 
       return result;
@@ -431,6 +489,8 @@ export class LangGraphAgentAdapter implements AgentPort {
         };
       }
 
+      this.beginSaga(sessionId);
+
       const lgMessages = this.messageMapper.toLangGraphList(messages);
       const recursionLimit = this.descriptor.maxIterations * 2 + 4;
       const config: Record<string, unknown> = {
@@ -500,6 +560,20 @@ export class LangGraphAgentAdapter implements AgentPort {
         messages: postCtx.messages,
       }));
 
+      if (options?.signal?.aborted) {
+        console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] Process completed but signal aborted`);
+        await this.rollbackSaga("cancelled");
+        return {
+          agentName: this.descriptor.name,
+          message: responseMessage,
+          metadata: { aborted: true },
+          success: false,
+          errorMessage: "Aborted by user",
+        };
+      }
+
+      this.commitSaga();
+
       return {
         agentName: this.descriptor.name,
         message: responseMessage,
@@ -516,6 +590,7 @@ export class LangGraphAgentAdapter implements AgentPort {
       ) || options?.signal?.aborted;
       if (isAbort) {
         console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] Process aborted by signal`);
+        await this.rollbackSaga("aborted");
         return {
           agentName: this.descriptor.name,
           message: null,
@@ -526,7 +601,14 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
 
       if (isToolHitlRequiredError(err)) {
+        this.commitSaga();
         throw err;
+      }
+
+      if (isToolFastFailError(err)) {
+        await this.rollbackSaga(`fast_fail:${err.toolName}`);
+      } else {
+        await this.rollbackSaga(err instanceof Error ? err.message : String(err));
       }
 
       await this.runHooks("on_error", HookContext.create({
@@ -573,6 +655,8 @@ export class LangGraphAgentAdapter implements AgentPort {
       return;
     }
 
+    this.beginSaga(sessionId);
+
     const lgMessages = this.messageMapper.toLangGraphList(messages);
     const recursionLimit = this.descriptor.maxIterations * 2 + 4;
     const config: Record<string, unknown> = {
@@ -596,10 +680,12 @@ export class LangGraphAgentAdapter implements AgentPort {
       let yielded = false;
       let lastLlmMessage: BaseMessage | null = null;
 
+      let abortedMidStream = false;
       for await (const chunk of stream) {
         // Check abort between chunks
         if (options?.signal?.aborted) {
           console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] Stream aborted by signal`);
+          abortedMidStream = true;
           break;
         }
         for (const [nodeName, nodeOutput] of Object.entries(chunk)) {
@@ -651,6 +737,20 @@ export class LangGraphAgentAdapter implements AgentPort {
         sessionId,
         messages: preCtx.messages ?? [],
       }));
+
+      if (abortedMidStream || options?.signal?.aborted) {
+        await this.rollbackSaga("aborted");
+        yield {
+          agentName: this.descriptor.name,
+          message: null,
+          metadata: { aborted: true },
+          success: false,
+          errorMessage: "Aborted by user",
+        };
+        return;
+      }
+
+      this.commitSaga();
     } catch (err) {
       // Handle abort gracefully
       const isAbort = err instanceof Error && (
@@ -660,6 +760,7 @@ export class LangGraphAgentAdapter implements AgentPort {
       ) || options?.signal?.aborted;
       if (isAbort) {
         console.log(`[LangGraphAgentAdapter:${this.descriptor.name}] ProcessStream aborted by signal`);
+        await this.rollbackSaga("aborted");
         yield {
           agentName: this.descriptor.name,
           message: null,
@@ -671,7 +772,14 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
 
       if (isToolHitlRequiredError(err)) {
+        this.commitSaga();
         throw err;
+      }
+
+      if (isToolFastFailError(err)) {
+        await this.rollbackSaga(`fast_fail:${err.toolName}`);
+      } else {
+        await this.rollbackSaga(err instanceof Error ? err.message : String(err));
       }
 
       await this.runHooks("on_error", HookContext.create({

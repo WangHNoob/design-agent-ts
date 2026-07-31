@@ -18,6 +18,10 @@ import { Router } from "./Router.js";
 import { Integrator } from "./Integrator.js";
 import { PlanPipeline } from "../../pipeline/PlanPipeline.js";
 import { ErrorClassifier } from "../../execution/ErrorClassifier.js";
+import {
+  buildCancellationPayload,
+  isCancellationScenario,
+} from "../../execution/CancellationPayload.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
 import type { TaskPlan } from "../../schema/TaskPlan.js";
@@ -52,7 +56,7 @@ const AGENT_NAME_TO_ROLE: Record<string, string> = {
 };
 
 export interface StreamEvent {
-  type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error"
+  type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error" | "cancelled"
     | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl";
   data: Record<string, unknown>;
 }
@@ -226,7 +230,7 @@ export class DirectorAgent {
             ...event,
             data: { ...event.data, traceId: handle.traceId },
           };
-        } else if (event.type === "complete" || event.type === "error") {
+        } else if (event.type === "complete" || event.type === "error" || event.type === "cancelled") {
           yield {
             ...event,
             data: { ...event.data, traceId: handle.traceId },
@@ -530,6 +534,17 @@ export class DirectorAgent {
       const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
 
+      if (signal?.aborted || response.metadata?.aborted) {
+        return {
+          taskId: task.taskId,
+          domain: task.domain,
+          status: "cancelled",
+          output: AR.getTextContent(response) ?? "",
+          errorMessage: response.errorMessage ?? "Task cancelled by user",
+          errorClass: "cancelled",
+        };
+      }
+
       // Write output to workspace
       let output = AR.getTextContent(response) ?? "";
       if (!output.trim()) {
@@ -591,6 +606,18 @@ export class DirectorAgent {
       const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
       const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
+
+      if (signal?.aborted || response.metadata?.aborted) {
+        const output = AR.getTextContent(response) ?? "";
+        return {
+          taskId: task.taskId,
+          domain: task.domain,
+          status: "cancelled",
+          output,
+          errorMessage: response.errorMessage ?? "Task cancelled by user",
+          errorClass: "cancelled",
+        };
+      }
 
       let output = AR.getTextContent(response) ?? "";
       if (!output.trim()) {
@@ -877,6 +904,16 @@ export class DirectorAgent {
         yield event;
       }
 
+      if (signal?.aborted) {
+        yield {
+          type: "cancelled",
+          data: {
+            ...buildCancellationPayload([], finalOutput, "Query execution cancelled"),
+          },
+        };
+        return;
+      }
+
       yield { type: "complete", data: { success: true, output: finalOutput } };
     } catch (err) {
       if (isToolHitlRequiredError(err)) {
@@ -1060,8 +1097,28 @@ export class DirectorAgent {
       }
 
       const failedResult = results.find(
-        (result) => result.status === "error" || result.status === "cancelled",
+        (result) => result.status === "error",
       );
+      const cancelledScenario = isCancellationScenario(results, signal);
+
+      if (cancelledScenario) {
+        const successOutputs = results
+          .filter((result) => result.status === "success" && result.output.trim())
+          .map((result) => `### ${result.taskId}\n${result.output}`)
+          .join("\n\n");
+        yield {
+          type: "cancelled",
+          data: {
+            ...buildCancellationPayload(
+              results,
+              successOutputs || undefined,
+              "Design execution cancelled",
+            ),
+          },
+        };
+        return;
+      }
+
       if (failedResult) {
         yield {
           type: "error",
