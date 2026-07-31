@@ -131,8 +131,12 @@ game-designer-ts 的回答是：**把一份策划案当成一个团队项目来�
 | `mcp/` | `McpClientPort` | MCP 协议客户端 |
 | `queue/` | `MessageQueuePort` | 消息队列 |
 | `blackboard/` | 会话级共享缓存 | 工具/联网结果去重 |
-| `infra/` | `IdGeneratorPort`, `DatabasePort` | ID / 数据库 |
-| `tracing/` | 链路追踪 | 可观测性 |
+| `infra/` | `IdGeneratorPort`, `DatabasePort`, `ContextStoragePort` | ID / 数据库 / 异步上下文 |
+| `tracing/` | `TracerPort`, `TraceStorePort` | Session / Trace / Span 可观测 |
+| `audit/` | `AuditStorePort` | 审计日志 |
+| `cost/` | `CostStorePort`, `RateLimitPort` | 成本归因与 RPM/TPM |
+| `eval/` | `EvalStorePort`, `ScorerPort` | Online/Offline 评测 |
+| `versioning/` | `VersionStorePort` | Prompt/Skill/Workflow 版本快照 |
 | `message/` | `ChatMessage` | 消息数据结构 |
 
 ---
@@ -186,12 +190,17 @@ hitl-3-final        → 最终整合结果，人工验收
 
 ### 执行与流式输出
 
-HTTP 只负责创建幂等 Execution 并入队；`ExecutionWorker` 消费 Redis Streams，把进度写入可重放事件日志，SSE 断开不取消业务执行。
+HTTP 只负责创建幂等 Execution 并入队；`ExecutionWorker` 消费 Redis Streams，把进度写入可重放事件日志。
 
 - **query 模式**：直接转发模型 token 流。
-- **design 模式**：结构化进度事件（`plan` / `route` / `task_start` / `task_complete` / `integrate` / `hitl`）。
+- **design 模式**：结构化进度事件（`plan` / `route` / `task_start` / `task_complete` / `integrate` / `hitl` / `cancelled`）。
+- **SSE 产品化**：周期性 `: heartbeat` comment；`Last-Event-ID` / `GET .../executions/:id/events` 续订；**断连只停订阅，不杀 Worker**；刷新可用 `GET /executions/:id` 拉终态。
 
 **禁止**执行完成后伪分块模拟流式。
+
+### 企业级运行时能力（已落地）
+
+在 P0 基础设施之上，编排侧现役能力包括：Trace 九态落库、Token/工具循环硬护栏、模型 Fallback、工具四策略与 MCP 熔断、Eval V1（`pnpm eval:offline`）、HITL 运营面（超时/CAS）、审计与工具风险分级、成本 RPM/TPM、Saga 补偿与协作式取消、Prompt/Skill/Workflow 版本快照、Plan 硬保障、跨 Agent 失控防护与 Handoff、记忆驱逐前归档、结构化输出校验重试。细节与环境变量见 `.env.example` 与 `AGENTS.md`「运行时护栏」。可选的浏览器 e2e / 第二适配器 PoC **未做**。
 
 ---
 
@@ -231,16 +240,25 @@ src/
 ├── port/          # 纯接口定义（含 execution / hitl / queue 等）
 ├── core/          # 框架无关业务逻辑
 │   ├── agent/     #   DirectorAgent + 6 个子 Agent
-│   ├── pipeline/  #   依赖感知的任务流水线（含 skipped）
+│   ├── pipeline/  #   依赖感知的任务流水线（含 skipped / fan-out）
+│   ├── plan/      #   Plan 硬保障（白名单 / 重规划）
+│   ├── multiagent/#   调用栈守卫、Handoff、invoke_agent
+│   ├── structured/#   LLM JSON schema 校验与重试
+│   ├── resilience/#   熔断器注册表
 │   ├── execution/ #   执行状态机与幂等服务
 │   ├── blackboard/#   团队共享黑板（工具/联网结果缓存）
-│   ├── hitl/      #   DurableHumanReviewGateway 等
+│   ├── hitl/      #   DurableHumanReviewGateway / 超时运营
 │   ├── hook/      #   生命周期拦截
-│   ├── memory/    #   长期记忆
+│   ├── memory/    #   短时滑窗归档 + 长期记忆
+│   ├── eval/      #   Eval V1
+│   ├── versioning/#   制品版本与会话快照
+│   ├── cost/      #   成本计量与限流
+│   ├── saga/      #   补偿协调
+│   ├── audit/     #   审计（内存实现；PG 在 adapter）
 │   ├── schema/    #   领域模型
 │   ├── session/   #   会话管理
 │   ├── skill/     #   技能/工作流
-│   ├── tool/      #   业务工具
+│   ├── tool/      #   业务工具（含 MCP 适配）
 │   ├── user/      #   用户上下文
 │   └── workspace/ #   工作区管理
 ├── adapter/       # 框架与基础设施适配器
@@ -304,6 +322,7 @@ pnpm dev:web      # 前端（3001）
 
 pnpm test
 pnpm run build
+pnpm eval:offline   # Eval V1 Offline（默认 exact_match，无需 LLM）
 ```
 
 `pnpm dev:local` 还会尝试拉起 Knowledge Hub；脚本内 KH 路径是本机约定，换机器需改 `scripts/start-local.mjs`。

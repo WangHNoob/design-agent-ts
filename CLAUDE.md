@@ -81,8 +81,19 @@
 - 降级行为必须返回可审计标记（`ReviewResult.fallback: true`），**禁止静默通过 / 静默自动批准**
 
 ### Hooks 系统
-- `LangGraphAgentAdapter` 必须在关键阶段调用 hooks：`pre/post_reasoning`、`pre/post_tool_execution`、`pre/post_agent_call`、`on_error`、`on_iteration_budget`
+- `LangGraphAgentAdapter` 必须在关键阶段调用 hooks：`pre/post_reasoning`、`pre/post_tool_execution`、`pre/post_agent_call`、`pre/post_summary`、`on_error`、`on_iteration_budget`
 - Hooks 定义在 `port/` 层，实现放在 `core/hook/`
+
+### 运行时护栏（现役，勿静默拆除）
+- **观测**：Session/Trace/Span 九态落库；降级与拒绝须可审计（`fallback` / Trace span）
+- **弹性**：模型 Fallback 链；工具四策略（retry / return_to_llm / degrade / fast_fail）+ 外部/MCP 熔断；Token 硬预算与工具循环检测
+- **Plan**：代码驱动 DAG；步骤 `allowedTools`（`[]` = 禁止外部工具）；有限重规划
+- **多 Agent**：全局 Token、fan-out 分批、`invoke_agent` 深度/环检测、Handoff 蒸馏（下游禁灌全文轨迹）
+- **结构化输出**：LLM JSON 经 schema 校验 → 错因重试 → 可审计降级/抛错；**禁止**静默空计划
+- **MCP**：默认 `on_demand` 按前缀/Skill/任务白名单暴露；与进程内工具同一韧性与安全包装
+- **SSE**：心跳 comment；按 `executionId` 续订（不新建 execution）；断连只停订阅不杀 Worker
+- **版本**：Prompt/Skill/Workflow 会话快照 MVCC；灰度/回滚不改写已绑定会话
+- **知识库**：Wiki/RAG/向量索引归独立项目 `knowledge-hub`；本仓只保留工具适配点
 
 ---
 

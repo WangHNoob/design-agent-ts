@@ -80,6 +80,7 @@ MQ_CONSUMER_GROUP=gd-workers
 
 > **重要**: `BETTER_AUTH_SECRET` 绝不能使用默认值；缺少有效密钥、PostgreSQL、Redis 或 `MQ_ENABLED=true` 时进程会 fail-fast。
 > 已退役开关：`USER_SYSTEM_ENABLED`、`USER_SYSTEM_REDIS_ENABLED`、`AUTO_INIT_SCHEMA`、`LTM_STORAGE_PATH` —— 不要再写进 `.env`。
+> 观测 / Plan / 多 Agent / SSE / MCP 按需暴露 / 成本限流等开关以 `.env.example` 为准（如 `TRACING_*`、`PLAN_*`、`MULTI_AGENT_*`、`SSE_HEARTBEAT_MS`、`MCP_EXPOSE_MODE`），勿抄过期 blog 默认值。
 
 ### 4.3 Better Auth 对外地址
 
