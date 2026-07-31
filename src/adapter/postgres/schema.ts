@@ -235,3 +235,80 @@ export const longTermMemory = pgTable(
     index("idx_ltm_type").on(table.semanticType),
   ],
 );
+
+/** Observability: one row per chat session that has produced agent traces. */
+export const agentTraceSessions = pgTable(
+  "agent_trace_sessions",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    sessionId: varchar("session_id", { length: 100 }).notNull(),
+    createdAt,
+  },
+  (table) => [
+    unique("agent_trace_sessions_user_session_unique").on(table.userId, table.sessionId),
+    index("idx_agent_trace_sessions_user_session").on(table.userId, table.sessionId),
+  ],
+);
+
+/** One agent run (Director execute / stream). */
+export const agentTraces = pgTable(
+  "agent_traces",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    traceSessionId: varchar("trace_session_id", { length: 100 })
+      .notNull()
+      .references(() => agentTraceSessions.id, { onDelete: "cascade" }),
+    sessionId: varchar("session_id", { length: 100 }).notNull(),
+    executionId: varchar("execution_id", { length: 100 }),
+    name: varchar("name", { length: 255 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("unset"),
+    attributes: jsonb("attributes").notNull().default({}),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    createdAt,
+  },
+  (table) => [
+    index("idx_agent_traces_user_session").on(table.userId, table.sessionId, table.startedAt),
+    index("idx_agent_traces_user_execution").on(table.userId, table.executionId),
+    check("agent_traces_status_check", sql`${table.status} in ('ok', 'error', 'unset')`),
+  ],
+);
+
+/** Immutable span rows (write-once). Nine phases align with ReAct hook points. */
+export const agentSpans = pgTable(
+  "agent_spans",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    traceId: varchar("trace_id", { length: 100 })
+      .notNull()
+      .references(() => agentTraces.id, { onDelete: "cascade" }),
+    parentSpanId: varchar("parent_span_id", { length: 100 }),
+    name: varchar("name", { length: 255 }).notNull(),
+    phase: varchar("phase", { length: 40 }),
+    kind: varchar("kind", { length: 20 }).notNull().default("internal"),
+    status: varchar("status", { length: 20 }).notNull().default("unset"),
+    attributes: jsonb("attributes").notNull().default({}),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }).notNull(),
+    createdAt,
+  },
+  (table) => [
+    index("idx_agent_spans_user_trace").on(table.userId, table.traceId, table.startedAt),
+    index("idx_agent_spans_parent").on(table.userId, table.parentSpanId),
+    check("agent_spans_kind_check", sql`${table.kind} in ('internal', 'client', 'server')`),
+    check("agent_spans_status_check", sql`${table.status} in ('ok', 'error', 'unset')`),
+    check(
+      "agent_spans_phase_check",
+      sql`${table.phase} is null or ${table.phase} in (
+        'pre_reasoning', 'post_reasoning',
+        'pre_tool_execution', 'post_tool_execution',
+        'pre_summary', 'post_summary',
+        'pre_agent_call', 'post_agent_call',
+        'on_error'
+      )`,
+    ),
+  ],
+);

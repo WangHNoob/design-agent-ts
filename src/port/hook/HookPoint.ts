@@ -6,5 +6,6 @@ export type HookPoint =
   | "pre_agent_call"
   | "post_agent_call"
   | "pre_summary"
+  | "post_summary"
   | "on_error"
   | "on_iteration_budget";

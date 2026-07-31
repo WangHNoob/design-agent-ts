@@ -425,6 +425,12 @@ export class LangGraphAgentAdapter implements AgentPort {
         messages: postCtx.messages,
       }));
 
+      await this.runHooks("post_summary", HookContext.create({
+        agentName: this.descriptor.name,
+        sessionId,
+        messages: postCtx.messages,
+      }));
+
       return {
         agentName: this.descriptor.name,
         message: responseMessage,
@@ -556,6 +562,18 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
 
       await this.runHooks("post_agent_call", HookContext.create({
+        agentName: this.descriptor.name,
+        sessionId,
+        messages: preCtx.messages ?? [],
+      }));
+
+      await this.runHooks("pre_summary", HookContext.create({
+        agentName: this.descriptor.name,
+        sessionId,
+        messages: preCtx.messages ?? [],
+      }));
+
+      await this.runHooks("post_summary", HookContext.create({
         agentName: this.descriptor.name,
         sessionId,
         messages: preCtx.messages ?? [],
