@@ -133,6 +133,22 @@ export interface FrameworkConfig {
   mcp: {
     enabled: boolean;
     servers: McpServerConfig[];
+    /**
+     * How MCP tools are granted to agents.
+     * - all: every registered MCP tool is visible to all sub-agents / query
+     * - on_demand (default): only defaultExposePrefixes ∪ skill/task allowlists
+     */
+    exposeMode: "all" | "on_demand";
+    /**
+     * Prefixes / patterns always exposed in on_demand mode (e.g. ["kb_"]).
+     * Supports exact names, prefixes ending with `_`, or `prefix*`.
+     */
+    defaultExposePrefixes: string[];
+    /**
+     * Optional per-skill MCP tool allowlist (skillName → patterns).
+     * Merged with SKILL.md frontmatter `mcpTools` when present.
+     */
+    skillToolAllowlist: Record<string, string[]>;
   };
   /**
    * Tool groups to enable. If empty, all groups are enabled.

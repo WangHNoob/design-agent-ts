@@ -174,6 +174,41 @@ export { ToolWhitelistWrapper, WhitelistToolRegistry } from "./core/tool/ToolWhi
 export type { ToolWhitelistOptions } from "./core/tool/ToolWhitelistWrapper.js";
 export type { DirectorPlanHardConfig, DirectorMultiAgentConfig } from "./core/agent/director/DirectorAgent.js";
 
+// Structured output closed loop (schema validate → retry with issues → degrade/hitl)
+export {
+  StructuredParseError,
+  StructuredExhaustedError,
+  isStructuredParseError,
+  isStructuredExhaustedError,
+  parseJsonWithSchema,
+  extractJsonObject,
+  extractJsonArray,
+  generateStructured,
+  DomainSchema,
+  TaskPlanSchema,
+  RouteDecisionArraySchema,
+  ReplanRemainingArraySchema,
+  RefinedRequirementsArraySchema,
+  toolNameMatchesPattern,
+  filterToolsByPatterns,
+  mcpPatternsFromAllowedTools,
+  resolveExposedMcpTools,
+  stripAndMergeMcpToolNames,
+} from "./core/structured/index.js";
+export type {
+  StructuredExhaustedMode,
+  ParseJsonWithSchemaOptions,
+  GenerateStructuredOptions,
+  GenerateStructuredResult,
+  TaskPlanParsed,
+  RouteDecisionParsed,
+  ReplanRemainingParsed,
+  RefinedRequirementsParsed,
+  McpExposeMode,
+  ResolveExposedMcpToolsInput,
+} from "./core/structured/index.js";
+
+
 // Multi-agent runaway guards + Handoff (paradigm III)
 export {
   AgentCallGuard,

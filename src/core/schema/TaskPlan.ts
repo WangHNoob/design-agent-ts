@@ -50,4 +50,11 @@ export interface TaskPlan {
   readonly subTasks: SubTask[];
   /** Set when the plan was derived from a workflow skill. */
   readonly skillId?: string;
+  /**
+   * Auditable mark: structured LLM parse exhausted and a fallback plan was used.
+   * Never treat a silent empty plan as success — prefer this flag or a loud failure.
+   */
+  readonly fallback?: boolean;
+  /** Alias of fallback for parse-path degradation (structured output closed loop). */
+  readonly parseFallback?: boolean;
 }

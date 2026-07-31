@@ -41,6 +41,30 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   );
 }
 
+/**
+ * Parse MCP_SKILL_TOOL_ALLOWLIST env (JSON object: skillName → string[]).
+ * Malformed JSON is ignored with a warning.
+ */
+function parseSkillToolAllowlist(raw: string | undefined): Record<string, string[]> {
+  if (!raw || raw.trim().length === 0) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, string[]> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(value)) {
+        out[key] = value.map((v) => String(v)).filter((v) => v.length > 0);
+      }
+    }
+    return out;
+  } catch (err) {
+    console.warn(
+      `[loadConfig] MCP_SKILL_TOOL_ALLOWLIST is not valid JSON, ignoring: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return {};
+  }
+}
+
 function resolveHitlTimeoutPolicy(): HITLTimeoutPolicy {
   const raw = process.env.HITL_TIMEOUT_POLICY?.trim();
   if (raw && isHITLTimeoutPolicy(raw)) return raw;
@@ -196,6 +220,11 @@ export function loadConfig(): FrameworkConfig {
     mcp: {
       enabled: process.env.MCP_ENABLED === "true",
       servers: parseMcpServers(process.env.MCP_SERVERS),
+      exposeMode: process.env.MCP_EXPOSE_MODE === "all" ? "all" : "on_demand",
+      defaultExposePrefixes: process.env.MCP_DEFAULT_EXPOSE_PREFIXES !== undefined
+        ? process.env.MCP_DEFAULT_EXPOSE_PREFIXES.split(",").map((s) => s.trim()).filter(Boolean)
+        : ["kb_"],
+      skillToolAllowlist: parseSkillToolAllowlist(process.env.MCP_SKILL_TOOL_ALLOWLIST),
     },
     enabledToolGroups: process.env.ENABLED_TOOL_GROUPS
       ? process.env.ENABLED_TOOL_GROUPS.split(",").map((s) => s.trim()).filter(Boolean)
