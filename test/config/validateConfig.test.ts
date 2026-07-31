@@ -129,6 +129,15 @@ function config(
       globalTpmLimit: 0,
       tpmEstimatePerCall: 8000,
     },
+    saga: {
+      compensateEnabled: true,
+      compensateFailureToAudit: true,
+    },
+    versioning: {
+      enabled: false,
+      defaultCanaryPercent: 0,
+      snapshotTtlMs: 0,
+    },
   };
 }
 

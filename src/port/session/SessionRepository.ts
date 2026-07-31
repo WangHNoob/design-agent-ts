@@ -17,6 +17,8 @@ export interface SessionMeta {
   output?: string;
   error?: string;
   hitlCheckpointId?: string;
+  /** Pinned artifact version snapshot (MVCC). */
+  versionSnapshotId?: string;
 }
 
 export interface SessionRepository {
