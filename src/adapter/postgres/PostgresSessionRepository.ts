@@ -15,8 +15,8 @@ export class PostgresSessionRepository implements SessionRepository {
 
   async create(meta: SessionMeta): Promise<void> {
     await this.db.query(
-      `INSERT INTO sessions (id, user_id, requirement, mode, role, status, output, error, hitl_checkpoint_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO sessions (id, user_id, requirement, mode, role, status, output, error, hitl_checkpoint_id, version_snapshot_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (id) DO NOTHING`,
       {
         1: meta.id,
@@ -28,8 +28,9 @@ export class PostgresSessionRepository implements SessionRepository {
         7: meta.output ?? null,
         8: meta.error ?? null,
         9: meta.hitlCheckpointId ?? null,
-        10: meta.createdAt,
-        11: meta.updatedAt,
+        10: meta.versionSnapshotId ?? null,
+        11: meta.createdAt,
+        12: meta.updatedAt,
       }
     );
   }
@@ -47,6 +48,7 @@ export class PostgresSessionRepository implements SessionRepository {
       output: "output",
       error: "error",
       hitl_checkpoint_id: "hitlCheckpointId",
+      version_snapshot_id: "versionSnapshotId",
     };
 
     for (const [dbCol, metaKey] of Object.entries(fieldMap)) {
@@ -109,6 +111,7 @@ export class PostgresSessionRepository implements SessionRepository {
       output: this.optionalString(row.output),
       error: this.optionalString(row.error),
       hitlCheckpointId: this.optionalString(row.hitl_checkpoint_id),
+      versionSnapshotId: this.optionalString(row.version_snapshot_id),
     };
   }
 

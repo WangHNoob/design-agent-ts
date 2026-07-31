@@ -12,6 +12,7 @@ import { usersRoute } from "./routes/users.js";
 import { tracesRoute } from "./routes/traces.js";
 import { auditRoute } from "./routes/audit.js";
 import { costRoute } from "./routes/cost.js";
+import { versionsRoute } from "./routes/versions.js";
 import type { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
 import type { TenantContext } from "../port/user/TenantIsolationPort.js";
@@ -95,6 +96,7 @@ export function createApp() {
   app.route("/api/prompts", promptsRoute);
   app.route("/api/skills", skillsRoute);
   app.route("/api/workflows", workflowsRoute);
+  app.route("/api/versions", versionsRoute);
 
   // ─── Health & Monitoring ───────────────────────────────────────
   app.get("/health", async (c) => {
