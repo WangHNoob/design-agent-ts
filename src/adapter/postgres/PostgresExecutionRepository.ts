@@ -148,9 +148,10 @@ export class PostgresExecutionRepository implements ExecutionRepository {
          id, user_id, execution_id, task_key, name, agent_name, status,
          dependencies, input_payload, position, created_at, updated_at
        )
-       SELECT $1, $2, e.id, $4, $5, $6, 'pending', $7, $8, $9, $10, $10
+       SELECT $1::varchar, $2::varchar, e.id, $4::varchar, $5::varchar, $6::varchar, 'pending',
+              $7::jsonb, $8::jsonb, $9::int, $10::timestamptz, $10::timestamptz
        FROM executions e
-       WHERE e.id = $3 AND e.user_id = $2
+       WHERE e.id = $3::varchar AND e.user_id = $2::varchar
        ON CONFLICT (user_id, execution_id, task_key)
        DO UPDATE SET task_key = EXCLUDED.task_key
        RETURNING *, (xmax = 0) AS created`,
@@ -161,8 +162,8 @@ export class PostgresExecutionRepository implements ExecutionRepository {
         4: input.taskKey,
         5: input.name,
         6: input.agentName ?? null,
-        7: input.dependencies ?? [],
-        8: input.inputPayload ?? {},
+        7: JSON.stringify(input.dependencies ?? []),
+        8: JSON.stringify(input.inputPayload ?? {}),
         9: input.position ?? 0,
         10: now,
       },
@@ -240,9 +241,10 @@ export class PostgresExecutionRepository implements ExecutionRepository {
          id, user_id, execution_id, task_id, attempt_number, status,
          input_payload, started_at, created_at
        )
-       SELECT $1, $2, t.execution_id, t.id, $5, 'running', $6, $7, $7
+       SELECT $1::varchar, $2::varchar, t.execution_id, t.id, $5::int, 'running',
+              $6::jsonb, $7::timestamptz, $7::timestamptz
        FROM execution_tasks t
-       WHERE t.id = $4 AND t.execution_id = $3 AND t.user_id = $2
+       WHERE t.id = $4::varchar AND t.execution_id = $3::varchar AND t.user_id = $2::varchar
        ON CONFLICT (user_id, task_id, attempt_number)
        DO UPDATE SET attempt_number = EXCLUDED.attempt_number
        RETURNING *, (xmax = 0) AS created`,
@@ -252,7 +254,7 @@ export class PostgresExecutionRepository implements ExecutionRepository {
         3: input.executionId,
         4: input.taskId,
         5: input.attemptNumber,
-        6: input.inputPayload ?? {},
+        6: JSON.stringify(input.inputPayload ?? {}),
         7: startedAt,
       },
     );
