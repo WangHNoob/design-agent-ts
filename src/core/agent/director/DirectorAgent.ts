@@ -16,7 +16,6 @@ import type { WorkspaceManager } from "../../workspace/WorkspaceManager.js";
 import { TaskPlanner } from "./TaskPlanner.js";
 import { Router } from "./Router.js";
 import { Integrator } from "./Integrator.js";
-import { PlanPipeline } from "../../pipeline/PlanPipeline.js";
 import { ErrorClassifier } from "../../execution/ErrorClassifier.js";
 import {
   buildCancellationPayload,
@@ -24,7 +23,7 @@ import {
 } from "../../execution/CancellationPayload.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
-import type { TaskPlan } from "../../schema/TaskPlan.js";
+import type { SubTask, TaskPlan } from "../../schema/TaskPlan.js";
 import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
 import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
@@ -34,9 +33,13 @@ import { WorkspaceListTool } from "../../tool/workspace/WorkspaceListTool.js";
 import { DelegatingTool } from "../../tool/DelegatingTool.js";
 import { BlackboardTool } from "../../tool/BlackboardTool.js";
 import { CachingToolRegistry } from "../../tool/CachingToolRegistry.js";
+import { WhitelistToolRegistry } from "../../tool/ToolWhitelistWrapper.js";
 import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPort.js";
 import { isToolHitlRequiredError, type ToolHitlRequiredError } from "../../tool/ToolHitlRequiredError.js";
 import type { ExecutionOverrides } from "../../versioning/buildExecutionOverrides.js";
+import { PlanHardGuard } from "../../plan/PlanHardGuard.js";
+import { PlanReplanner } from "../../plan/PlanReplanner.js";
+import { runPlanWithReplan } from "../../plan/runPlanWithReplan.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -58,7 +61,7 @@ const AGENT_NAME_TO_ROLE: Record<string, string> = {
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error" | "cancelled"
-    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl";
+    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl" | "replan";
   data: Record<string, unknown>;
 }
 
@@ -112,6 +115,14 @@ export interface DirectorPrompts {
   router?: string;
 }
 
+/** Plan hard-guard knobs injected from FrameworkConfig.guards (composition root). */
+export interface DirectorPlanHardConfig {
+  enabled: boolean;
+  maxReplans: number;
+  rejectUnauthorizedTools: boolean;
+  domainToolDefaults: Record<string, string[]>;
+}
+
 export interface DirectorDeps {
   model: ChatModelPort;
   agentFactory: AgentFactory;
@@ -146,6 +157,8 @@ export interface DirectorDeps {
   resolveUserId?: () => string | undefined;
   /** Optional security wrapper for session-scoped tools. */
   wrapTool?: (tool: ToolPort) => ToolPort;
+  /** Plan hard guards (step tools / replan budget). Defaults: enabled. */
+  planHard?: DirectorPlanHardConfig;
 }
 
 export class DirectorAgent {
@@ -186,6 +199,129 @@ export class DirectorAgent {
     if (!base) return undefined;
     if (override) return { ...base, systemPrompt: override };
     return base;
+  }
+
+  private planHardConfig(): DirectorPlanHardConfig {
+    return {
+      enabled: this.deps.planHard?.enabled !== false,
+      maxReplans: this.deps.planHard?.maxReplans ?? 2,
+      rejectUnauthorizedTools: this.deps.planHard?.rejectUnauthorizedTools !== false,
+      domainToolDefaults: this.deps.planHard?.domainToolDefaults ?? {},
+    };
+  }
+
+  private async safeRecordPlanSpan(
+    name: string,
+    attributes: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.deps.tracer?.recordSpan({
+        name,
+        kind: "internal",
+        status: name.includes("denied") || name.includes("exhausted") ? "error" : "ok",
+        attributes,
+      });
+    } catch {
+      // Trace must never break plan execution.
+    }
+  }
+
+  private resolveTaskAllowedTools(task: Pick<SubTask, "domain" | "allowedTools">): readonly string[] {
+    return PlanHardGuard.resolveAllowedTools(task, {
+      domainToolDefaults: this.planHardConfig().domainToolDefaults,
+    });
+  }
+
+  private buildMergedExecutablePlan(
+    plan: TaskPlan,
+    assignments: TaskAssignment[],
+    requirement: string,
+  ): TaskPlan {
+    return {
+      planId: plan.planId,
+      requirement,
+      skillId: plan.skillId,
+      subTasks: assignments.map((a) => {
+        const originalSubTask = plan.subTasks.find(
+          (st) => st.id === a.taskId || st.fragmentId === a.taskId,
+        );
+        // Preserve explicit allowedTools (including []); leave undefined for prepareTaskAgent
+        const allowedTools = a.allowedTools !== undefined
+          ? a.allowedTools
+          : originalSubTask?.allowedTools;
+        return {
+          id: a.taskId,
+          fragmentId: a.taskId,
+          domain: a.domain,
+          description: a.assignment,
+          dependencies: originalSubTask?.dependencies ?? a.dependencies ?? [],
+          priority: originalSubTask?.priority ?? 1,
+          ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
+        };
+      }),
+    };
+  }
+
+  private mapRoutingToAssignments(
+    plan: TaskPlan,
+    routing: Awaited<ReturnType<Router["route"]>>,
+    options?: DirectorStreamOptions,
+  ): TaskAssignment[] {
+    return routing
+      .map((decision): TaskAssignment | null => {
+        const descriptor = this.getAgentDescriptor(decision.agentName, options);
+        if (!descriptor) {
+          console.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
+          return null;
+        }
+        const originalSubTask = plan.subTasks.find(
+          (st) => st.id === decision.fragmentId || st.fragmentId === decision.fragmentId,
+        );
+        // Only pass through when the plan explicitly declared allowedTools (incl. [])
+        const allowedTools = originalSubTask?.allowedTools;
+        return {
+          taskId: decision.fragmentId,
+          domain: decision.domain,
+          assignment: decision.assignment,
+          agentDescriptor: descriptor,
+          dependencies: originalSubTask?.dependencies ?? [],
+          ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
+        };
+      })
+      .filter((a): a is TaskAssignment => a !== null);
+  }
+
+  private prepareTaskAgent(
+    task: TaskAssignment,
+    sessionId: string,
+    options?: DirectorStreamOptions,
+  ): { descriptor: AgentDescriptor; toolRegistry: ToolRegistry } {
+    const planHard = this.planHardConfig();
+    // Resolve here: undefined → domain defaults; [] → no external tools
+    const allowedTools = this.resolveTaskAllowedTools({
+      domain: task.domain,
+      allowedTools: task.allowedTools,
+    });
+
+    let descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
+    if (planHard.enabled) {
+      descriptor = {
+        ...descriptor,
+        toolNames: PlanHardGuard.filterToolNames(descriptor.toolNames, allowedTools),
+      };
+    }
+
+    let toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
+    if (planHard.enabled) {
+      toolRegistry = new WhitelistToolRegistry(toolRegistry, {
+        taskId: task.taskId,
+        allowedTools,
+        rejectUnauthorized: planHard.rejectUnauthorizedTools,
+        onDenied: (info) => this.safeRecordPlanSpan("plan.tool_denied", { ...info }),
+      });
+    }
+
+    return { descriptor, toolRegistry };
   }
 
   async execute(
@@ -384,24 +520,11 @@ export class DirectorAgent {
 
     const routing = await this.getRouter(options).route(reviewedPlan.modifications ?? plan, role);
 
-    // Map RouteDecision[] to TaskAssignment[]
-    const assignments: TaskAssignment[] = routing
-      .map((decision): TaskAssignment | null => {
-        const descriptor = this.getAgentDescriptor(decision.agentName, options);
-        if (!descriptor) {
-          console.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
-          return null;
-        }
-        const originalSubTask = plan.subTasks.find((st) => st.id === decision.fragmentId || st.fragmentId === decision.fragmentId);
-        return {
-          taskId: decision.fragmentId,
-          domain: decision.domain,
-          assignment: decision.assignment,
-          agentDescriptor: descriptor,
-          dependencies: originalSubTask?.dependencies ?? [],
-        };
-      })
-      .filter((a): a is TaskAssignment => a !== null);
+    const assignments = this.mapRoutingToAssignments(
+      reviewedPlan.modifications ?? plan,
+      routing,
+      options,
+    );
 
     if (this.deps.workspace) {
       for (const assignment of assignments) {
@@ -409,42 +532,85 @@ export class DirectorAgent {
       }
     }
 
-    // Merge assignments back into plan subTasks so PlanPipeline can execute them
-    const mergedPlan = {
-      planId: plan.planId,
+    const mergedPlan = this.buildMergedExecutablePlan(
+      reviewedPlan.modifications ?? plan,
+      assignments,
       requirement,
-      subTasks: assignments.map((a) => {
-        const originalSubTask = plan.subTasks.find((st) => st.id === a.taskId || st.fragmentId === a.taskId);
-        return {
-          id: a.taskId,
-          fragmentId: a.taskId,
-          domain: a.domain,
-          description: a.assignment,
-          dependencies: originalSubTask?.dependencies ?? [],
-          priority: originalSubTask?.priority ?? 1,
-        };
-      }),
-    };
-
-    const pipeline = new PlanPipeline(
-      mergedPlan,
-      (task, taskSignal) => this.executeSingleTask(
-        {
-          taskId: task.id,
-          domain: task.domain,
-          assignment: task.description,
-          agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor
-            ?? this.getAgentDescriptor("SystemDesigner", options)!,
-          dependencies: task.dependencies,
-        },
-        sessionId,
-        traceId,
-        taskSignal,
-        options,
-      ),
-      signal
     );
-    const results = await pipeline.execute();
+
+    const planHard = this.planHardConfig();
+    const assignmentsById = new Map(assignments.map((a) => [a.taskId, a]));
+    const replanner = new PlanReplanner(this.deps.model, {
+      domainToolDefaults: planHard.domainToolDefaults,
+    });
+
+    const runResult = await runPlanWithReplan({
+      plan: mergedPlan,
+      enabled: planHard.enabled,
+      maxReplans: planHard.maxReplans,
+      replanner,
+      initialResults: options?.initialTaskResults,
+      onAudit: (name, attributes) => this.safeRecordPlanSpan(name, attributes),
+      onReplan: async ({ remaining, plan: nextPlan }) => {
+        const fragment: TaskPlan = {
+          planId: nextPlan.planId,
+          requirement: nextPlan.requirement,
+          subTasks: [...remaining],
+        };
+        const reRoute = await this.getRouter(options).route(fragment, role);
+        for (const a of this.mapRoutingToAssignments(fragment, reRoute, options)) {
+          assignmentsById.set(a.taskId, a);
+          this.deps.workspace?.registerTaskDir(sessionId, a.taskId, a.domain);
+        }
+      },
+      executor: (task, taskSignal) => {
+        const existing = assignmentsById.get(task.id);
+        const assignment: TaskAssignment = existing
+          ? {
+              ...existing,
+              assignment: task.description,
+              dependencies: task.dependencies,
+              allowedTools: task.allowedTools ?? existing.allowedTools,
+            }
+          : {
+              taskId: task.id,
+              domain: task.domain,
+              assignment: task.description,
+              agentDescriptor: this.getAgentDescriptor("SystemDesigner", options)!,
+              dependencies: task.dependencies,
+              allowedTools: task.allowedTools,
+            };
+        assignmentsById.set(task.id, assignment);
+        return this.executeSingleTask(assignment, sessionId, traceId, taskSignal, options);
+      },
+      pipelineOptions: {
+        signal,
+        taskTimeoutMs: options?.taskTimeoutMs,
+        planHardEnabled: planHard.enabled,
+      },
+    });
+
+    const results = runResult.results;
+
+    if (runResult.exhausted) {
+      const failed = results.find((r) => r.status === "error");
+      return {
+        agentName: "Director",
+        message: ChatMessage.text(
+          "assistant",
+          "Director",
+          `重规划次数耗尽（${runResult.replanCount}/${planHard.maxReplans}）`
+            + (failed ? `；最近失败任务=${failed.taskId}` : ""),
+        ),
+        metadata: {
+          replanCount: runResult.replanCount,
+          replanExhausted: true,
+          results,
+        },
+        success: false,
+        errorMessage: `重规划次数耗尽（已重规划 ${runResult.replanCount}/${planHard.maxReplans} 次）`,
+      };
+    }
 
     const completedCount = results.filter((r) => r.status === "success").length;
 
@@ -550,11 +716,7 @@ export class DirectorAgent {
     try {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
 
-      // Build session-scoped tool registry with workspace tools
-      const toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
-
-      // Inject matched skill content into the sub-agent's system prompt
-      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
+      const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
 
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
@@ -626,10 +788,7 @@ export class DirectorAgent {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
 
-      const toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name);
-
-      // Inject matched skill content into the sub-agent's system prompt
-      const descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
+      const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
 
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
@@ -1046,23 +1205,11 @@ export class DirectorAgent {
       }
 
       yield { type: "route", data: { message: "Routing tasks to agents..." } };
-      const routing = await this.getRouter(options).route(reviewedPlan.modifications ?? plan, role);
+      const activePlan = reviewedPlan.modifications ?? plan;
+      const routing = await this.getRouter(options).route(activePlan, role);
       yield { type: "route", data: { message: `Routed to ${routing.length} agents`, routing } };
 
-      const assignments: TaskAssignment[] = routing
-        .map((decision): TaskAssignment | null => {
-          const descriptor = this.getAgentDescriptor(decision.agentName, options);
-          if (!descriptor) return null;
-          const originalSubTask = plan.subTasks.find((st) => st.id === decision.fragmentId || st.fragmentId === decision.fragmentId);
-          return {
-            taskId: decision.fragmentId,
-            domain: decision.domain,
-            assignment: decision.assignment,
-            agentDescriptor: descriptor,
-            dependencies: originalSubTask?.dependencies ?? [],
-          };
-        })
-        .filter((a): a is TaskAssignment => a !== null);
+      const assignments = this.mapRoutingToAssignments(activePlan, routing, options);
 
       if (this.deps.workspace) {
         for (const assignment of assignments) {
@@ -1070,52 +1217,82 @@ export class DirectorAgent {
         }
       }
 
-      const mergedPlan: TaskPlan = {
-        planId: plan.planId,
-        requirement,
-        subTasks: assignments.map((a) => {
-          const originalSubTask = plan.subTasks.find((st) => st.id === a.taskId || st.fragmentId === a.taskId);
-          return {
-            id: a.taskId,
-            fragmentId: a.taskId,
-            domain: a.domain,
-            description: a.assignment,
-            dependencies: originalSubTask?.dependencies ?? [],
-            priority: originalSubTask?.priority ?? 1,
-          };
-        }),
-      };
+      const mergedPlan = this.buildMergedExecutablePlan(activePlan, assignments, requirement);
       yield { type: "plan", data: { message: "Executable plan ready", plan: mergedPlan, executable: true } };
 
-      const pipeline = new PlanPipeline(
-        mergedPlan,
-        (task, taskSignal) => this.executeSingleTaskWithHooks(
-          {
-            taskId: task.id,
-            domain: task.domain,
-            assignment: task.description,
-            agentDescriptor: assignments.find((a) => a.taskId === task.id)?.agentDescriptor
-              ?? this.getAgentDescriptor("SystemDesigner", options)!,
-            dependencies: task.dependencies,
-          },
-          sessionId,
-          undefined,
-          streamEmitterHook,
-          taskSignal,
-          options,
-        ),
-        {
+      const planHard = this.planHardConfig();
+      const assignmentsById = new Map(assignments.map((a) => [a.taskId, a]));
+      const replanner = new PlanReplanner(this.deps.model, {
+        domainToolDefaults: planHard.domainToolDefaults,
+      });
+
+      const done = { value: false };
+      const runPromise = runPlanWithReplan({
+        plan: mergedPlan,
+        enabled: planHard.enabled,
+        maxReplans: planHard.maxReplans,
+        replanner,
+        initialResults: options?.initialTaskResults,
+        onAudit: (name, attributes) => this.safeRecordPlanSpan(name, attributes),
+        onReplan: async ({ remaining, plan: nextPlan, replanCount, failedTaskId }) => {
+          const fragment: TaskPlan = {
+            planId: nextPlan.planId,
+            requirement: nextPlan.requirement,
+            subTasks: [...remaining],
+          };
+          const reRoute = await this.getRouter(options).route(fragment, role);
+          for (const a of this.mapRoutingToAssignments(fragment, reRoute, options)) {
+            assignmentsById.set(a.taskId, a);
+            this.deps.workspace?.registerTaskDir(sessionId, a.taskId, a.domain);
+          }
+          eventBus.emit({
+            type: "replan",
+            data: {
+              replanCount,
+              failedTaskId,
+              remainingCount: remaining.length,
+              plan: nextPlan,
+            },
+          });
+        },
+        executor: (task, taskSignal) => {
+          const existing = assignmentsById.get(task.id);
+          const assignment: TaskAssignment = existing
+            ? {
+                ...existing,
+                assignment: task.description,
+                dependencies: task.dependencies,
+                allowedTools: task.allowedTools ?? existing.allowedTools,
+              }
+            : {
+                taskId: task.id,
+                domain: task.domain,
+                assignment: task.description,
+                agentDescriptor: this.getAgentDescriptor("SystemDesigner", options)!,
+                dependencies: task.dependencies,
+                allowedTools: task.allowedTools,
+              };
+          assignmentsById.set(task.id, assignment);
+          return this.executeSingleTaskWithHooks(
+            assignment,
+            sessionId,
+            undefined,
+            streamEmitterHook,
+            taskSignal,
+            options,
+          );
+        },
+        pipelineOptions: {
           signal,
           taskTimeoutMs: options?.taskTimeoutMs,
-          initialResults: options?.initialTaskResults,
+          planHardEnabled: planHard.enabled,
           onTaskStart: (task) => eventBus.emit({
             type: "task_start",
             data: {
               taskId: task.id,
               domain: task.domain,
               description: task.description,
-              agentName: assignments.find((assignment) => assignment.taskId === task.id)
-                ?.agentDescriptor.name,
+              agentName: assignmentsById.get(task.id)?.agentDescriptor.name,
             },
           }),
           onTaskResult: (task, result) => eventBus.emit({
@@ -1130,16 +1307,16 @@ export class DirectorAgent {
             },
           }),
         },
-      );
-      const done = { value: false };
-      const pipelinePromise = pipeline.execute().finally(() => { done.value = true; });
+      }).finally(() => { done.value = true; });
+
       for await (const event of this.concurrentDrain(eventBus, done)) {
         yield event;
       }
-      const results = await pipelinePromise;
+      const runResult = await runPromise;
       for (const event of eventBus.drain()) {
         yield event;
       }
+      const results = runResult.results;
 
       const failedResult = results.find(
         (result) => result.status === "error",
@@ -1164,6 +1341,20 @@ export class DirectorAgent {
         return;
       }
 
+      if (runResult.exhausted) {
+        yield {
+          type: "error",
+          data: {
+            error: `重规划次数耗尽（已重规划 ${runResult.replanCount}/${planHard.maxReplans} 次）`,
+            taskId: failedResult?.taskId,
+            errorClass: "permanent",
+            replanExhausted: true,
+            replanCount: runResult.replanCount,
+          },
+        };
+        return;
+      }
+
       if (failedResult) {
         yield {
           type: "error",
@@ -1171,6 +1362,7 @@ export class DirectorAgent {
             error: failedResult.errorMessage ?? `Task ${failedResult.taskId} failed`,
             taskId: failedResult.taskId,
             errorClass: failedResult.errorClass,
+            replanCount: runResult.replanCount,
           },
         };
         return;

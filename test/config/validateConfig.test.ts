@@ -104,6 +104,10 @@ function config(
       toolRetryMaxAttempts: 2,
       toolRetryBackoffMs: 200,
       toolTimeoutMs: 30000,
+      planHardEnabled: true,
+      planMaxReplans: 2,
+      planRejectUnauthorizedTools: true,
+      planDomainToolDefaults: {},
     },
     eval: {
       defaultDatasetPath: "eval/datasets/design-golden.v1.json",

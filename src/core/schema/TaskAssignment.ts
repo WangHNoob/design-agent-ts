@@ -7,4 +7,6 @@ export interface TaskAssignment {
   readonly assignment: string;
   readonly agentDescriptor: AgentDescriptor;
   readonly dependencies?: string[];
+  /** Resolved step tool whitelist (may be empty = no tools). */
+  readonly allowedTools?: readonly string[];
 }

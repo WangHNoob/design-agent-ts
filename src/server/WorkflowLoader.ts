@@ -95,6 +95,24 @@ function parseTaskBlock(block: string): WorkflowTask | null {
   const outputType = (extractQuoted(block, "\\s*outputType") || "DOCUMENT") as OutputType;
   const outputTemplate = extractQuoted(block, "\\s*outputTemplate");
 
+  let allowedTools: string[] | undefined;
+  const toolsEmpty = block.match(/allowedTools:\s*\[\s*\]/);
+  if (toolsEmpty) {
+    allowedTools = [];
+  } else {
+    const toolsMatch = block.match(/allowedTools:\s*\n([\s\S]*?)(?=\n\s{4}\w|$)/);
+    if (toolsMatch) {
+      allowedTools = (toolsMatch[1]!.match(/-\s+"([^"]+)"/g) ?? [])
+        .map((s) => s.replace(/^-\s+"/, "").replace(/"$/, ""));
+    } else {
+      const inline = block.match(/allowedTools:\s*\[([^\]]*)\]/);
+      if (inline) {
+        allowedTools = (inline[1]!.match(/"([^"]+)"/g) ?? [])
+          .map((s) => s.replace(/^"/, "").replace(/"$/, ""));
+      }
+    }
+  }
+
   return {
     taskId,
     domain,
@@ -102,6 +120,7 @@ function parseTaskBlock(block: string): WorkflowTask | null {
     dependencies,
     outputType,
     outputTemplate,
+    ...(allowedTools !== undefined ? { allowedTools } : {}),
   };
 }
 

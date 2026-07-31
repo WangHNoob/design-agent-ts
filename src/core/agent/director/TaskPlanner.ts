@@ -65,11 +65,18 @@ function extractJsonArray(text: string): string {
   return text;
 }
 
+function parseAllowedTools(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((v) => String(v)).filter((v) => v.length > 0);
+}
+
 function normalizeSubTasks(raw: unknown[]): SubTask[] {
   return raw.map((item: unknown, idx: number) => {
     const t = item as Record<string, unknown>;
     const id = (t.id ?? t.taskId ?? `T${idx + 1}`) as string;
     const domain = ((t.domain as string) ?? "system_design").toLowerCase().replace(/-/g, "_");
+    const allowedTools = parseAllowedTools(t.allowedTools);
     return {
       id,
       fragmentId: (t.fragmentId ?? id) as string,
@@ -77,6 +84,7 @@ function normalizeSubTasks(raw: unknown[]): SubTask[] {
       description: (t.description ?? t.requirement ?? t.assignment ?? "") as string,
       dependencies: (t.dependencies ?? []) as string[],
       priority: (t.priority ?? 1) as number,
+      ...(allowedTools !== undefined ? { allowedTools } : {}),
     };
   });
 }
@@ -130,6 +138,7 @@ function workflowTasksToSubTasks(
       description,
       dependencies: [...wt.dependencies],
       priority: priority++,
+      ...(wt.allowedTools !== undefined ? { allowedTools: [...wt.allowedTools] } : {}),
     });
   }
 

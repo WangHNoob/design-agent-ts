@@ -215,6 +215,13 @@ describe("DirectorAgent", () => {
       skillRegistry: createMockSkillRegistry(),
       humanReviewGateway: createMockHITL(),
       hooks: [],
+      // 本用例验证 DAG skip 语义；关闭重规划以免失败任务触发 Replanner
+      planHard: {
+        enabled: true,
+        maxReplans: 0,
+        rejectUnauthorizedTools: true,
+        domainToolDefaults: {},
+      },
     });
 
     const events = [];
