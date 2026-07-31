@@ -1,6 +1,7 @@
 import type { FrameworkConfig, McpServerConfig } from "./FrameworkConfig.js";
 import { validateConfig } from "./validateConfig.js";
 import { isHITLTimeoutPolicy, type HITLTimeoutPolicy } from "../port/hitl/HITLTimeoutPolicy.js";
+import type { ToolRiskLevel } from "../port/tool/ToolRiskLevel.js";
 
 /**
  * Parse MCP server definitions from the MCP_SERVERS env var (JSON array).
@@ -47,6 +48,29 @@ function resolveHitlTimeoutPolicy(): HITLTimeoutPolicy {
   // — we map it to auditable auto_reject (never silent approve).
   if (process.env.HITL_AUTO_CONTINUE === "true") return "auto_reject";
   return "auto_reject";
+}
+
+function parseToolRiskOverrides(raw: string | undefined): Record<string, ToolRiskLevel> {
+  if (!raw || raw.trim().length === 0) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, ToolRiskLevel> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value === "read" || value === "write" || value === "irreversible") {
+        out[key] = value;
+      }
+    }
+    return out;
+  } catch {
+    console.warn("[loadConfig] SECURITY_TOOL_RISK_OVERRIDES is not valid JSON, ignoring");
+    return {};
+  }
+}
+
+function parseCsvList(raw: string | undefined, defaults: string[] = []): string[] {
+  if (!raw || raw.trim().length === 0) return defaults;
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 export function loadConfig(): FrameworkConfig {
@@ -176,6 +200,21 @@ export function loadConfig(): FrameworkConfig {
     eval: {
       defaultDatasetPath: process.env.EVAL_DEFAULT_DATASET ?? "eval/datasets/design-golden.v1.json",
       offlineExactOnlyDefault: process.env.EVAL_OFFLINE_EXACT_ONLY !== "false",
+    },
+    security: {
+      auditEnabled: process.env.SECURITY_AUDIT_ENABLED !== "false",
+      irreversibleRequireHitl: process.env.SECURITY_IRREVERSIBLE_REQUIRE_HITL !== "false",
+      toolRiskOverrides: parseToolRiskOverrides(process.env.SECURITY_TOOL_RISK_OVERRIDES),
+      irreversibleToolNames: parseCsvList(process.env.SECURITY_IRREVERSIBLE_TOOL_NAMES),
+      irreversibleNameKeywords: parseCsvList(
+        process.env.SECURITY_IRREVERSIBLE_NAME_KEYWORDS,
+        ["delete", "drop", "rm"],
+      ),
+      sandboxDenyKeywords: parseCsvList(
+        process.env.TOOL_SANDBOX_DENY_KEYWORDS,
+        ["DROP TABLE", "DELETE FROM", "rm -rf", "eval(", "exec("],
+      ),
+      sandboxBlockPathTraversal: process.env.TOOL_SANDBOX_BLOCK_PATH_TRAVERSAL !== "false",
     },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });

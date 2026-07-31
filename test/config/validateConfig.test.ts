@@ -109,6 +109,15 @@ function config(
       defaultDatasetPath: "eval/datasets/design-golden.v1.json",
       offlineExactOnlyDefault: true,
     },
+    security: {
+      auditEnabled: true,
+      irreversibleRequireHitl: true,
+      toolRiskOverrides: {},
+      irreversibleToolNames: [],
+      irreversibleNameKeywords: ["delete", "drop", "rm"],
+      sandboxDenyKeywords: ["DROP TABLE", "DELETE FROM", "rm -rf", "eval(", "exec("],
+      sandboxBlockPathTraversal: true,
+    },
   };
 }
 

@@ -17,6 +17,7 @@ type MutableRuntime = {
   userId: string;
   sessionId: string;
   traceId: string;
+  executionId?: string;
   stack: SpanContext[];
 };
 
@@ -63,6 +64,7 @@ export class DefaultTracer implements TracerPort {
         "trace.root": true,
         "trace.userId": input.userId,
         "trace.sessionId": input.sessionId,
+        ...(input.executionId ? { "trace.executionId": input.executionId } : {}),
       },
       status: "unset",
     };
@@ -181,6 +183,7 @@ export class DefaultTracer implements TracerPort {
       userId: current.userId,
       sessionId: current.sessionId,
       traceId: current.traceId,
+      executionId: current.executionId,
       stack: [...current.stack.filter((s) => s.spanId !== span.spanId), span],
     };
     return this.context.run(nested as TraceRuntimeState, () => Promise.resolve(callback()));
@@ -211,6 +214,10 @@ export class DefaultTracer implements TracerPort {
   private runtimeFromHandle(handle: TraceHandle): MutableRuntime {
     const userId = String(handle.rootSpan.attributes["trace.userId"] ?? "");
     const sessionId = String(handle.rootSpan.attributes["trace.sessionId"] ?? "");
+    const rawExecutionId = handle.rootSpan.attributes["trace.executionId"];
+    const executionId = typeof rawExecutionId === "string" && rawExecutionId.length > 0
+      ? rawExecutionId
+      : undefined;
     if (!userId || !sessionId) {
       throw new Error("TraceHandle rootSpan must carry trace.userId and trace.sessionId");
     }
@@ -218,6 +225,7 @@ export class DefaultTracer implements TracerPort {
       userId,
       sessionId,
       traceId: handle.traceId,
+      executionId,
       stack: [handle.rootSpan],
     };
   }
@@ -280,6 +288,7 @@ export class NoOpTracer implements TracerPort {
         attributes: {
           "trace.userId": input.userId,
           "trace.sessionId": input.sessionId,
+          ...(input.executionId ? { "trace.executionId": input.executionId } : {}),
         },
         status: "unset",
       },

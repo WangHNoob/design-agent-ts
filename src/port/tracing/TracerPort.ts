@@ -48,6 +48,7 @@ export interface TraceRuntimeState {
   readonly userId: string;
   readonly sessionId: string;
   readonly traceId: string;
+  readonly executionId?: string;
   readonly stack: readonly SpanContext[];
 }
 

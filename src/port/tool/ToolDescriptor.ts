@@ -7,8 +7,12 @@ export interface ParameterDescriptor {
   readonly enum?: string[];
 }
 
+import type { ToolRiskLevel } from "./ToolRiskLevel.js";
+
 export interface ToolDescriptor {
   readonly name: string;
   readonly description: string;
   readonly parameters: Record<string, ParameterDescriptor>;
+  /** Declared risk level; composition root / config may override. */
+  readonly riskLevel?: ToolRiskLevel;
 }

@@ -1,4 +1,5 @@
 import type { HITLTimeoutPolicy } from "../port/hitl/HITLTimeoutPolicy.js";
+import type { ToolRiskLevel } from "../port/tool/ToolRiskLevel.js";
 
 export type FrameworkType = "langgraph" | "mock";
 
@@ -194,5 +195,17 @@ export interface FrameworkConfig {
      * Override with `--exact-only` / omit flag on the script.
      */
     offlineExactOnlyDefault: boolean;
+  };
+  /**
+   * Security: audit logging, tool risk levels, irreversible HITL gate, param sandbox.
+   */
+  security: {
+    auditEnabled: boolean;
+    irreversibleRequireHitl: boolean;
+    toolRiskOverrides: Record<string, ToolRiskLevel>;
+    irreversibleToolNames: string[];
+    irreversibleNameKeywords: string[];
+    sandboxDenyKeywords: string[];
+    sandboxBlockPathTraversal: boolean;
   };
 }

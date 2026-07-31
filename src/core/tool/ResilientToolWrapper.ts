@@ -10,6 +10,7 @@ import type { TracerPort } from "../../port/tracing/TracerPort.js";
 import type { CircuitState } from "../resilience/CircuitBreaker.js";
 import type { ToolCircuitRegistry } from "../resilience/ToolCircuitRegistry.js";
 import { ToolFastFailError } from "./ToolFastFailError.js";
+import { ToolHitlRequiredError } from "./ToolHitlRequiredError.js";
 
 export interface ResilientToolOptions {
   /** Failure policy; defaults differ for external vs in-process tools. */
@@ -125,6 +126,7 @@ export class ResilientToolWrapper implements ToolPort {
         }
       } catch (err) {
         if (err instanceof ToolFastFailError) throw err;
+        if (err instanceof ToolHitlRequiredError) throw err;
         lastError = err instanceof Error ? err.message : String(err);
         const prev = stateBefore;
         breaker?.recordFailure();
@@ -220,6 +222,7 @@ export class ResilientToolWrapper implements ToolPort {
           };
         } catch (err) {
           if (err instanceof ToolFastFailError) throw err;
+        if (err instanceof ToolHitlRequiredError) throw err;
           const msg = err instanceof Error ? err.message : String(err);
           return this.returnToLlm(
             name,

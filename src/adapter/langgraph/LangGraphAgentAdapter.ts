@@ -13,6 +13,7 @@ import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
 import type { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
 import { isToolFastFailError } from "../../core/tool/ToolFastFailError.js";
+import { isToolHitlRequiredError } from "../../core/tool/ToolHitlRequiredError.js";
 
 const AgentState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -327,6 +328,10 @@ export class LangGraphAgentAdapter implements AgentPort {
           console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${err.message}`);
           throw err;
         }
+        if (isToolHitlRequiredError(err)) {
+          console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${err.message}`);
+          throw err;
+        }
         throw err;
       }
 
@@ -518,6 +523,10 @@ export class LangGraphAgentAdapter implements AgentPort {
         };
       }
 
+      if (isToolHitlRequiredError(err)) {
+        throw err;
+      }
+
       await this.runHooks("on_error", HookContext.create({
         agentName: this.descriptor.name,
         sessionId,
@@ -657,6 +666,10 @@ export class LangGraphAgentAdapter implements AgentPort {
           errorMessage: "Aborted by user",
         };
         return;
+      }
+
+      if (isToolHitlRequiredError(err)) {
+        throw err;
       }
 
       await this.runHooks("on_error", HookContext.create({

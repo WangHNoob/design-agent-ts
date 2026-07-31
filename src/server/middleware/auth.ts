@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import type { TenantContext, TenantIsolationPort } from "../../port/user/TenantIsolationPort.js";
 import type { ContextStoragePort } from "../../port/infra/ContextStoragePort.js";
+import { auditLoginOnce } from "../security/auditHelpers.js";
 
 /**
  * Hono middleware that resolves the tenant context from Better Auth session.
@@ -36,6 +37,10 @@ export function authMiddleware(
     }
 
     c.set("tenant", tenantCtx);
+    void auditLoginOnce(tenantCtx.userId, tenantCtx.sessionId, {
+      role: tenantCtx.role,
+      path: c.req.path,
+    });
     return contextStorage.run(tenantCtx, () => next());
   };
 }

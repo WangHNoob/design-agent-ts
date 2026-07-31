@@ -5,6 +5,7 @@ import {
   agentSpans,
   agentTraces,
   agentTraceSessions,
+  auditLogs,
   executionAttempts,
   executions,
   executionTasks,
@@ -26,6 +27,7 @@ describe("Postgres Drizzle schema", () => {
     expect(getTableName(agentTraceSessions)).toBe("agent_trace_sessions");
     expect(getTableName(agentTraces)).toBe("agent_traces");
     expect(getTableName(agentSpans)).toBe("agent_spans");
+    expect(getTableName(auditLogs)).toBe("audit_logs");
   });
 
   test("keeps user assets scoped by user and asset identity", () => {
