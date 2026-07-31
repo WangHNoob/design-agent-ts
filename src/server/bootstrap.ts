@@ -19,6 +19,8 @@ import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
 import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
 import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
 import { TracingHook } from "../core/hook/TracingHook.js";
+import { TokenBudgetHook } from "../core/hook/TokenBudgetHook.js";
+import { ToolLoopDetectorHook } from "../core/hook/ToolLoopDetectorHook.js";
 import { DefaultTracer, NoOpTracer } from "../core/tracing/DefaultTracer.js";
 import { ConsoleTraceExporter } from "../core/tracing/ConsoleTraceExporter.js";
 import { PostgresTraceStoreAdapter } from "../adapter/postgres/PostgresTraceStoreAdapter.js";
@@ -402,6 +404,23 @@ export async function bootstrap() {
       setTraceStore(null);
       console.log("[Bootstrap] Agent tracing disabled");
     }
+
+    // Runtime guards (token budget + tool-loop) — share the active tracer when present.
+    hooks.push(
+      new TokenBudgetHook({
+        budget: config.guards.traceTokenBudget,
+        tracer,
+      }),
+      new ToolLoopDetectorHook({
+        windowSize: config.guards.toolLoopWindowSize,
+        maxRepeats: config.guards.toolLoopMaxRepeats,
+        tracer,
+      }),
+    );
+    console.log(
+      `[Bootstrap] Guards: tokenBudget=${config.guards.traceTokenBudget || "off"} ` +
+        `toolLoop=${config.guards.toolLoopMaxRepeats}/${config.guards.toolLoopWindowSize}`,
+    );
 
     // Better Auth (handles registration, login, sessions, DingTalk SSO)
     const dingtalkConfig = config.userSystem.dingtalk.clientId

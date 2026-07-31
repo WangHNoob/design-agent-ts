@@ -53,6 +53,8 @@ export class LangGraphAgentAdapter implements AgentPort {
     const toolCallMap = new Map<string, { id: string; name: string; args: string }>();
     let lastMetadata: Record<string, unknown> = {};
     let lastAdditionalKwargs: Record<string, unknown> = {};
+    let usageInput = 0;
+    let usageOutput = 0;
 
     for await (const chunk of chunks) {
       const content = chunk.content;
@@ -106,6 +108,8 @@ export class LangGraphAgentAdapter implements AgentPort {
       if (chunk.additional_kwargs) {
         lastAdditionalKwargs = { ...lastAdditionalKwargs, ...chunk.additional_kwargs };
       }
+      if (chunk.usage_metadata?.input_tokens) usageInput = chunk.usage_metadata.input_tokens;
+      if (chunk.usage_metadata?.output_tokens) usageOutput = chunk.usage_metadata.output_tokens;
     }
 
     // Build final tool_calls
@@ -129,6 +133,11 @@ export class LangGraphAgentAdapter implements AgentPort {
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
       response_metadata: lastMetadata,
       additional_kwargs: lastAdditionalKwargs,
+      usage_metadata: {
+        input_tokens: usageInput,
+        output_tokens: usageOutput,
+        total_tokens: usageInput + usageOutput,
+      },
     });
   }
 
@@ -169,7 +178,9 @@ export class LangGraphAgentAdapter implements AgentPort {
       });
       const preCtx = await runHooks("pre_reasoning", hookCtx);
       if (preCtx.abort) {
-        return { messages: [], iteration: state.iteration };
+        const reason = preCtx.abortReason ?? "Aborted by pre_reasoning hook";
+        console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${reason}`);
+        throw new Error(reason);
       }
 
       try {
@@ -217,7 +228,14 @@ export class LangGraphAgentAdapter implements AgentPort {
           sessionId: state.sessionId,
           iteration: state.iteration,
           messages: [...(preCtx.messages ?? []), this.messageMapper.fromLangGraph(response)],
+          inputTokenCount: response.usage_metadata?.input_tokens ?? 0,
+          outputTokenCount: response.usage_metadata?.output_tokens ?? 0,
         }));
+        if (postCtx.abort) {
+          const reason = postCtx.abortReason ?? "Aborted by post_reasoning hook";
+          console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${reason}`);
+          throw new Error(reason);
+        }
 
         return { messages: [response], iteration: state.iteration + 1 };
       } catch (err) {
@@ -263,7 +281,12 @@ export class LangGraphAgentAdapter implements AgentPort {
           toolName: tc.name,
           toolArguments: tc.args as Record<string, unknown>,
         });
-        await runHooks("pre_tool_execution", preCtx);
+        const afterPre = await runHooks("pre_tool_execution", preCtx);
+        if (afterPre.abort) {
+          const reason = afterPre.abortReason ?? `Tool execution aborted: ${tc.name}`;
+          console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${reason}`);
+          throw new Error(reason);
+        }
       }
 
       const result = await toolNode.invoke(state);
