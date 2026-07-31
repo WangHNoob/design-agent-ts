@@ -246,6 +246,7 @@ export class ExecutionWorker {
       const attempts = new Map<string, ExecutionAttempt>();
       let completedOutput = "";
       let sawComplete = false;
+      let sawCancelled = false;
       let sawHitl = false;
 
       for await (const event of this.director!.executeStream(
@@ -275,6 +276,11 @@ export class ExecutionWorker {
         } else if (event.type === "complete") {
           sawComplete = true;
           completedOutput = typeof event.data.output === "string" ? event.data.output : "";
+        } else if (event.type === "cancelled") {
+          sawCancelled = true;
+          completedOutput = typeof event.data.partialOutput === "string"
+            ? event.data.partialOutput
+            : completedOutput;
         } else if (event.type === "error") {
           const streamError = new Error(
             typeof event.data.error === "string" ? event.data.error : "Director execution failed",
@@ -285,7 +291,23 @@ export class ExecutionWorker {
       }
 
       const latest = await repository.get(execution.id);
-      if (latest?.status === "cancelled" || latest?.status === "timed_out") {
+      if (latest?.status === "cancelled" || latest?.status === "timed_out" || sawCancelled) {
+        const partialOutput = completedOutput;
+        await sessionRepository.update(execution.sessionId, {
+          status: latest?.status === "timed_out" ? "timed_out" : "cancelled",
+          output: partialOutput,
+          error: latest?.errorMessage ?? "Execution cancelled",
+        });
+        if (latest) {
+          await this.append(latest, {
+            type: "execution_terminal",
+            data: {
+              status: latest.status === "timed_out" ? "timed_out" : "cancelled",
+              partialOutput,
+              error: latest.errorMessage,
+            },
+          });
+        }
         return { success: true };
       }
       if (sawHitl || latest?.status === "waiting_hitl") {

@@ -3,11 +3,19 @@ import { z } from "zod";
 import type { ToolPort } from "../../port/tool/ToolPort.js";
 import type { ParameterDescriptor } from "../../port/tool/ToolDescriptor.js";
 import { ToolResult } from "../../port/tool/ToolResult.js";
+import type { SagaCoordinator } from "../../core/saga/SagaCoordinator.js";
 import { isToolFastFailError } from "../../core/tool/ToolFastFailError.js";
 import { isToolHitlRequiredError } from "../../core/tool/ToolHitlRequiredError.js";
 
+export interface LangGraphToolAdapterOptions {
+  /** Per-invocation saga journal (adapter sets coordinator before agent process). */
+  sagaRef?: { coordinator: SagaCoordinator | null };
+}
+
 export class LangGraphToolAdapter {
   readonly lastToolMetadata = new Map<string, Record<string, unknown>>();
+
+  constructor(private readonly options: LangGraphToolAdapterOptions = {}) {}
 
   private static zodTypeFromDescriptor(param: ParameterDescriptor): z.ZodTypeAny {
     let schema: z.ZodTypeAny;
@@ -57,6 +65,11 @@ export class LangGraphToolAdapter {
         try {
           const result = await toolPort.execute(input as Record<string, unknown>);
           this.lastToolMetadata.set(descriptor.name, result.metadata);
+          const saga = this.options.sagaRef?.coordinator;
+          const compensate = toolPort.getCompensateHandler?.();
+          if (saga && compensate && !result.isError) {
+            saga.register(descriptor.name, input as Record<string, unknown>, result, compensate);
+          }
           return result.output;
         } catch (err) {
           // FastFail must abort the agent loop — do not swallow as observation.

@@ -251,6 +251,10 @@ export function loadConfig(): FrameworkConfig {
       ),
       sandboxBlockPathTraversal: process.env.TOOL_SANDBOX_BLOCK_PATH_TRAVERSAL !== "false",
     },
+    saga: {
+      compensateEnabled: process.env.SAGA_COMPENSATE_ENABLED !== "false",
+      compensateFailureToAudit: process.env.SAGA_COMPENSATE_FAILURE_TO_AUDIT !== "false",
+    },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
   return config;

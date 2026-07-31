@@ -231,4 +231,76 @@ describe("DirectorAgent", () => {
     ]));
     expect(process).toHaveBeenCalledTimes(2);
   });
+
+  it("signal aborted 时应标记 cancelled 并保留 partial output", async () => {
+    const controller = new AbortController();
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: {
+        createAgent: vi.fn((descriptor) => ({
+          getDescriptor: vi.fn(() => descriptor),
+          getName: vi.fn(() => descriptor.name),
+          process: vi.fn(async () => {
+            controller.abort(new DOMException("cancelled", "AbortError"));
+            return {
+              agentName: descriptor.name,
+              message: ChatMessage.text("assistant", descriptor.name, "partial work"),
+              metadata: {},
+              success: true,
+              errorMessage: null,
+            };
+          }),
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+    });
+
+    const response = await director.execute(
+      "设计系统",
+      "sid-cancel",
+      "design",
+      "system_designer",
+      undefined,
+      { signal: controller.signal },
+    );
+
+    expect(response.success).toBe(false);
+    expect(ChatMessage.textContent(response.message)).toContain("partial work");
+  });
+
+  it("metadata.aborted 时应标记 cancelled 即使 agent 返回 success", async () => {
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: {
+        createAgent: vi.fn((descriptor) => ({
+          getDescriptor: vi.fn(() => descriptor),
+          getName: vi.fn(() => descriptor.name),
+          process: vi.fn().mockResolvedValue({
+            agentName: descriptor.name,
+            message: ChatMessage.text("assistant", descriptor.name, "aborted partial"),
+            metadata: { aborted: true },
+            success: false,
+            errorMessage: "Aborted by user",
+          }),
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+    });
+
+    const response = await director.execute(
+      "设计系统",
+      "sid-aborted-meta",
+      "design",
+      "system_designer",
+    );
+
+    expect(response.success).toBe(false);
+    expect(ChatMessage.textContent(response.message)).toContain("aborted partial");
+  });
 });

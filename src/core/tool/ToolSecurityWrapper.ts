@@ -1,5 +1,8 @@
 import type { ToolPort } from "../../port/tool/ToolPort.js";
+import type { CompensateHandler } from "../../port/tool/ToolCompensate.js";
 import type { ToolDescriptor } from "../../port/tool/ToolDescriptor.js";
+import type { ToolFailurePolicy } from "../../port/tool/ToolFailurePolicy.js";
+import { DEFAULT_TOOL_FAILURE_POLICY } from "../../port/tool/ToolFailurePolicy.js";
 import type { ToolRiskLevel } from "../../port/tool/ToolRiskLevel.js";
 import { ToolResult } from "../../port/tool/ToolResult.js";
 import type { AuditStorePort } from "../../port/audit/AuditStorePort.js";
@@ -51,6 +54,14 @@ export class ToolSecurityWrapper implements ToolPort {
 
   getDescriptor(): ToolDescriptor {
     return this.base.getDescriptor();
+  }
+
+  getFailurePolicy(): ToolFailurePolicy {
+    return this.base.getFailurePolicy?.() ?? DEFAULT_TOOL_FAILURE_POLICY;
+  }
+
+  getCompensateHandler?(): CompensateHandler | undefined {
+    return this.base.getCompensateHandler?.();
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {

@@ -1,4 +1,5 @@
 import type { ToolPort } from "../../port/tool/ToolPort.js";
+import type { CompensateHandler } from "../../port/tool/ToolCompensate.js";
 import type { ToolDescriptor } from "../../port/tool/ToolDescriptor.js";
 import { ToolResult } from "../../port/tool/ToolResult.js";
 import type { ToolFailureDecision, ToolFailurePolicy } from "../../port/tool/ToolFailurePolicy.js";
@@ -62,6 +63,10 @@ export class ResilientToolWrapper implements ToolPort {
 
   getFailurePolicy(): ToolFailurePolicy {
     return this.base.getFailurePolicy?.() ?? this.policy;
+  }
+
+  getCompensateHandler?(): CompensateHandler | undefined {
+    return this.base.getCompensateHandler?.();
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
