@@ -113,6 +113,10 @@ services:
       - ./contrib:/app/contrib
       - ./prompts:/app/prompts
       - ./knowledge:/app/knowledge
+      # Persist UI-saved LLM / HITL / Tavily config across rebuilds.
+      # SettingsManager writes settings.json; syncEnvFromSettings writes .env.
+      - ./settings.json:/app/settings.json
+      - ./.env:/app/.env
     depends_on:
       postgres:
         condition: service_healthy

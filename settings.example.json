@@ -1,0 +1,14 @@
+{
+  "modelProvider": "openai",
+  "modelName": "gpt-4o",
+  "modelApiKey": "",
+  "modelBaseUrl": "",
+  "temperature": 0.7,
+  "maxTokens": 4096,
+  "hitlEnabled": false,
+  "maxClarifyRounds": 3,
+  "streamingEnabled": true,
+  "autoSaveSessions": true,
+  "tavilyEnabled": false,
+  "tavilyApiKey": ""
+}

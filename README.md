@@ -292,9 +292,9 @@ test/              # 测试
 
 ```bash
 cp .env.example .env
-# 必填：LLM_API_KEY、BETTER_AUTH_SECRET；改完代码需重新 build 镜像
-
-docker compose up -d --build
+cp settings.example.json settings.json   # 若不存在；UI 保存的 LLM 配置会写回此文件
+# 必填：LLM_API_KEY、BETTER_AUTH_SECRET（也可在设置页填写，会持久化到 settings.json / .env）
+# 改代码后需重新 build 镜像；LLM 配置已挂载宿主机，重建后无需重填
 ```
 
 | 入口 | 默认地址 |
@@ -305,6 +305,8 @@ docker compose up -d --build
 | Redis | localhost:6379 |
 
 `migrate` 服务会在 backend 之前应用 `drizzle/*.sql`。若从旧 PG 18 卷升级失败，需重建 `postgres_data` 卷（开发数据会清空）。
+
+Docker 将宿主机 `./settings.json` 与 `./.env` 挂载进 backend，设置页保存的模型密钥会写回宿主机，**镜像重建后仍保留**。
 
 ### 本地开发
 
