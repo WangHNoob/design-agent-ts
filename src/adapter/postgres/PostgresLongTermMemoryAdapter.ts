@@ -106,8 +106,11 @@ export class PostgresLongTermMemoryAdapter implements LongTermMemoryPort {
       paramIdx++;
     }
 
-    // Score: combine text relevance + importance + recency
-    sql += ` ORDER BY (text_score * 0.5 + importance * 0.3 + (1.0 - EXTRACT(EPOCH FROM (now() - created_at)) / 7776000.0) * 0.2) DESC`;
+    // Score: combine text relevance + importance + recency.
+    // PostgreSQL allows SELECT aliases in ORDER BY only as bare names, not inside expressions.
+    const textScoreExpr =
+      `ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', $3))`;
+    sql += ` ORDER BY (${textScoreExpr} * 0.5 + importance * 0.3 + (1.0 - EXTRACT(EPOCH FROM (now() - created_at)) / 7776000.0) * 0.2) DESC`;
 
     const limit = params.limit ?? 10;
     sql += ` LIMIT $${paramIdx}`;
