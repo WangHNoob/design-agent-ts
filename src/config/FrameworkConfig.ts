@@ -113,6 +113,22 @@ export interface FrameworkConfig {
     taskTimeoutMs: number;
     pollIntervalMs: number;
     eventMaxLength: number;
+    /** SSE comment-frame heartbeat interval (ms). 0 disables. Default 15000. */
+    sseHeartbeatMs: number;
+  };
+  /**
+   * Short-term sliding-window memory: protect recent messages, archive summaries on eviction.
+   */
+  memory: {
+    /** When false, agents keep unbounded InMemory buffers (tests/dev only). */
+    archiveEnabled: boolean;
+    /**
+     * Keep the most recent N non-system messages verbatim
+     * (message count — not user/assistant conversation turns).
+     */
+    protectRecentTurns: number;
+    /** Evict when active non-system messages exceed this count (even under token budget). */
+    maxActiveMessages: number;
   };
   mcp: {
     enabled: boolean;
