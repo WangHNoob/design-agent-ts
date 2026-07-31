@@ -16,7 +16,7 @@ todos:
     status: completed
   - id: p1-eval-v1
     content: Eval V1（golden 集 + LLM-as-Judge + Offline Trace 回流）
-    status: pending
+    status: completed
   - id: p1-hitl-ops
     content: HITL 运营面（待审看板、超时、resume CAS、新鲜度校验）
     status: pending
