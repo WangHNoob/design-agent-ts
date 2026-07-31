@@ -85,7 +85,7 @@ export class PostgresSessionRepository implements SessionRepository {
     const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
     const safeOffset = Math.max(0, Math.trunc(offset));
     const result = await this.db.query(
-      `SELECT * FROM sessions WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+      `SELECT * FROM sessions WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2::int OFFSET $3::int`,
       { 1: this.userId, 2: safeLimit, 3: safeOffset }
     );
     return result.rows.map((r) => this.rowToMeta(r));

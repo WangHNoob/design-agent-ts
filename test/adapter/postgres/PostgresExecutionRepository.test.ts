@@ -145,7 +145,7 @@ describe("PostgresExecutionRepository", () => {
     });
 
     expect(result.created).toBe(true);
-    expect(db.calls[0]?.sql).toContain("WHERE e.id = $3 AND e.user_id = $2");
+    expect(db.calls[0]?.sql).toContain("WHERE e.id = $3::varchar AND e.user_id = $2::varchar");
     expect(db.calls[0]?.sql).toContain(
       "ON CONFLICT (user_id, execution_id, task_key)",
     );

@@ -21,11 +21,17 @@ export class PostgresDatabaseAdapter implements DatabasePort {
   async query(sql: string, params?: QueryParams): Promise<QueryResult> {
     // Convert named params ($name) to positional ($1, $2, ...) for pg driver
     const { positionalSql, values } = this.convertParams(sql, params);
-    const result = await this.pool.query(positionalSql, values);
-    return {
-      rows: result.rows as Record<string, unknown>[],
-      rowCount: result.rowCount ?? 0,
-    };
+    try {
+      const result = await this.pool.query(positionalSql, values);
+      return {
+        rows: result.rows as Record<string, unknown>[],
+        rowCount: result.rowCount ?? 0,
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const preview = positionalSql.replace(/\s+/g, " ").trim().slice(0, 180);
+      throw new Error(`${detail} | sql=${preview}`, { cause: err });
+    }
   }
 
   async transaction<T>(fn: (tx: DatabasePort) => Promise<T>, options?: TransactionOptions): Promise<T> {
