@@ -97,6 +97,11 @@ function config(
       traceTokenBudget: 500000,
       toolLoopWindowSize: 8,
       toolLoopMaxRepeats: 3,
+      toolCircuitFailureThreshold: 3,
+      toolCircuitCooldownMs: 60000,
+      toolRetryMaxAttempts: 2,
+      toolRetryBackoffMs: 200,
+      toolTimeoutMs: 30000,
     },
   };
 }

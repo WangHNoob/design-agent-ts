@@ -146,7 +146,7 @@ export interface FrameworkConfig {
     consoleExporter: boolean;
   };
   /**
-   * Hard runtime guards (token budget, tool-loop detection).
+   * Hard runtime guards (token budget, tool-loop detection, tool resilience).
    * Combined with maxIterations / task timeout — whichever trips first wins.
    */
   guards: {
@@ -156,5 +156,15 @@ export interface FrameworkConfig {
     toolLoopWindowSize: number;
     /** Abort when the same (tool, paramsHash) appears this many times in the window. */
     toolLoopMaxRepeats: number;
+    /** Consecutive external/MCP tool failures before opening the circuit. */
+    toolCircuitFailureThreshold: number;
+    /** Cooldown before a tripped tool circuit is probed again (ms). */
+    toolCircuitCooldownMs: number;
+    /** Default max retries for external tools with onError=retry. */
+    toolRetryMaxAttempts: number;
+    /** Base backoff (ms) between tool retries; doubles each attempt. */
+    toolRetryBackoffMs: number;
+    /** Per-call timeout for external/MCP tools (ms). 0 disables. */
+    toolTimeoutMs: number;
   };
 }

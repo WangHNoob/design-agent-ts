@@ -33,6 +33,8 @@ import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
 import { TavilySearchTool } from "../adapter/tavily/TavilySearchTool.js";
 import { DelegatingTool } from "../core/tool/DelegatingTool.js";
+import { ResilientToolWrapper, type ResilientToolOptions } from "../core/tool/ResilientToolWrapper.js";
+import { ToolCircuitRegistry } from "../core/resilience/ToolCircuitRegistry.js";
 import { BlackboardStore } from "../core/blackboard/BlackboardStore.js";
 import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
@@ -216,6 +218,27 @@ export async function bootstrap() {
     return config.enabledToolGroups.includes(groupName);
   };
 
+  // External / MCP tool resilience: four failure decisions + circuit breaker.
+  // Tracer is attached later once tracing is initialized (same options object).
+  const toolCircuitRegistry = new ToolCircuitRegistry({
+    failureThreshold: config.guards.toolCircuitFailureThreshold,
+    cooldownMs: config.guards.toolCircuitCooldownMs,
+  });
+  const externalToolResilience: ResilientToolOptions = {
+    external: true,
+    circuitRegistry: toolCircuitRegistry,
+    timeoutMs: config.guards.toolTimeoutMs,
+    policy: {
+      onError: "retry",
+      maxRetries: config.guards.toolRetryMaxAttempts,
+      retryBackoffMs: config.guards.toolRetryBackoffMs,
+      onRetryExhausted: "return_to_llm",
+    },
+    resolveTool: (name) => toolRegistry.getTool(name),
+  };
+  const wrapExternalTool = (tool: import("../port/tool/ToolPort.js").ToolPort) =>
+    new ResilientToolWrapper(tool, externalToolResilience);
+
   // Register knowledge tools (group: "knowledge")
   if (shouldRegisterGroup("knowledge")) {
     toolRegistry.registerToGroup(new DelegatingTool("wiki_lookup", "在 Wiki 索引中查找主题对应的页面路径。参数: topic (string)", wikiTool, { action: "lookup" }), "knowledge");
@@ -230,11 +253,31 @@ export async function bootstrap() {
     console.log(`[Bootstrap] Tool group "knowledge" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
 
-  // Register web search tools (group: "web")
+  // Register web search tools (group: "web") — external, circuit-breaker wrapped
   if (shouldRegisterGroup("web")) {
-    toolRegistry.registerToGroup(new DelegatingTool("tavily_search", "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)", tavilyTool, { action: "search" }), "web");
-    toolRegistry.registerToGroup(new DelegatingTool("tavily_extract", "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)", tavilyTool, { action: "extract" }), "web");
-    console.log(`[Bootstrap] Tool group "web" enabled: ${toolRegistry.getGroupToolNames("web").length} tools`);
+    toolRegistry.registerToGroup(
+      wrapExternalTool(
+        new DelegatingTool(
+          "tavily_search",
+          "联网搜索。参数: query (string), max_results (number, default 5), search_depth (string: basic/advanced)",
+          tavilyTool,
+          { action: "search" },
+        ),
+      ),
+      "web",
+    );
+    toolRegistry.registerToGroup(
+      wrapExternalTool(
+        new DelegatingTool(
+          "tavily_extract",
+          "抓取指定 URL 的网页内容。参数: urls (string, 逗号分隔), query (string, optional)",
+          tavilyTool,
+          { action: "extract" },
+        ),
+      ),
+      "web",
+    );
+    console.log(`[Bootstrap] Tool group "web" enabled: ${toolRegistry.getGroupToolNames("web").length} tools (resilient)`);
   } else {
     console.log(`[Bootstrap] Tool group "web" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
@@ -261,7 +304,7 @@ export async function bootstrap() {
     if (entries.length > 0) {
       const { tools, toolNames, failedServers, serverResults } = await loadMcpTools(entries);
       for (const tool of tools) {
-        toolRegistry.register(tool);
+        toolRegistry.register(wrapExternalTool(tool));
       }
       mcpToolNames.push(...toolNames);
       console.log(`[Bootstrap] MCP enabled: registered ${tools.length} tools from ${entries.length - failedServers.length}/${entries.length} servers`);
@@ -421,9 +464,13 @@ export async function bootstrap() {
         tracer,
       }),
     );
+    // Attach tracer to resilient external tools (same options object used at registration).
+    externalToolResilience.tracer = tracer;
     console.log(
       `[Bootstrap] Guards: tokenBudget=${config.guards.traceTokenBudget || "off"} ` +
-        `toolLoop=${config.guards.toolLoopMaxRepeats}/${config.guards.toolLoopWindowSize}`,
+        `toolLoop=${config.guards.toolLoopMaxRepeats}/${config.guards.toolLoopWindowSize} ` +
+        `toolCircuit=${config.guards.toolCircuitFailureThreshold}/${config.guards.toolCircuitCooldownMs}ms ` +
+        `toolTimeout=${config.guards.toolTimeoutMs || "off"}ms`,
     );
 
     // Better Auth (handles registration, login, sessions, DingTalk SSO)

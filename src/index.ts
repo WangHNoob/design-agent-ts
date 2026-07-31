@@ -23,6 +23,11 @@ export type { ToolResult } from "./port/tool/ToolResult.js";
 export { ToolResult as ToolResultUtils } from "./port/tool/ToolResult.js";
 export type { ToolPort } from "./port/tool/ToolPort.js";
 export type { ToolRegistry } from "./port/tool/ToolRegistry.js";
+export type { ToolFailureDecision, ToolFailurePolicy } from "./port/tool/ToolFailurePolicy.js";
+export {
+  DEFAULT_TOOL_FAILURE_POLICY,
+  DEFAULT_EXTERNAL_TOOL_FAILURE_POLICY,
+} from "./port/tool/ToolFailurePolicy.js";
 
 // Port 接口层 — 记忆
 export type { MemoryPort } from "./port/memory/MemoryPort.js";

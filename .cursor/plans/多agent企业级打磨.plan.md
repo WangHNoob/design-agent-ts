@@ -13,7 +13,7 @@ todos:
     status: completed
   - id: p0-tool-resilience
     content: 工具失败四策略 + 外部工具/MCP 熔断器
-    status: pending
+    status: completed
   - id: p1-eval-v1
     content: Eval V1（golden 集 + LLM-as-Judge + Offline Trace 回流）
     status: pending
