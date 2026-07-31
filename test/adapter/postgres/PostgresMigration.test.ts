@@ -68,6 +68,13 @@ describe("Postgres Drizzle migrations", () => {
     expect(migration).toContain("audit_logs_outcome_check");
   });
 
+  test("adds cost_usage table in 0006", () => {
+    const migration = readFileSync(resolve("drizzle/0006_cost_usage.sql"), "utf8");
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "cost_usage"');
+    expect(migration).toContain("idx_cost_usage_user_created");
+    expect(migration).toContain("idx_cost_usage_created");
+  });
+
   test("keeps the migration journal and snapshot in sync", () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
@@ -87,10 +94,11 @@ describe("Postgres Drizzle migrations", () => {
       "0003_agent_traces",
       "0004_hitl_ops",
       "0005_audit_logs",
+      "0006_cost_usage",
     ]);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 5,
-      tag: "0005_audit_logs",
+      idx: 6,
+      tag: "0006_cost_usage",
     });
     expect(Object.keys(snapshot.tables)).toEqual(
       expect.arrayContaining([

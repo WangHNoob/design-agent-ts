@@ -12,6 +12,7 @@ import {
   EXECUTION_QUEUE,
   type ExecutionWorker,
 } from "../worker/ExecutionWorker.js";
+import type { RateLimitGuard } from "../../core/cost/RateLimitGuard.js";
 
 interface ExecuteRequest {
   requirement: string;
@@ -34,6 +35,8 @@ export interface ConsoleExecutionDependencies {
 
 let dependencies: ConsoleExecutionDependencies | null = null;
 let directorConfigured = false;
+let rateLimitGuard: RateLimitGuard | null = null;
+let rateLimitEnabled = false;
 
 export function setDirector(director: DirectorAgent): void {
   directorConfigured = true;
@@ -42,6 +45,11 @@ export function setDirector(director: DirectorAgent): void {
 
 export function setConsoleExecutionDependencies(next: ConsoleExecutionDependencies): void {
   dependencies = next;
+}
+
+export function setConsoleRateLimit(guard: RateLimitGuard | null, enabled: boolean): void {
+  rateLimitGuard = guard;
+  rateLimitEnabled = enabled;
 }
 
 export function hasActiveExecutions(): boolean {
@@ -77,6 +85,17 @@ function queuedSession(
     status: "queued",
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+async function assertRpmAllowed(userId: string) {
+  if (!rateLimitEnabled || !rateLimitGuard) return null;
+  const result = await rateLimitGuard.checkRpm(userId);
+  if (result.allowed) return null;
+  return {
+    error: result.code ?? "RATE_LIMIT_RPM",
+    code: result.code ?? "RATE_LIMIT_RPM",
+    retryAfterMs: result.retryAfterMs,
   };
 }
 
@@ -136,6 +155,10 @@ consoleRoute.post("/execute", async (c) => {
     return c.json({ error: "not_initialized" }, 503);
   }
   const tenant = c.get("tenant") as TenantContext;
+  const rpmDenied = await assertRpmAllowed(tenant.userId);
+  if (rpmDenied) {
+    return c.json(rpmDenied, 429);
+  }
   try {
     const result = await createExecution(
       body,
@@ -169,6 +192,10 @@ consoleRoute.post("/execute/stream", async (c) => {
     return c.json({ error: "not_initialized" }, 503);
   }
   const tenant = c.get("tenant") as TenantContext;
+  const rpmDenied = await assertRpmAllowed(tenant.userId);
+  if (rpmDenied) {
+    return c.json(rpmDenied, 429);
+  }
   const created = await createExecution(body, tenant, c.req.header("Idempotency-Key"));
   const repository = dependencies.executionRepositoryFactory(tenant.userId);
   const eventStore = dependencies.eventStore;

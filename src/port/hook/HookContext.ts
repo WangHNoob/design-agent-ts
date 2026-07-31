@@ -10,6 +10,8 @@ export interface HookContext {
   error?: Error;
   iteration?: number;
   maxIterations?: number;
+  /** Active model name for the latest model call (set by adapter). */
+  modelName?: string;
   /** Tokens reported by the latest model call (post_reasoning). */
   inputTokenCount?: number;
   outputTokenCount?: number;

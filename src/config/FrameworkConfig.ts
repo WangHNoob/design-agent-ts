@@ -197,6 +197,22 @@ export interface FrameworkConfig {
     offlineExactOnlyDefault: boolean;
   };
   /**
+   * Cost attribution (Trace-based metering) and RPM/TPM per-user rate limits.
+   */
+  cost: {
+    enabled: boolean;
+    inputPricePer1M: number;
+    outputPricePer1M: number;
+    modelPrices?: Record<string, { inputPer1M: number; outputPer1M: number }>;
+    rpmLimitPerUser: number;
+    tpmLimitPerUser: number;
+    windowMs: number;
+    globalRpmLimit: number;
+    globalTpmLimit: number;
+    /** Estimated tokens reserved per LLM call for TPM pre-check. */
+    tpmEstimatePerCall: number;
+  };
+  /**
    * Security: audit logging, tool risk levels, irreversible HITL gate, param sandbox.
    */
   security: {
