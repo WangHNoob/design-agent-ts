@@ -13,9 +13,14 @@ import type { TimelineEntry } from '@/components/Console/StepsTimeline';
 import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import ResultPanel from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
-import { executeDesignStream, getConfigStatus, type SessionMeta } from '@/lib/api';
+import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, type SessionMeta, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking } from '@/lib/streamHandler';
+
+const MAX_STREAM_RESUMES = 2;
+const TERMINAL_EXECUTION_STATUSES = new Set([
+  'completed', 'failed', 'cancelled', 'timed_out',
+]);
 
 interface Props {
   mode: TaskMode;
@@ -110,6 +115,121 @@ export default function ConsolePage({ mode }: Props) {
       .catch(() => {});
   }, []);
 
+  // Refresh: if we have an executionId and task still looks in-flight, pull terminal state.
+  useEffect(() => {
+    if (!task?.executionId || !task.loading) return;
+    let cancelled = false;
+    getExecution(task.executionId)
+      .then((execution) => {
+        if (cancelled || !mountedRef.current) return;
+        if (!TERMINAL_EXECUTION_STATUSES.has(execution.status)) return;
+        const output = typeof execution.output === 'string' ? execution.output
+          : typeof execution.result === 'string' ? execution.result
+          : null;
+        if (output) {
+          store.appendMessage(task.sessionId, {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+            type: 'ai',
+            content: output,
+            timestamp: getCurrentTime(),
+          });
+        }
+        if (execution.errorMessage) {
+          store.appendMessage(task.sessionId, {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+            type: 'system',
+            content: `执行结束: ${execution.errorMessage}`,
+            timestamp: getCurrentTime(),
+          });
+        }
+        store.updateTask(task.sessionId, {
+          loading: false,
+          streaming: false,
+          status: execution.status === 'completed' ? 'idle' : 'error',
+          statusText: execution.status === 'completed' ? '完成' : execution.status,
+          streamRef: null,
+        });
+        setRefreshTick((t) => t + 1);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [task?.executionId, task?.sessionId]);
+
+  const syncStreamMeta = useCallback((sessionId: string, handle: StreamHandle) => {
+    const executionId = handle.getExecutionId();
+    const lastEventId = handle.getLastEventId();
+    const patch: Partial<import('@/lib/stores/taskStore').TaskState> = {};
+    if (executionId) patch.executionId = executionId;
+    if (lastEventId) patch.lastEventId = lastEventId;
+    if (Object.keys(patch).length > 0) store.updateTask(sessionId, patch);
+  }, [store]);
+
+  const attachStream = useCallback((
+    sessionId: string,
+    handle: StreamHandle,
+  ) => {
+    store.setStreamRef(sessionId, handle);
+    // Headers arrive async; poll briefly for execution id / last event id.
+    let ticks = 0;
+    const timer = setInterval(() => {
+      syncStreamMeta(sessionId, handle);
+      ticks += 1;
+      if (ticks >= 40 || !store.getTask(sessionId)?.loading) {
+        clearInterval(timer);
+      }
+    }, 250);
+  }, [store, syncStreamMeta]);
+
+  const onStreamEventRef = useRef<(sessionId: string, event: string, data: unknown) => void>(() => {});
+
+  const tryResumeStream = useCallback((sessionId: string, reason: string) => {
+    const current = store.getTask(sessionId);
+    if (!current?.executionId) return false;
+    if (current.streamResumeAttempts >= MAX_STREAM_RESUMES) return false;
+
+    const attempts = current.streamResumeAttempts + 1;
+    store.updateTask(sessionId, {
+      streamResumeAttempts: attempts,
+      loading: true,
+      streaming: true,
+      status: 'working',
+      statusText: `重连中 (${attempts}/${MAX_STREAM_RESUMES})`,
+    });
+    store.appendLog(sessionId, {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      time: getCurrentTime(),
+      level: 'warn',
+      source: 'SSE',
+      message: `流中断，尝试续订 #${attempts}: ${reason}`,
+    });
+
+    const resume = resumeExecutionStream(
+      current.executionId,
+      current.lastEventId ?? current.streamRef?.getLastEventId() ?? undefined,
+      (event, data) => onStreamEventRef.current(sessionId, event, data),
+      (err) => {
+        if (!mountedRef.current) return;
+        if (!tryResumeStream(sessionId, err.message)) {
+          store.updateTask(sessionId, {
+            loading: false,
+            streaming: false,
+            status: 'error',
+            statusText: '错误',
+            streamingText: '',
+          });
+          store.appendMessage(sessionId, {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+            type: 'system',
+            content: `网络错误: ${err.message}`,
+            timestamp: getCurrentTime(),
+          });
+        }
+      },
+    );
+    attachStream(sessionId, resume);
+    return true;
+  }, [store, attachStream]);
+
   // Timer for active task
   useEffect(() => {
     if (task?.loading && task.startedAt > 0) {
@@ -144,6 +264,8 @@ export default function ConsolePage({ mode }: Props) {
       if (process.env.NODE_ENV === 'development') {
         console.debug(`[GDT:${event}]`, data);
       }
+      const handle = store.getTask(sessionId)?.streamRef;
+      if (handle) syncStreamMeta(sessionId, handle);
       handleStreamEvent(sessionId, event, data, store);
 
       // Scroll on chunk
@@ -161,14 +283,17 @@ export default function ConsolePage({ mode }: Props) {
         if (taskRole === 'chief_designer') {
           setRightPanelTab('files');
         }
+        store.updateTask(sessionId, { streamResumeAttempts: 0 });
       }
 
       if (event === 'complete' || event === 'error') {
         setRefreshTick((t) => t + 1);
       }
     },
-    [store]
+    [store, syncStreamMeta]
   );
+
+  onStreamEventRef.current = onStreamEvent;
 
   const handleSubmit = async () => {
     if (!requirement.trim()) return;
@@ -209,11 +334,23 @@ export default function ConsolePage({ mode }: Props) {
     setRequirement('');
 
     if (useStream) {
+      store.updateTask(sid, {
+        loading: true,
+        streaming: true,
+        status: 'working',
+        statusText: '执行中',
+        startedAt: Date.now(),
+        streamResumeAttempts: 0,
+        executionId: null,
+        lastEventId: null,
+      });
       const stream = executeDesignStream(
         { requirement: reqText, mode, role: effectiveRole, sessionId: sid, history },
         (event, data) => onStreamEvent(sid, event, data),
         (err) => {
           if (!mountedRef.current) return;
+          syncStreamMeta(sid, stream);
+          if (tryResumeStream(sid, err.message)) return;
           store.updateTask(sid, {
             loading: false,
             streaming: false,
@@ -236,7 +373,7 @@ export default function ConsolePage({ mode }: Props) {
           });
         }
       );
-      store.setStreamRef(sid, stream);
+      attachStream(sid, stream);
     } else {
       try {
         const { executeDesign } = await import('@/lib/api');

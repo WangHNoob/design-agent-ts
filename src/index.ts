@@ -67,7 +67,16 @@ export type { EvalStorePort } from "./port/eval/EvalStorePort.js";
 export type { ScorerPort, ScoreInput, ScoreResult } from "./port/eval/ScorerPort.js";
 
 // Port 接口层 — 记忆
-export type { MemoryPort } from "./port/memory/MemoryPort.js";
+export type { MemoryPort, ArchiveEntry } from "./port/memory/MemoryPort.js";
+export type { SummarizerPort } from "./port/memory/SummarizerPort.js";
+export { ContextManager } from "./core/memory/ContextManager.js";
+export type { ContextManagerOptions, CompressResult } from "./core/memory/ContextManager.js";
+export { SlidingWindowMemoryPort } from "./core/memory/SlidingWindowMemoryPort.js";
+export type { SlidingWindowMemoryOptions } from "./core/memory/SlidingWindowMemoryPort.js";
+export { HeuristicSummarizer } from "./core/memory/HeuristicSummarizer.js";
+export { InMemoryMemoryPort } from "./core/memory/InMemoryMemoryPort.js";
+export { ContextManagementHook } from "./core/hook/ContextManagementHook.js";
+export type { ContextManagementHookOptions } from "./core/hook/ContextManagementHook.js";
 
 // Port 接口层 — Hook
 export type { HookPoint } from "./port/hook/HookPoint.js";

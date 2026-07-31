@@ -8,6 +8,7 @@ import type { AgentResponse } from "../../port/agent/AgentResponse.js";
 import { ChatMessage } from "../../port/message/ChatMessage.js";
 import type { ToolPort } from "../../port/tool/ToolPort.js";
 import type { AgentHook } from "../../port/hook/AgentHook.js";
+import type { MemoryPort } from "../../port/memory/MemoryPort.js";
 import { HookContext } from "../../port/hook/HookContext.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
@@ -36,6 +37,7 @@ export class LangGraphAgentAdapter implements AgentPort {
   private messageMapper = new LangGraphMessageMapper();
   private sagaRef = { coordinator: null as SagaCoordinator | null };
   private toolAdapter: LangGraphToolAdapter;
+  private memory: MemoryPort | undefined;
 
   constructor(
     descriptor: AgentDescriptor,
@@ -44,10 +46,30 @@ export class LangGraphAgentAdapter implements AgentPort {
     private hooks: AgentHook[],
     private checkpointer?: MemorySaver,
     private sagaOptions: LangGraphSagaOptions = { enabled: true },
+    memory?: MemoryPort,
   ) {
     this.descriptor = descriptor;
+    this.memory = memory;
     this.toolAdapter = new LangGraphToolAdapter({ sagaRef: this.sagaRef });
     this.compiledGraph = this.buildGraph(tools);
+  }
+
+  /** Re-bind short-term memory for a cached agent instance. */
+  setMemory(memory: MemoryPort | undefined): void {
+    this.memory = memory;
+  }
+
+  getMemory(): MemoryPort | undefined {
+    return this.memory;
+  }
+
+  /** Replace hooks (e.g. ContextManagementHook.withMemory) on a cached instance. */
+  setHooks(hooks: AgentHook[]): void {
+    this.hooks = hooks;
+  }
+
+  getHooks(): readonly AgentHook[] {
+    return this.hooks;
   }
 
   /**
@@ -240,10 +262,13 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
 
       try {
-        // Use messages possibly modified by hooks (compression, budget warnings, etc.)
-        const effectiveMessages = preCtx.messages
-          ? preCtx.messages.map((m) => this.messageMapper.toLangGraph(m))
-          : state.messages;
+        // Prefer hook-modified messages; keep MemoryPort archive in sync.
+        let chatMessages = preCtx.messages
+          ?? state.messages.map((m) => this.messageMapper.fromLangGraph(m));
+        if (this.memory) {
+          chatMessages = await this.memory.maybeCompress(chatMessages);
+        }
+        const effectiveMessages = chatMessages.map((m) => this.messageMapper.toLangGraph(m));
 
         const systemMsg = new SystemMessage({ content: descriptor.systemPrompt });
 
@@ -491,7 +516,17 @@ export class LangGraphAgentAdapter implements AgentPort {
 
       this.beginSaga(sessionId);
 
-      const lgMessages = this.messageMapper.toLangGraphList(messages);
+      if (this.memory) {
+        for (const m of messages) {
+          this.memory.addMessage(m);
+        }
+      }
+      let startMessages = preCtx.messages ?? messages;
+      if (this.memory) {
+        startMessages = await this.memory.maybeCompress(startMessages);
+      }
+
+      const lgMessages = this.messageMapper.toLangGraphList(startMessages);
       const recursionLimit = this.descriptor.maxIterations * 2 + 4;
       const config: Record<string, unknown> = {
         configurable: { thread_id: sessionId },

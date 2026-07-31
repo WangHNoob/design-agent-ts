@@ -100,6 +100,27 @@ export function validateConfig(config: FrameworkConfig, options: ConfigValidatio
   if (!Number.isInteger(config.execution.eventMaxLength) || config.execution.eventMaxLength <= 0) {
     issues.push("EXECUTION_EVENT_MAX_LENGTH must be a positive integer.");
   }
+  if (
+    !Number.isFinite(config.execution.sseHeartbeatMs)
+    || Number.isNaN(config.execution.sseHeartbeatMs)
+    || config.execution.sseHeartbeatMs < 0
+  ) {
+    issues.push("SSE_HEARTBEAT_MS must be a non-negative number (0 disables heartbeat).");
+  }
+  if (
+    !Number.isInteger(config.memory.protectRecentTurns)
+    || config.memory.protectRecentTurns < 1
+  ) {
+    issues.push("MEMORY_PROTECT_RECENT_TURNS must be an integer >= 1 (recent non-system message count).");
+  }
+  if (
+    !Number.isInteger(config.memory.maxActiveMessages)
+    || config.memory.maxActiveMessages < config.memory.protectRecentTurns
+  ) {
+    issues.push(
+      "MEMORY_MAX_ACTIVE_MESSAGES must be an integer >= MEMORY_PROTECT_RECENT_TURNS.",
+    );
+  }
 
   if (config.mcp.enabled) {
     config.mcp.servers.forEach((server, index) => {

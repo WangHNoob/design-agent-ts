@@ -149,6 +149,9 @@ beforeEach(() => {
     idGenerator: { randomUUID: () => `execution-${++nextId}` },
     worker: worker as never,
     maxRetries: 2,
+    config: {
+      execution: { sseHeartbeatMs: 40, taskTimeoutMs: 1, pollIntervalMs: 1, eventMaxLength: 10 },
+    } as never,
   });
   setDirector({ execute: directorExecute } as unknown as DirectorAgent);
 });
@@ -228,7 +231,7 @@ describe("console async execution control plane", () => {
     expect(text).toContain("event: execution_terminal");
   });
 
-  test("SSE 客户端断开只停止订阅，不取消 execution", async () => {
+  test("SSE 客户端断开只停止订阅，不取消 execution（Worker 可继续完成）", async () => {
     const response = await app().request("/console/execute/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -243,5 +246,109 @@ describe("console async execution control plane", () => {
     expect(events.subscribeStarted).toHaveBeenCalled();
     expect((await repository.get("execution-1"))?.status).toBe("queued");
     expect(repository.transitionStatus).not.toHaveBeenCalled();
+
+    // Simulate independent Worker finishing after client disconnect.
+    const current = await repository.get("execution-1");
+    expect(current).not.toBeNull();
+    repository.executions.set("execution-1", {
+      ...current!,
+      status: "completed",
+      updatedAt: new Date().toISOString(),
+    });
+    expect((await repository.get("execution-1"))?.status).toBe("completed");
+    expect(repository.transitionStatus).not.toHaveBeenCalled();
+  });
+
+  test("SSE 心跳 comment 帧", async () => {
+    const response = await app().request("/console/execute/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requirement: "test",
+        mode: "query",
+        sessionId: "session-1",
+      }),
+    });
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline && !text.includes(": heartbeat")) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    await reader.cancel();
+
+    expect(text).toContain(": heartbeat");
+  });
+
+  test("GET /executions/:id/events 续订不创建新 execution", async () => {
+    const created = await app().request("/console/execute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requirement: "test",
+        mode: "query",
+        sessionId: "session-1",
+      }),
+    });
+    const { executionId } = await created.json() as { executionId: string };
+    expect(publish).toHaveBeenCalledTimes(1);
+
+    await events.append("user-1", executionId, {
+      type: "execution_terminal",
+      data: { status: "completed" },
+      createdAt: new Date().toISOString(),
+    });
+    repository.executions.set(executionId, {
+      ...(await repository.get(executionId))!,
+      status: "completed",
+    });
+
+    const resume = await app().request(`/console/executions/${executionId}/events`, {
+      method: "GET",
+      headers: { "Last-Event-ID": "0-0" },
+    });
+    const text = await resume.text();
+
+    expect(resume.status).toBe(202);
+    expect(resume.headers.get("X-Execution-Id")).toBe(executionId);
+    expect(text).toContain("event: execution_terminal");
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(repository.executions.size).toBe(1);
+  });
+
+  test("POST /execute/stream/resume 续订不创建新 execution", async () => {
+    const created = await app().request("/console/execute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requirement: "test",
+        mode: "query",
+        sessionId: "session-resume",
+      }),
+    });
+    const { executionId } = await created.json() as { executionId: string };
+    await events.append("user-1", executionId, {
+      type: "execution_terminal",
+      data: { status: "completed" },
+      createdAt: new Date().toISOString(),
+    });
+    repository.executions.set(executionId, {
+      ...(await repository.get(executionId))!,
+      status: "completed",
+    });
+
+    const resume = await app().request("/console/execute/stream/resume", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ executionId, afterCursor: "0-0" }),
+    });
+
+    expect(resume.status).toBe(202);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(repository.executions.size).toBe(1);
   });
 });

@@ -40,7 +40,7 @@ todos:
     status: completed
   - id: p2-memory-sse
     content: 记忆驱逐前摘要 + SSE 心跳/执行与连接解耦/状态恢复重连
-    status: pending
+    status: completed
   - id: p3-structured-mcp
     content: 结构化输出校验重试降级 + MCP 按需暴露与统一超时熔断
     status: pending

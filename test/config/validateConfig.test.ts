@@ -65,6 +65,12 @@ function config(
       taskTimeoutMs: 300000,
       pollIntervalMs: 1000,
       eventMaxLength: 10000,
+      sseHeartbeatMs: 15000,
+    },
+    memory: {
+      archiveEnabled: true,
+      protectRecentTurns: 10,
+      maxActiveMessages: 40,
     },
     mcp: {
       enabled: false,
@@ -234,5 +240,26 @@ describe("validateConfig", () => {
       },
     };
     expect(() => validateConfig(cfg, { port: 4527 })).not.toThrow();
+  });
+
+  test("rejects invalid MEMORY_PROTECT_RECENT_TURNS", () => {
+    const cfg = { ...config(), memory: { ...config().memory, protectRecentTurns: 0 } };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/MEMORY_PROTECT_RECENT_TURNS/);
+  });
+
+  test("rejects MEMORY_MAX_ACTIVE_MESSAGES below protectRecentTurns", () => {
+    const cfg = {
+      ...config(),
+      memory: { archiveEnabled: true, protectRecentTurns: 10, maxActiveMessages: 5 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/MEMORY_MAX_ACTIVE_MESSAGES/);
+  });
+
+  test("rejects negative SSE_HEARTBEAT_MS", () => {
+    const cfg = {
+      ...config(),
+      execution: { ...config().execution, sseHeartbeatMs: -1 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/SSE_HEARTBEAT_MS/);
   });
 });

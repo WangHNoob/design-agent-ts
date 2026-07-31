@@ -172,6 +172,14 @@ export interface DirectorDeps {
     grepSearchResultLimit?: number;
     webSourceResultLimit?: number;
   };
+  /** Short-term sliding-window memory (query path required). */
+  memory?: {
+    archiveEnabled?: boolean;
+    protectRecentTurns?: number;
+    maxActiveMessages?: number;
+    maxTokens?: number;
+    compressionThreshold?: number;
+  };
   /** Extra tool names (e.g. MCP-sourced tools) appended to the query agent's toolset. */
   extraToolNames?: string[];
   /** 会话级共享黑板仓库（缺省时禁用黑板）。 */
@@ -234,6 +242,23 @@ export class DirectorAgent {
 
   private getQuerySystemPrompt(options?: DirectorStreamOptions): string {
     return options?.executionOverrides?.querySystemPrompt ?? this.querySystemPrompt;
+  }
+
+  /** Query/design short-term memory: sliding-window + archive by default. */
+  private async createMemoryPort() {
+    const mem = this.deps.memory;
+    if (mem?.archiveEnabled === false) {
+      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+      return new InMemoryMemoryPort();
+    }
+    const { SlidingWindowMemoryPort } = await import("../../memory/SlidingWindowMemoryPort.js");
+    return new SlidingWindowMemoryPort({
+      archiveEnabled: true,
+      protectRecentTurns: mem?.protectRecentTurns ?? 10,
+      maxActiveMessages: mem?.maxActiveMessages ?? 40,
+      maxTokens: mem?.maxTokens ?? 128_000,
+      compressionThreshold: mem?.compressionThreshold ?? 0.7,
+    });
   }
 
   private getAgentDescriptor(
@@ -854,7 +879,7 @@ export class DirectorAgent {
     const multi = this.multiAgentConfig();
     const prevCallParent = this.activeCallParent;
     try {
-      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+      const memoryPort = await this.createMemoryPort();
 
       const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
 
@@ -868,7 +893,7 @@ export class DirectorAgent {
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
         toolRegistry,
-        new InMemoryMemoryPort(),
+        memoryPort,
         this.deps.hooks
       );
 
@@ -975,7 +1000,7 @@ export class DirectorAgent {
     const multi = this.multiAgentConfig();
     const prevCallParent = this.activeCallParent;
     try {
-      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+      const memoryPort = await this.createMemoryPort();
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
 
       const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
@@ -990,7 +1015,7 @@ export class DirectorAgent {
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
         toolRegistry,
-        new InMemoryMemoryPort(),
+        memoryPort,
         hooks
       );
 
@@ -1104,7 +1129,7 @@ export class DirectorAgent {
           toolNames: Array.from(new Set([...descriptor.toolNames, AGENT_INVOKE_TOOL_NAME])),
         };
       }
-      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+      const memoryPort = await this.createMemoryPort();
       const toolRegistry = this.buildSessionToolRegistry(
         input.sessionId,
         input.agentName,
@@ -1113,7 +1138,7 @@ export class DirectorAgent {
       const agent = this.deps.agentFactory.createAgent(
         descriptor,
         toolRegistry,
-        new InMemoryMemoryPort(),
+        memoryPort,
         this.deps.hooks,
       );
       const message = ChatMessage.text("user", "director", input.assignment);
@@ -1325,11 +1350,11 @@ export class DirectorAgent {
       ],
       options: {},
     };
-    const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+    const memoryPort = await this.createMemoryPort();
     return this.deps.agentFactory.createAgent(
       queryDescriptor,
       this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
-      new InMemoryMemoryPort(),
+      memoryPort,
       this.deps.hooks
     );
   }
@@ -1353,11 +1378,11 @@ export class DirectorAgent {
       ],
       options: {},
     };
-    const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
+    const memoryPort = await this.createMemoryPort();
     return this.deps.agentFactory.createAgent(
       queryDescriptor,
       this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
-      new InMemoryMemoryPort(),
+      memoryPort,
       hooks
     );
   }

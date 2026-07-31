@@ -1,69 +1,89 @@
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
-import { ChatMessage } from "../../port/message/ChatMessage.js";
+import type { ArchiveEntry, MemoryPort } from "../../port/memory/MemoryPort.js";
+import { ContextManager } from "../memory/ContextManager.js";
 
+export interface ContextManagementHookOptions {
+  compressionThreshold?: number;
+  maxTokens?: number;
+  protectRecentTurns?: number;
+  maxActiveMessages?: number;
+  /** When set, eviction archives go through this MemoryPort (preferred production path). */
+  memory?: MemoryPort;
+}
+
+/**
+ * pre_reasoning hook: sliding-window eviction + archive.
+ * Prefer an injected MemoryPort (SlidingWindow); otherwise ContextManager + local archives[].
+ */
 export class ContextManagementHook implements AgentHook {
   priority = 80;
+  private readonly contextManager: ContextManager;
+  private readonly options: ContextManagementHookOptions;
+  private memory: MemoryPort | undefined;
+  private readonly archives: ArchiveEntry[] = [];
 
   constructor(
-    private readonly compressionThreshold = 0.8,
-    private readonly maxTokens = 128000
-  ) {}
+    compressionThresholdOrOptions: number | ContextManagementHookOptions = 0.8,
+    maxTokens = 128000,
+  ) {
+    const options: ContextManagementHookOptions =
+      typeof compressionThresholdOrOptions === "number"
+        ? { compressionThreshold: compressionThresholdOrOptions, maxTokens }
+        : compressionThresholdOrOptions;
+    this.options = { ...options };
+    this.memory = options.memory;
+    this.contextManager = new ContextManager({
+      compressionThreshold: options.compressionThreshold ?? 0.8,
+      maxTokens: options.maxTokens ?? 128000,
+      protectRecentTurns: options.protectRecentTurns ?? 10,
+      maxActiveMessages: options.maxActiveMessages ?? 40,
+      summarizeOnEvict: true,
+    });
+  }
+
+  /** Bind a per-agent MemoryPort without mutating the shared bootstrap instance. */
+  withMemory(memory: MemoryPort): ContextManagementHook {
+    return new ContextManagementHook({ ...this.options, memory });
+  }
+
+  listArchive(): readonly ArchiveEntry[] {
+    if (this.memory?.listArchive) {
+      return this.memory.listArchive();
+    }
+    return [...this.archives];
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (point === "pre_reasoning" && context.messages) {
-      const estimatedTokens = this.estimateTokens(context.messages);
-      const ratio = estimatedTokens / this.maxTokens;
+      const beforeCount = context.messages.length;
+      if (this.memory) {
+        const compressed = await this.memory.maybeCompress(context.messages);
+        if (compressed.length !== beforeCount) {
+          console.log(
+            `[ContextManagementHook] memory.maybeCompress: ${beforeCount} → ${compressed.length} 条消息` +
+            ` (归档 ${this.listArchive().length})`,
+          );
+        }
+        context.messages = compressed;
+        return context;
+      }
 
-      if (ratio > this.compressionThreshold) {
-        const beforeCount = context.messages.length;
-        context.messages = this.compressMessages(context.messages);
-        const afterCount = context.messages.length;
+      if (this.contextManager.needsEviction(context.messages)) {
+        const estimatedTokens = this.contextManager.estimateTokens(context.messages);
+        const result = await this.contextManager.compressWithArchive(context.messages);
+        if (result.archiveEntry) {
+          this.archives.push(result.archiveEntry);
+        }
+        context.messages = result.messages;
         console.log(
-          `[ContextManagementHook] 触发压缩: ${estimatedTokens} tokens (${(ratio * 100).toFixed(1)}%) — ` +
-          `${beforeCount} → ${afterCount} 条消息`
+          `[ContextManagementHook] 触发压缩/驱逐: ${estimatedTokens} tokens — ` +
+          `${beforeCount} → ${result.messages.length} 条消息` +
+          (result.archiveEntry ? ` (归档 ${result.archiveEntry.id})` : ""),
         );
       }
     }
     return context;
-  }
-
-  private estimateTokens(messages: import("../../port/message/ChatMessage.js").ChatMessage[]): number {
-    return messages.reduce((sum, msg) => {
-      const text = msg.content.map((c) => (c.type === "text" ? c.text.length : 0)).reduce((a, b) => a + b, 0);
-      return sum + Math.ceil(text / 4);
-    }, 0);
-  }
-
-  private compressMessages(messages: import("../../port/message/ChatMessage.js").ChatMessage[]): import("../../port/message/ChatMessage.js").ChatMessage[] {
-    if (messages.length <= 4) return messages;
-
-    // Strategy: keep system messages, the first user message, the most recent assistant message,
-    // and the last 3 messages. Compress the middle by dropping oldest non-system messages.
-    const systemMsgs = messages.filter((m) => m.role === "system");
-    const firstUser = messages.find((m) => m.role === "user");
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-    const tail = messages.slice(-3);
-
-    const core = new Set([firstUser, lastAssistant, ...tail].filter(Boolean));
-    const result: import("../../port/message/ChatMessage.js").ChatMessage[] = [];
-
-    for (const msg of messages) {
-      if (msg.role === "system" || core.has(msg)) {
-        result.push(msg);
-      }
-    }
-
-    // If still too large, add a truncation notice
-    if (result.length < messages.length) {
-      result.splice(result.length - 1, 0, ChatMessage.text(
-        "user",
-        "ContextManagementHook",
-        `【上下文压缩】已截断 ${messages.length - result.length} 条较早的历史消息以节省 token。`
-      ));
-    }
-
-    return result;
   }
 }

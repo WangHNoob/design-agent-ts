@@ -229,6 +229,13 @@ export async function lateBootstrapDirector(): Promise<void> {
       queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
     },
+    memory: {
+      archiveEnabled: config.memory.archiveEnabled,
+      protectRecentTurns: config.memory.protectRecentTurns,
+      maxActiveMessages: config.memory.maxActiveMessages,
+      maxTokens: config.limits.contextMaxTokens,
+      compressionThreshold: config.limits.contextCompressionThreshold,
+    },
     extraToolNames: bootstrapState.mcpToolNames,
     blackboardStore: bootstrapState.blackboardStore,
     blackboardConfig: bootstrapState.config.blackboard,
@@ -500,7 +507,12 @@ export async function lateBootstrapDirector(): Promise<void> {
     new ValidationHook(),
     new IterationBudgetHook(config.limits.iterationBudgetDefault),
     new OutputEnforcementHook(),
-    new ContextManagementHook(config.limits.contextCompressionThreshold, config.limits.contextMaxTokens),
+    new ContextManagementHook({
+      compressionThreshold: config.limits.contextCompressionThreshold,
+      maxTokens: config.limits.contextMaxTokens,
+      protectRecentTurns: config.memory.protectRecentTurns,
+      maxActiveMessages: config.memory.maxActiveMessages,
+    }),
   ];
 
   // Trace context (separate ALS from tenant) + store/tracer
@@ -1041,6 +1053,13 @@ export async function lateBootstrapDirector(): Promise<void> {
         grepSearchResultLimit: config.limits.grepSearchResultLimit,
         webSourceResultLimit: config.limits.webSourceResultLimit,
       },
+      memory: {
+        archiveEnabled: config.memory.archiveEnabled,
+        protectRecentTurns: config.memory.protectRecentTurns,
+        maxActiveMessages: config.memory.maxActiveMessages,
+        maxTokens: config.limits.contextMaxTokens,
+        compressionThreshold: config.limits.contextCompressionThreshold,
+      },
       extraToolNames: bootstrapState.mcpToolNames,
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
@@ -1140,6 +1159,13 @@ export async function reloadDirector(): Promise<void> {
       limits: {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
+      },
+      memory: {
+        archiveEnabled: config.memory.archiveEnabled,
+        protectRecentTurns: config.memory.protectRecentTurns,
+        maxActiveMessages: config.memory.maxActiveMessages,
+        maxTokens: config.limits.contextMaxTokens,
+        compressionThreshold: config.limits.contextCompressionThreshold,
       },
       extraToolNames: bootstrapState.mcpToolNames,
       blackboardStore: bootstrapState.blackboardStore,
