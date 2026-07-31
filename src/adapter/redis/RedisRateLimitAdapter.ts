@@ -56,7 +56,7 @@ return {1, math.max(0, limit - current), ttl}
 export class RedisRateLimitAdapter implements RateLimitPort {
   private readonly redis: RedisType;
   private readonly prefix: string;
-  private readonly scriptSha: Promise<string>;
+  private scriptSha: string | null = null;
 
   constructor(
     redisUrl: string,
@@ -64,12 +64,31 @@ export class RedisRateLimitAdapter implements RateLimitPort {
   ) {
     this.redis = new Redis.default(redisUrl, { lazyConnect: true });
     this.prefix = options.keyPrefix ?? "gd:";
-    this.scriptSha = this.redis.script("LOAD", CHECK_SCRIPT).then(String);
   }
 
   async connect(): Promise<void> {
-    await this.redis.connect();
-    await this.scriptSha;
+    // Do not LOAD script in the constructor: ioredis lazyConnect still auto-connects
+    // on the first command, and a subsequent connect() then throws
+    // "Redis is already connecting/connected".
+    if (this.redis.status === "wait") {
+      await this.redis.connect();
+    } else if (this.redis.status === "connecting") {
+      await new Promise<void>((resolve, reject) => {
+        const onReady = () => {
+          this.redis.off("error", onError);
+          resolve();
+        };
+        const onError = (err: Error) => {
+          this.redis.off("ready", onReady);
+          reject(err);
+        };
+        this.redis.once("ready", onReady);
+        this.redis.once("error", onError);
+      });
+    }
+    if (!this.scriptSha) {
+      this.scriptSha = String(await this.redis.script("LOAD", CHECK_SCRIPT));
+    }
   }
 
   async checkAndConsume(input: RateLimitCheckInput): Promise<RateLimitResult> {
@@ -174,9 +193,11 @@ export class RedisRateLimitAdapter implements RateLimitPort {
     delta: number,
     consume: boolean,
   ): Promise<{ allowed: boolean; remaining: number; retryAfterMs: number }> {
-    const sha = await this.scriptSha;
+    if (!this.scriptSha) {
+      throw new Error("RedisRateLimitAdapter.connect() must be called before rate checks");
+    }
     const raw = await this.redis.evalsha(
-      sha,
+      this.scriptSha,
       1,
       key,
       limit.toString(),
