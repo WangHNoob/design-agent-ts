@@ -53,6 +53,13 @@ describe("Postgres Drizzle migrations", () => {
     expect(migration).toContain("post_summary");
   });
 
+  test("adds HITL ops statuses in 0004", () => {
+    const migration = readFileSync(resolve("drizzle/0004_hitl_ops.sql"), "utf8");
+    expect(migration).toContain("'expired'");
+    expect(migration).toContain("'escalated'");
+    expect(migration).toContain('"escalated_at"');
+  });
+
   test("keeps the migration journal and snapshot in sync", () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
@@ -70,10 +77,11 @@ describe("Postgres Drizzle migrations", () => {
       "0001_execution_persistence",
       "0002_better_auth",
       "0003_agent_traces",
+      "0004_hitl_ops",
     ]);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 3,
-      tag: "0003_agent_traces",
+      idx: 4,
+      tag: "0004_hitl_ops",
     });
     expect(Object.keys(snapshot.tables)).toEqual(
       expect.arrayContaining([

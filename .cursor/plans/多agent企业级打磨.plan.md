@@ -19,7 +19,7 @@ todos:
     status: completed
   - id: p1-hitl-ops
     content: HITL 运营面（待审看板、超时、resume CAS、新鲜度校验）
-    status: pending
+    status: completed
   - id: p1-audit-rbac
     content: 审计日志 + 工具权限分级 + 不可逆强制 HITL
     status: pending

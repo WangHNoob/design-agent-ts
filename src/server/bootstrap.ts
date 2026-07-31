@@ -47,7 +47,10 @@ import { MemoryManager } from "../core/memory/MemoryManager.js";
 import { PostgresDatabaseAdapter } from "../adapter/postgres/PostgresDatabaseAdapter.js";
 import { PostgresSessionRepository } from "../adapter/postgres/PostgresSessionRepository.js";
 import { PostgresExecutionRepository } from "../adapter/postgres/PostgresExecutionRepository.js";
-import { PostgresHITLRepository } from "../adapter/postgres/PostgresHITLRepository.js";
+import { PostgresHITLRepository, PostgresHITLTimeoutScanAdapter } from "../adapter/postgres/PostgresHITLRepository.js";
+import { AlwaysFreshHITLCheck } from "../core/hitl/AlwaysFreshHITLCheck.js";
+import { sweepHITLTimeouts } from "../core/hitl/HITLTimeoutSweeper.js";
+import { ExecutionService } from "../core/execution/ExecutionService.js";
 import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
@@ -56,7 +59,7 @@ import type { TenantContext } from "../port/user/TenantIsolationPort.js";
 import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdapter.js";
 import { RedisExecutionEventStoreAdapter } from "../adapter/redis/RedisExecutionEventStoreAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
-import { ExecutionWorker } from "./worker/ExecutionWorker.js";
+import { ExecutionWorker, EXECUTION_QUEUE } from "./worker/ExecutionWorker.js";
 import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
@@ -609,7 +612,95 @@ export async function bootstrap() {
     tenantPort: redisAdapter!,
     idGenerator,
     maxRetries: config.messageQueue.maxRetries,
+    timeoutMs: config.hitl.timeout,
+    freshness: new AlwaysFreshHITLCheck(),
   });
+
+  // Durable HITL timeout sweeper — CAS-safe; concurrent human resume wins or loses cleanly.
+  if (config.hitl.enabled && config.hitl.timeoutSweepIntervalMs > 0) {
+    const hitlScan = new PostgresHITLTimeoutScanAdapter(dbAdapter!);
+    const timer = setInterval(() => {
+      void sweepHITLTimeouts({
+        scan: hitlScan,
+        timeoutMs: config.hitl.timeout,
+        policy: config.hitl.timeoutPolicy,
+        batchSize: 50,
+        applyDeps: {
+          repositoryFactory: hitlRepositoryFactory,
+          onAutoDecision: async ({ checkpoint, action }) => {
+            if (!checkpoint.executionId) return;
+            const execRepo = executionRepositoryFactory(checkpoint.userId);
+            const sessionRepo = sessionRepositoryFactory(checkpoint.userId);
+            const service = new ExecutionService(execRepo, idGenerator);
+            const execution = await execRepo.get(checkpoint.executionId);
+            if (!execution) return;
+            if (action === "reject") {
+              const failed = await service.fail(
+                checkpoint.executionId,
+                Object.assign(new Error(checkpoint.reviewComment ?? "HITL timeout reject"), {
+                  errorClass: "permanent",
+                }),
+              );
+              await sessionRepo.update(execution.sessionId, {
+                status: "failed",
+                error: failed.errorMessage ?? "HITL timeout reject",
+                hitlCheckpointId: checkpoint.id,
+              });
+              return;
+            }
+            const resumed = await service.resume(checkpoint.executionId, {
+              checkpointId: checkpoint.id,
+              reviewAction: action,
+              reviewPoint: checkpoint.reviewPoint,
+            });
+            await sessionRepo.update(execution.sessionId, {
+              status: "queued",
+              error: "",
+              hitlCheckpointId: checkpoint.id,
+            });
+            await mqAdapter!.publish(
+              EXECUTION_QUEUE,
+              { executionId: resumed.id, userId: checkpoint.userId },
+              { userId: checkpoint.userId, maxRetries: config.messageQueue.maxRetries },
+            );
+          },
+          onExpired: async (checkpoint) => {
+            if (!checkpoint.executionId) return;
+            const execRepo = executionRepositoryFactory(checkpoint.userId);
+            const sessionRepo = sessionRepositoryFactory(checkpoint.userId);
+            const service = new ExecutionService(execRepo, idGenerator);
+            const execution = await execRepo.get(checkpoint.executionId);
+            if (!execution) return;
+            const failed = await service.fail(
+              checkpoint.executionId,
+              Object.assign(new Error(checkpoint.reviewComment ?? "HITL checkpoint expired"), {
+                errorClass: "permanent",
+              }),
+            );
+            await sessionRepo.update(execution.sessionId, {
+              status: "failed",
+              error: failed.errorMessage ?? "HITL checkpoint expired",
+              hitlCheckpointId: checkpoint.id,
+            });
+          },
+        },
+        onError: (err, checkpointId) => {
+          console.error(`[HITL] Timeout sweep error${checkpointId ? ` for ${checkpointId}` : ""}:`, err);
+        },
+      }).then((stats) => {
+        if (stats.applied > 0) {
+          console.log(
+            `[HITL] Timeout sweep: scanned=${stats.scanned} applied=${stats.applied} skipped=${stats.skipped}`,
+          );
+        }
+      });
+    }, config.hitl.timeoutSweepIntervalMs);
+    timer.unref?.();
+    console.log(
+      `[Bootstrap] HITL timeout sweeper enabled: policy=${config.hitl.timeoutPolicy} ` +
+        `timeout=${config.hitl.timeout}ms interval=${config.hitl.timeoutSweepIntervalMs}ms`,
+    );
+  }
   setSettingsManager(settingsManager);
   setTavilyTool(tavilyTool);
 

@@ -22,6 +22,8 @@ function config(
       maxRevisionRounds: 3,
       timeout: 300000,
       autoContinueOnTimeout: false,
+      timeoutPolicy: "auto_reject",
+      timeoutSweepIntervalMs: 15000,
     },
     knowledge: {
       wikiPath: "./knowledge/wiki",

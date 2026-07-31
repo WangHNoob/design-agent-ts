@@ -1,6 +1,10 @@
+import type { HITLTimeoutPolicy } from "../port/hitl/HITLTimeoutPolicy.js";
+
 export type FrameworkType = "langgraph" | "mock";
 
 export type McpTransport = "stdio" | "sse" | "http";
+
+export type { HITLTimeoutPolicy } from "../port/hitl/HITLTimeoutPolicy.js";
 
 export interface McpServerConfig {
   /** Stable name for the server (used for logging and tool prefixing). */
@@ -44,7 +48,18 @@ export interface FrameworkConfig {
     reviewPoints: Record<string, boolean>;
     maxRevisionRounds: number;
     timeout: number;
+    /**
+     * @deprecated Prefer timeoutPolicy. Kept for backward compat —
+     * when true and timeoutPolicy unset historically, maps to auto_reject.
+     */
     autoContinueOnTimeout: boolean;
+    /**
+     * On SLA breach: auto_reject | auto_approve | expire | escalate.
+     * Auto decisions always set fallback=true (never silent).
+     */
+    timeoutPolicy: HITLTimeoutPolicy;
+    /** Interval for the durable HITL timeout sweeper (ms). 0 disables. */
+    timeoutSweepIntervalMs: number;
   };
   knowledge: {
     wikiPath: string;

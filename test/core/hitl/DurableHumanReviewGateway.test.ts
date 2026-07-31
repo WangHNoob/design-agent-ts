@@ -67,6 +67,12 @@ class MemoryHITLRepository implements HITLRepository {
   async review(_id: string, _input: HITLReviewInput) {
     return null;
   }
+  async expire() {
+    return null;
+  }
+  async escalate() {
+    return null;
+  }
   async delete() {
     return false;
   }
