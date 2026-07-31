@@ -281,15 +281,38 @@ export async function lateBootstrapDirector(): Promise<void> {
   const fileSystem = new NodeFileSystemAdapter();
   const contextStorage = new NodeContextStorageAdapter<TenantContext>();
 
-  let apiKey = config.model.apiKey;
-
   const settingsManager = new SettingsManager(fileSystem);
   await settingsManager.initialize();
 
-  const settings = settingsManager.getSettings();
-  if (settings.modelApiKey) {
-    apiKey = settings.modelApiKey;
+  // If settings.json has no API key yet, seed from env (.env / compose) and persist
+  // so subsequent UI reads and rebuilds keep a single source of truth.
+  {
+    const current = settingsManager.getSettings();
+    const seed: Partial<import("../core/settings/SettingsManager.js").AppSettings> = {};
+    if (!current.modelApiKey && config.model.apiKey) {
+      seed.modelApiKey = config.model.apiKey;
+      seed.modelProvider = config.model.provider;
+      seed.modelName = config.model.modelName;
+      if (config.model.baseUrl) seed.modelBaseUrl = config.model.baseUrl;
+    }
+    if (!current.tavilyApiKey && config.webSearch.tavilyApiKey) {
+      seed.tavilyApiKey = config.webSearch.tavilyApiKey;
+      seed.tavilyEnabled = config.webSearch.tavilyEnabled;
+    }
+    if (Object.keys(seed).length > 0) {
+      settingsManager.updateSettings(seed);
+      try {
+        await settingsManager.save();
+      } catch (err) {
+        console.warn(
+          `[Bootstrap] Failed to persist seeded settings: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
+
+  const settings = settingsManager.getSettings();
+  let apiKey = settings.modelApiKey || config.model.apiKey;
 
   // Load prompts from filesystem (composition root responsibility)
   const subAgentPrompts = {
