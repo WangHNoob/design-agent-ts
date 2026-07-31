@@ -1,6 +1,7 @@
 import type { TaskPlan, SubTask } from "../schema/TaskPlan.js";
 import type { TaskResult } from "../schema/TaskResult.js";
 import { ErrorClassifier } from "../execution/ErrorClassifier.js";
+import { isToolHitlRequiredError } from "../tool/ToolHitlRequiredError.js";
 
 export type TaskExecutor = (task: SubTask, signal?: AbortSignal) => Promise<TaskResult>;
 
@@ -186,6 +187,9 @@ export class PlanPipeline {
       });
       result = await Promise.race([execution, aborted]);
     } catch (error) {
+      if (isToolHitlRequiredError(error)) {
+        throw error;
+      }
       const errorClass = this.signal?.aborted
         ? "cancelled"
         : ErrorClassifier.classify(error);

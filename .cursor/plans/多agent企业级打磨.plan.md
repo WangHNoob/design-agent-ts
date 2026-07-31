@@ -22,7 +22,7 @@ todos:
     status: completed
   - id: p1-audit-rbac
     content: 审计日志 + 工具权限分级 + 不可逆强制 HITL
-    status: pending
+    status: completed
   - id: p1-cost-quota
     content: 成本归因看板 + RPM/TPM 双限流 + 每用户隔舱
     status: pending

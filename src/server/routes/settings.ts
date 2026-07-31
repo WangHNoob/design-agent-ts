@@ -6,6 +6,9 @@ import { syncEnvFromSettings } from "../envSync.js";
 import { isDirectorReady, lateBootstrapDirector } from "../bootstrap.js";
 import { hasActiveExecutions } from "./console.js";
 import { requireAdmin } from "../middleware/auth.js";
+import { redactSensitiveSettings } from "../../core/audit/redact.js";
+import { appendAudit } from "../security/auditHelpers.js";
+import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
 
 let settingsManagerInstance: SettingsManager | null = null;
 let containerInstance: Container | null = null;
@@ -128,6 +131,19 @@ settingsRoute.post("/", requireAdmin(), async (c) => {
     const enabled = settingsManagerInstance.isTavilyEnabled();
     const apiKey = settingsManagerInstance.getTavilyApiKey();
     tavilyToolInstance.setApiKey(enabled ? apiKey ?? null : null);
+  }
+
+  const tenant = c.get("tenant") as TenantContext | undefined;
+  if (tenant) {
+    await appendAudit({
+      userId: tenant.userId,
+      action: "config.change",
+      resourceType: "settings",
+      resourceId: "app_settings",
+      sessionId: tenant.sessionId,
+      outcome: "success",
+      detail: { changes: redactSensitiveSettings(body as Record<string, unknown>) },
+    });
   }
 
   return c.json({ success: true, configured: isDirectorReady(), settings: settingsManagerInstance.getPublicSettings() });

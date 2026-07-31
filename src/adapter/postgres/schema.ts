@@ -313,3 +313,27 @@ export const agentSpans = pgTable(
     ),
   ],
 );
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: uuid("id").primaryKey(),
+    userId,
+    action: varchar("action", { length: 50 }).notNull(),
+    resourceType: varchar("resource_type", { length: 50 }),
+    resourceId: varchar("resource_id", { length: 255 }),
+    sessionId: varchar("session_id", { length: 100 }),
+    executionId: varchar("execution_id", { length: 100 }),
+    traceId: varchar("trace_id", { length: 100 }),
+    outcome: varchar("outcome", { length: 20 }).notNull(),
+    detail: jsonb("detail").notNull().default({}),
+    ip: varchar("ip", { length: 45 }),
+    userAgent: text("user_agent"),
+    createdAt,
+  },
+  (table) => [
+    index("idx_audit_logs_user_created").on(table.userId, table.createdAt),
+    index("idx_audit_logs_user_action").on(table.userId, table.action, table.createdAt),
+    check("audit_logs_outcome_check", sql`${table.outcome} in ('success', 'denied', 'error')`),
+  ],
+);

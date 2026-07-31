@@ -66,6 +66,12 @@ import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClie
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
 import type { McpClientPort } from "../port/mcp/McpClientPort.js";
 import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
+import { PostgresAuditStoreAdapter } from "../adapter/postgres/PostgresAuditStoreAdapter.js";
+import { InMemoryToolApprovalStore } from "../core/tool/InMemoryToolApprovalStore.js";
+import { setAuditStore } from "./routes/audit.js";
+import { setGlobalAuditStore, appendAudit } from "./security/auditHelpers.js";
+import { buildToolSecurityOptions, wrapToolWithSecurity } from "./security/toolSecurityWiring.js";
+import type { ToolSecurityOptions } from "../core/tool/ToolSecurityWrapper.js";
 
 let bootstrapState: {
   config: ReturnType<typeof loadConfig>;
@@ -93,6 +99,7 @@ let bootstrapState: {
   tracer: TracerPort;
   traceStore: TraceStorePort | null;
   contextStorage: NodeContextStorageAdapter<TenantContext>;
+  wrapTool?: (tool: import("../port/tool/ToolPort.js").ToolPort) => import("../port/tool/ToolPort.js").ToolPort;
 } | null = null;
 
 export function getBootstrapState() {
@@ -157,6 +164,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     blackboardConfig: bootstrapState.config.blackboard,
     tracer,
     resolveUserId: () => contextStorage.getStore()?.userId,
+    wrapTool: bootstrapState.wrapTool,
   });
 
   setDirector(director);
@@ -410,6 +418,9 @@ export async function bootstrap() {
 
   // Trace context (separate ALS from tenant) + store/tracer
   const traceContextStorage = new NodeContextStorageAdapter<TraceRuntimeState>();
+  const toolApprovalStore = new InMemoryToolApprovalStore();
+  let toolSecurityOptions: ToolSecurityOptions | null = null;
+  let auditStoreAdapter: PostgresAuditStoreAdapter | null = null;
   let traceStore: TraceStorePort | null = null;
   let tracer: TracerPort = new NoOpTracer();
 
@@ -437,6 +448,16 @@ export async function bootstrap() {
       throw new Error("PostgreSQL health check failed; apply migrations with `pnpm db:migrate`");
     }
     console.log("[Bootstrap] PostgreSQL connected (schema managed by drizzle migrations)");
+
+    if (config.security.auditEnabled) {
+      auditStoreAdapter = new PostgresAuditStoreAdapter(dbAdapter, new NodeIdGeneratorAdapter());
+      setGlobalAuditStore(auditStoreAdapter);
+      setAuditStore(auditStoreAdapter);
+      console.log("[Bootstrap] Audit logging enabled (audit_logs → Postgres)");
+    } else {
+      setGlobalAuditStore(null);
+      setAuditStore(null);
+    }
 
     if (config.tracing.enabled) {
       traceStore = new PostgresTraceStoreAdapter(dbAdapter);
@@ -575,6 +596,31 @@ export async function bootstrap() {
 
   const hitlRepositoryFactory = (userId: string) =>
     new PostgresHITLRepository(dbAdapter!, userId);
+
+  if (dbAdapter) {
+    toolSecurityOptions = buildToolSecurityOptions({
+      config,
+      auditStore: auditStoreAdapter,
+      approvalStore: toolApprovalStore,
+      tenantContextStorage: contextStorage,
+      traceContextStorage,
+      idGenerator,
+      hitlRepositoryFactory,
+    });
+    toolRegistry.rewrapAll((tool) => wrapToolWithSecurity(tool, toolSecurityOptions!));
+    console.log(
+      `[Bootstrap] Tool security enabled: irreversibleHitl=${config.security.irreversibleRequireHitl} ` +
+        `sandboxKeywords=${config.security.sandboxDenyKeywords.length}`,
+    );
+  }
+
+  const wrapTool = toolSecurityOptions
+    ? (tool: import("../port/tool/ToolPort.js").ToolPort) => wrapToolWithSecurity(tool, toolSecurityOptions!)
+    : undefined;
+  if (bootstrapState) {
+    bootstrapState.wrapTool = wrapTool;
+  }
+
   const durableHitlGateway = new DurableHumanReviewGateway({
     repositoryFactory: hitlRepositoryFactory,
     contextStorage,
@@ -614,6 +660,8 @@ export async function bootstrap() {
     maxRetries: config.messageQueue.maxRetries,
     timeoutMs: config.hitl.timeout,
     freshness: new AlwaysFreshHITLCheck(),
+    auditStore: auditStoreAdapter,
+    toolApprovalStore,
   });
 
   // Durable HITL timeout sweeper — CAS-safe; concurrent human resume wins or loses cleanly.
@@ -628,6 +676,21 @@ export async function bootstrap() {
         applyDeps: {
           repositoryFactory: hitlRepositoryFactory,
           onAutoDecision: async ({ checkpoint, action }) => {
+            await appendAudit({
+              userId: checkpoint.userId,
+              action: "hitl.decision",
+              resourceType: "hitl_checkpoint",
+              resourceId: checkpoint.id,
+              sessionId: checkpoint.sessionId,
+              executionId: checkpoint.executionId,
+              outcome: action === "reject" ? "denied" : "success",
+              detail: {
+                reviewPoint: checkpoint.reviewPoint,
+                reviewAction: action,
+                fallback: true,
+                source: "timeout_sweeper",
+              },
+            });
             if (!checkpoint.executionId) return;
             const execRepo = executionRepositoryFactory(checkpoint.userId);
             const sessionRepo = sessionRepositoryFactory(checkpoint.userId);
@@ -665,6 +728,21 @@ export async function bootstrap() {
             );
           },
           onExpired: async (checkpoint) => {
+            await appendAudit({
+              userId: checkpoint.userId,
+              action: "hitl.decision",
+              resourceType: "hitl_checkpoint",
+              resourceId: checkpoint.id,
+              sessionId: checkpoint.sessionId,
+              executionId: checkpoint.executionId,
+              outcome: "denied",
+              detail: {
+                reviewPoint: checkpoint.reviewPoint,
+                reviewAction: "expired",
+                fallback: true,
+                source: "timeout_sweeper",
+              },
+            });
             if (!checkpoint.executionId) return;
             const execRepo = executionRepositoryFactory(checkpoint.userId);
             const sessionRepo = sessionRepositoryFactory(checkpoint.userId);
@@ -759,6 +837,7 @@ export async function bootstrap() {
       blackboardConfig: bootstrapState.config.blackboard,
       tracer,
       resolveUserId: () => contextStorage.getStore()?.userId,
+      wrapTool,
     });
 
     setDirector(director);
@@ -835,6 +914,7 @@ export async function reloadDirector(): Promise<void> {
       blackboardConfig: bootstrapState.config.blackboard,
       tracer,
       resolveUserId: () => contextStorage.getStore()?.userId,
+      wrapTool: bootstrapState.wrapTool,
     });
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");
