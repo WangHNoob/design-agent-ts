@@ -146,6 +146,11 @@ export function loadConfig(): FrameworkConfig {
       enabled: process.env.TRACING_ENABLED !== "false",
       consoleExporter: process.env.TRACING_CONSOLE_EXPORTER === "true",
     },
+    guards: {
+      traceTokenBudget: Number(process.env.TRACE_TOKEN_BUDGET ?? 500000),
+      toolLoopWindowSize: Number(process.env.TOOL_LOOP_WINDOW_SIZE ?? 8),
+      toolLoopMaxRepeats: Number(process.env.TOOL_LOOP_MAX_REPEATS ?? 3),
+    },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
   return config;

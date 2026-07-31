@@ -90,6 +90,11 @@ function config(
       enabled: true,
       consoleExporter: false,
     },
+    guards: {
+      traceTokenBudget: 500000,
+      toolLoopWindowSize: 8,
+      toolLoopMaxRepeats: 3,
+    },
   };
 }
 
