@@ -163,4 +163,34 @@ export type {
 } from "./core/plan/index.js";
 export { ToolWhitelistWrapper, WhitelistToolRegistry } from "./core/tool/ToolWhitelistWrapper.js";
 export type { ToolWhitelistOptions } from "./core/tool/ToolWhitelistWrapper.js";
-export type { DirectorPlanHardConfig } from "./core/agent/director/DirectorAgent.js";
+export type { DirectorPlanHardConfig, DirectorMultiAgentConfig } from "./core/agent/director/DirectorAgent.js";
+
+// Multi-agent runaway guards + Handoff (paradigm III)
+export {
+  AgentCallGuard,
+  invokeSubAgent,
+  MultiAgentGuardError,
+  isMultiAgentGuardError,
+  runFanOutBatches,
+  assertFanOut,
+  distillHandoff,
+  formatHandoffForPrompt,
+  validateHandoff,
+  HandoffViolationError,
+  isHandoffViolationError,
+  AgentInvokeTool,
+  AGENT_INVOKE_TOOL_NAME,
+  seedHandoffsFromResults,
+  collectHandoffsForPrompt,
+} from "./core/multiagent/index.js";
+export type {
+  CallContext,
+  AgentCallGuardOptions,
+  FanOutBatchInfo,
+  DistillHandoffInput,
+  HandoffPayload,
+  HandoffLimits,
+  AgentInvokeToolOptions,
+  SeedHandoffViolation,
+  CollectHandoffsResult,
+} from "./core/multiagent/index.js";
