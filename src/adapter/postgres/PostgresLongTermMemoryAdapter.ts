@@ -113,7 +113,7 @@ export class PostgresLongTermMemoryAdapter implements LongTermMemoryPort {
     sql += ` ORDER BY (${textScoreExpr} * 0.5 + importance * 0.3 + (1.0 - EXTRACT(EPOCH FROM (now() - created_at)) / 7776000.0) * 0.2) DESC`;
 
     const limit = params.limit ?? 10;
-    sql += ` LIMIT $${paramIdx}`;
+    sql += ` LIMIT $${paramIdx}::int`;
     queryParams[paramIdx.toString()] = limit;
 
     const result = await this.db.query(sql, queryParams);
