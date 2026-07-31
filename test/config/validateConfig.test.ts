@@ -103,6 +103,10 @@ function config(
       toolRetryBackoffMs: 200,
       toolTimeoutMs: 30000,
     },
+    eval: {
+      defaultDatasetPath: "eval/datasets/design-golden.v1.json",
+      offlineExactOnlyDefault: true,
+    },
   };
 }
 
