@@ -1,7 +1,9 @@
 services:
   # ─── Infrastructure ────────────────────────────────────────────
   postgres:
-    image: pgvector/pgvector:pg18
+    # Keep PG 16 to match README/migrate client; pg18 changes the data dir layout
+    # and rejects existing /var/lib/postgresql/data volumes without pg_upgrade.
+    image: pgvector/pgvector:pg16
     container_name: gdt-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-game_designer}
@@ -14,10 +16,11 @@ services:
       - pg_backups:/backups
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-game_designer}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
   # PostgreSQL backup cron (runs daily at 2:00 AM)
   pg-backup:
