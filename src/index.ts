@@ -137,3 +137,30 @@ export type {
 // Port 接口层 — 工具安全
 export type { ToolRiskLevel } from "./port/tool/ToolRiskLevel.js";
 export type { ToolApprovalPort, ToolApprovalKey, GrantToolApprovalInput } from "./port/tool/ToolApprovalPort.js";
+
+// Plan 硬保障（范式二：步骤白名单 / 重规划预算 / 跳步拒绝）
+export {
+  PlanHardGuard,
+  PlanViolationError,
+  isPlanViolationError,
+  PlanReplanExhaustedError,
+  isPlanReplanExhaustedError,
+  canReplan,
+  assertWithinReplanBudget,
+  PlanReplanner,
+  validateRemainingTasks,
+  runPlanWithReplan,
+  DEFAULT_DOMAIN_TOOL_WHITELIST,
+  DEFAULT_READ_TOOLS,
+  resolveDomainDefaultTools,
+} from "./core/plan/index.js";
+export type {
+  PlanHardGuardOptions,
+  PlanReplannerOptions,
+  ReplanInput,
+  RunPlanWithReplanOptions,
+  RunPlanWithReplanResult,
+} from "./core/plan/index.js";
+export { ToolWhitelistWrapper, WhitelistToolRegistry } from "./core/tool/ToolWhitelistWrapper.js";
+export type { ToolWhitelistOptions } from "./core/tool/ToolWhitelistWrapper.js";
+export type { DirectorPlanHardConfig } from "./core/agent/director/DirectorAgent.js";

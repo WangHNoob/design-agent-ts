@@ -235,6 +235,12 @@ export async function lateBootstrapDirector(): Promise<void> {
     tracer,
     resolveUserId,
     wrapTool: bootstrapState.wrapTool,
+    planHard: {
+      enabled: config.guards.planHardEnabled,
+      maxReplans: config.guards.planMaxReplans,
+      rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
+      domainToolDefaults: config.guards.planDomainToolDefaults,
+    },
   });
 
   setDirector(director);
@@ -1027,6 +1033,12 @@ export async function bootstrap() {
       tracer,
       resolveUserId,
       wrapTool,
+      planHard: {
+        enabled: config.guards.planHardEnabled,
+        maxReplans: config.guards.planMaxReplans,
+        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
+        domainToolDefaults: config.guards.planDomainToolDefaults,
+      },
     });
 
     setDirector(director);
@@ -1111,6 +1123,12 @@ export async function reloadDirector(): Promise<void> {
       tracer,
       resolveUserId,
       wrapTool: bootstrapState.wrapTool,
+      planHard: {
+        enabled: config.guards.planHardEnabled,
+        maxReplans: config.guards.planMaxReplans,
+        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
+        domainToolDefaults: config.guards.planDomainToolDefaults,
+      },
     });
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");

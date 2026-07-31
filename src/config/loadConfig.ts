@@ -96,6 +96,23 @@ function parseCsvList(raw: string | undefined, defaults: string[] = []): string[
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+function parseDomainToolDefaults(raw: string | undefined): Record<string, string[]> {
+  if (!raw || raw.trim().length === 0) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, string[]> = {};
+    for (const [domain, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      out[domain] = value.map((v) => String(v)).filter(Boolean);
+    }
+    return out;
+  } catch {
+    console.warn("[loadConfig] PLAN_DOMAIN_TOOL_DEFAULTS is not valid JSON, ignoring");
+    return {};
+  }
+}
+
 export function loadConfig(): FrameworkConfig {
   const hitlEnabled = process.env.HITL_ENABLED === "true";
   const config: FrameworkConfig = {
@@ -219,6 +236,10 @@ export function loadConfig(): FrameworkConfig {
       toolRetryMaxAttempts: Number(process.env.TOOL_RETRY_MAX_ATTEMPTS ?? 2),
       toolRetryBackoffMs: Number(process.env.TOOL_RETRY_BACKOFF_MS ?? 200),
       toolTimeoutMs: Number(process.env.TOOL_TIMEOUT_MS ?? 30000),
+      planHardEnabled: process.env.PLAN_HARD_ENABLED !== "false",
+      planMaxReplans: Number(process.env.PLAN_MAX_REPLANS ?? 2),
+      planRejectUnauthorizedTools: process.env.PLAN_REJECT_UNAUTHORIZED_TOOLS !== "false",
+      planDomainToolDefaults: parseDomainToolDefaults(process.env.PLAN_DOMAIN_TOOL_DEFAULTS),
     },
     eval: {
       defaultDatasetPath: process.env.EVAL_DEFAULT_DATASET ?? "eval/datasets/design-golden.v1.json",
