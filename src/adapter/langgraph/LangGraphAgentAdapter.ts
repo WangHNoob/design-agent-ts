@@ -12,6 +12,7 @@ import { HookContext } from "../../port/hook/HookContext.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
 import type { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
+import { isToolFastFailError } from "../../core/tool/ToolFastFailError.js";
 
 const AgentState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -318,7 +319,16 @@ export class LangGraphAgentAdapter implements AgentPort {
         }
       }
 
-      const result = await toolNode.invoke(state);
+      let result: { messages: BaseMessage[] };
+      try {
+        result = await toolNode.invoke(state);
+      } catch (err) {
+        if (isToolFastFailError(err)) {
+          console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${err.message}`);
+          throw err;
+        }
+        throw err;
+      }
 
       for (const tc of toolCalls) {
         const metadata = this.toolAdapter.lastToolMetadata.get(tc.name) || {};

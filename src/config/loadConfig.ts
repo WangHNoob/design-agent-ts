@@ -155,6 +155,11 @@ export function loadConfig(): FrameworkConfig {
       traceTokenBudget: Number(process.env.TRACE_TOKEN_BUDGET ?? 500000),
       toolLoopWindowSize: Number(process.env.TOOL_LOOP_WINDOW_SIZE ?? 8),
       toolLoopMaxRepeats: Number(process.env.TOOL_LOOP_MAX_REPEATS ?? 3),
+      toolCircuitFailureThreshold: Number(process.env.TOOL_CIRCUIT_FAILURE_THRESHOLD ?? 3),
+      toolCircuitCooldownMs: Number(process.env.TOOL_CIRCUIT_COOLDOWN_MS ?? 60000),
+      toolRetryMaxAttempts: Number(process.env.TOOL_RETRY_MAX_ATTEMPTS ?? 2),
+      toolRetryBackoffMs: Number(process.env.TOOL_RETRY_BACKOFF_MS ?? 200),
+      toolTimeoutMs: Number(process.env.TOOL_TIMEOUT_MS ?? 30000),
     },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });
