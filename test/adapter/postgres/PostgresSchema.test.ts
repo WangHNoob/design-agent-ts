@@ -2,6 +2,9 @@ import { describe, expect, test } from "vitest";
 import { getTableName } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import {
+  agentSpans,
+  agentTraces,
+  agentTraceSessions,
   executionAttempts,
   executions,
   executionTasks,
@@ -20,6 +23,9 @@ describe("Postgres Drizzle schema", () => {
     expect(getTableName(executionTasks)).toBe("execution_tasks");
     expect(getTableName(executionAttempts)).toBe("execution_attempts");
     expect(getTableName(hitlCheckpoints)).toBe("hitl_checkpoints");
+    expect(getTableName(agentTraceSessions)).toBe("agent_trace_sessions");
+    expect(getTableName(agentTraces)).toBe("agent_traces");
+    expect(getTableName(agentSpans)).toBe("agent_spans");
   });
 
   test("keeps user assets scoped by user and asset identity", () => {

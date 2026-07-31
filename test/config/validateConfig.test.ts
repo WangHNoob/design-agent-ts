@@ -86,6 +86,10 @@ function config(
       recentInjectCount: 5,
       cachedTools: [],
     },
+    tracing: {
+      enabled: true,
+      consoleExporter: false,
+    },
   };
 }
 

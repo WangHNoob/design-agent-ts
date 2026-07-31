@@ -15,6 +15,20 @@
       "when": 1785387729838,
       "tag": "0001_execution_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785465000000,
+      "tag": "0002_better_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785500000000,
+      "tag": "0003_agent_traces",
+      "breakpoints": true
     }
   ]
 }

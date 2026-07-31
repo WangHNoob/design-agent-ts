@@ -18,6 +18,14 @@ import { OutputEnforcementHook } from "../core/hook/OutputEnforcementHook.js";
 import { ContextManagementHook } from "../core/hook/ContextManagementHook.js";
 import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
 import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
+import { TracingHook } from "../core/hook/TracingHook.js";
+import { DefaultTracer, NoOpTracer } from "../core/tracing/DefaultTracer.js";
+import { ConsoleTraceExporter } from "../core/tracing/ConsoleTraceExporter.js";
+import { PostgresTraceStoreAdapter } from "../adapter/postgres/PostgresTraceStoreAdapter.js";
+import { setTraceStore } from "./routes/traces.js";
+import type { TracerPort } from "../port/tracing/TracerPort.js";
+import type { TraceRuntimeState } from "../port/tracing/TracerPort.js";
+import type { TraceStorePort } from "../port/tracing/TraceStorePort.js";
 import { WikiPageTool } from "../core/tool/knowledge/WikiPageTool.js";
 import { GrepSearchTool } from "../core/tool/knowledge/GrepSearchTool.js";
 import { KnowledgeGraphTool } from "../core/tool/knowledge/KnowledgeGraphTool.js";
@@ -74,6 +82,9 @@ let bootstrapState: {
   mcpClients: McpClientPort[];
   mcpToolNames: string[];
   blackboardStore: BlackboardStore;
+  tracer: TracerPort;
+  traceStore: TraceStorePort | null;
+  contextStorage: NodeContextStorageAdapter<TenantContext>;
 } | null = null;
 
 export function getBootstrapState() {
@@ -86,7 +97,18 @@ export function isDirectorReady(): boolean {
 
 export async function lateBootstrapDirector(): Promise<void> {
   if (!bootstrapState) throw new Error("Bootstrap not yet called");
-  const { config, toolRegistry, skillRegistry, settingsManager, tavilyTool, directorPrompts, hooks, workspaceManager } = bootstrapState;
+  const {
+    config,
+    toolRegistry,
+    skillRegistry,
+    settingsManager,
+    tavilyTool,
+    directorPrompts,
+    hooks,
+    workspaceManager,
+    contextStorage,
+    tracer,
+  } = bootstrapState;
 
   const settings = settingsManager.getSettings();
   const apiKey = settings.modelApiKey || config.model.apiKey;
@@ -122,6 +144,8 @@ export async function lateBootstrapDirector(): Promise<void> {
     extraToolNames: bootstrapState.mcpToolNames,
     blackboardStore: bootstrapState.blackboardStore,
     blackboardConfig: bootstrapState.config.blackboard,
+    tracer,
+    resolveUserId: () => contextStorage.getStore()?.userId,
   });
 
   setDirector(director);
@@ -332,6 +356,11 @@ export async function bootstrap() {
     new ContextManagementHook(config.limits.contextCompressionThreshold, config.limits.contextMaxTokens),
   ];
 
+  // Trace context (separate ALS from tenant) + store/tracer
+  const traceContextStorage = new NodeContextStorageAdapter<TraceRuntimeState>();
+  let traceStore: TraceStorePort | null = null;
+  let tracer: TracerPort = new NoOpTracer();
+
   // Long-term memory is PostgreSQL-backed and scoped per authenticated user.
   let memoryManager: MemoryManager | null = null;
 
@@ -356,6 +385,23 @@ export async function bootstrap() {
       throw new Error("PostgreSQL health check failed; apply migrations with `pnpm db:migrate`");
     }
     console.log("[Bootstrap] PostgreSQL connected (schema managed by drizzle migrations)");
+
+    if (config.tracing.enabled) {
+      traceStore = new PostgresTraceStoreAdapter(dbAdapter);
+      const exporters = config.tracing.consoleExporter ? [new ConsoleTraceExporter()] : [];
+      tracer = new DefaultTracer(
+        traceStore,
+        new NodeIdGeneratorAdapter(),
+        traceContextStorage,
+        exporters,
+      );
+      hooks.unshift(new TracingHook(tracer));
+      setTraceStore(traceStore);
+      console.log("[Bootstrap] Agent tracing enabled (Session/Trace/Span → Postgres)");
+    } else {
+      setTraceStore(null);
+      console.log("[Bootstrap] Agent tracing disabled");
+    }
 
     // Better Auth (handles registration, login, sessions, DingTalk SSO)
     const dingtalkConfig = config.userSystem.dingtalk.clientId
@@ -452,7 +498,7 @@ export async function bootstrap() {
     taskTimeoutMs: config.execution.taskTimeoutMs,
   });
 
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage };
 
   const hitlRepositoryFactory = (userId: string) =>
     new PostgresHITLRepository(dbAdapter!, userId);
@@ -547,6 +593,8 @@ export async function bootstrap() {
       extraToolNames: bootstrapState.mcpToolNames,
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
+      tracer,
+      resolveUserId: () => contextStorage.getStore()?.userId,
     });
 
     setDirector(director);
@@ -571,7 +619,7 @@ export async function reloadDirector(): Promise<void> {
     throw new Error("无法在任务执行中重载，请等待当前任务完成后再试");
   }
 
-  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager } = bootstrapState;
+  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer } = bootstrapState;
 
   // 1. Reload prompts
   clearPromptCache();
@@ -621,6 +669,8 @@ export async function reloadDirector(): Promise<void> {
       extraToolNames: bootstrapState.mcpToolNames,
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
+      tracer,
+      resolveUserId: () => contextStorage.getStore()?.userId,
     });
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");
