@@ -1,5 +1,6 @@
 import { createApp } from "./app.js";
 import { loadConfig } from "../config/loadConfig.js";
+import type { FrameworkConfig } from "../config/FrameworkConfig.js";
 import { Container } from "./Container.js";
 import { ToolManager } from "../core/tool/ToolManager.js";
 import { SkillManager } from "../core/skill/SkillManager.js";
@@ -7,7 +8,7 @@ import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
-import { setDirector, setConsoleExecutionDependencies, hasActiveExecutions } from "./routes/console.js";
+import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
 import { setSessionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
 import { setHITLRouteDependencies } from "./routes/hitl.js";
 import { DurableHumanReviewGateway } from "../core/hitl/DurableHumanReviewGateway.js";
@@ -20,6 +21,13 @@ import { MemoryInjectionHook } from "../core/hook/MemoryInjectionHook.js";
 import { MemoryExtractionHook } from "../core/hook/MemoryExtractionHook.js";
 import { TracingHook } from "../core/hook/TracingHook.js";
 import { TokenBudgetHook } from "../core/hook/TokenBudgetHook.js";
+import { CostAccountingHook } from "../core/hook/CostAccountingHook.js";
+import { RateLimitHook } from "../core/hook/RateLimitHook.js";
+import { RateLimitGuard } from "../core/cost/RateLimitGuard.js";
+import { MeteredChatModel } from "../core/cost/MeteredChatModel.js";
+import type { ChatModelPort } from "../port/model/ChatModelPort.js";
+import type { CostStorePort } from "../port/cost/CostStorePort.js";
+import type { RateLimitPort } from "../port/cost/RateLimitPort.js";
 import { ToolLoopDetectorHook } from "../core/hook/ToolLoopDetectorHook.js";
 import { DefaultTracer, NoOpTracer } from "../core/tracing/DefaultTracer.js";
 import { ConsoleTraceExporter } from "../core/tracing/ConsoleTraceExporter.js";
@@ -67,8 +75,11 @@ import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoade
 import type { McpClientPort } from "../port/mcp/McpClientPort.js";
 import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
 import { PostgresAuditStoreAdapter } from "../adapter/postgres/PostgresAuditStoreAdapter.js";
+import { PostgresCostStoreAdapter } from "../adapter/postgres/PostgresCostStoreAdapter.js";
+import { RedisRateLimitAdapter } from "../adapter/redis/RedisRateLimitAdapter.js";
 import { InMemoryToolApprovalStore } from "../core/tool/InMemoryToolApprovalStore.js";
 import { setAuditStore } from "./routes/audit.js";
+import { setCostRouteDependencies } from "./routes/cost.js";
 import { setGlobalAuditStore, appendAudit } from "./security/auditHelpers.js";
 import { buildToolSecurityOptions, wrapToolWithSecurity } from "./security/toolSecurityWiring.js";
 import type { ToolSecurityOptions } from "../core/tool/ToolSecurityWrapper.js";
@@ -100,7 +111,40 @@ let bootstrapState: {
   traceStore: TraceStorePort | null;
   contextStorage: NodeContextStorageAdapter<TenantContext>;
   wrapTool?: (tool: import("../port/tool/ToolPort.js").ToolPort) => import("../port/tool/ToolPort.js").ToolPort;
+  costStore: CostStorePort | null;
+  rateLimit: RateLimitPort | null;
 } | null = null;
+
+function createDirectorModel(
+  baseModel: ChatModelPort,
+  config: FrameworkConfig,
+  deps: {
+    costStore: CostStorePort | null;
+    rateLimit: RateLimitPort | null;
+    tracer: TracerPort;
+    resolveUserId: () => string | undefined;
+  },
+): ChatModelPort {
+  if (!config.cost.enabled || !deps.costStore || !deps.rateLimit) {
+    return baseModel;
+  }
+  return new MeteredChatModel(baseModel, {
+    costEnabled: true,
+    rateLimitEnabled:
+      config.cost.tpmLimitPerUser > 0 || config.cost.globalTpmLimit > 0,
+    tpmEstimatePerCall: config.cost.tpmEstimatePerCall,
+    rateLimit: deps.rateLimit,
+    costStore: deps.costStore,
+    pricing: {
+      inputPricePer1M: config.cost.inputPricePer1M,
+      outputPricePer1M: config.cost.outputPricePer1M,
+      modelPrices: config.cost.modelPrices,
+    },
+    tracer: deps.tracer,
+    resolveUserId: deps.resolveUserId,
+    defaultAgentName: "Director",
+  });
+}
 
 export function getBootstrapState() {
   return bootstrapState;
@@ -123,6 +167,8 @@ export async function lateBootstrapDirector(): Promise<void> {
     workspaceManager,
     contextStorage,
     tracer,
+    costStore,
+    rateLimit,
   } = bootstrapState;
 
   const settings = settingsManager.getSettings();
@@ -145,8 +191,16 @@ export async function lateBootstrapDirector(): Promise<void> {
     container.model.setTracer(tracer);
   }
 
+  const resolveUserId = () => contextStorage.getStore()?.userId;
+  const directorModel = createDirectorModel(container.model, config, {
+    costStore,
+    rateLimit,
+    tracer,
+    resolveUserId,
+  });
+
   const director = new DirectorAgent({
-    model: container.model,
+    model: directorModel,
     agentFactory: container.agentFactory,
     toolRegistry,
     skillRegistry,
@@ -163,7 +217,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     blackboardStore: bootstrapState.blackboardStore,
     blackboardConfig: bootstrapState.config.blackboard,
     tracer,
-    resolveUserId: () => contextStorage.getStore()?.userId,
+    resolveUserId,
     wrapTool: bootstrapState.wrapTool,
   });
 
@@ -437,6 +491,8 @@ export async function bootstrap() {
   let mqAdapter: RedisMessageQueueAdapter | null = null;
   let eventStore: RedisExecutionEventStoreAdapter | null = null;
   let executionWorker: ExecutionWorker | null = null;
+  let costStoreAdapter: PostgresCostStoreAdapter | null = null;
+  let rateLimitAdapter: RedisRateLimitAdapter | null = null;
 
   {
     console.log("[Bootstrap] Initializing user system (multi-tenant with Better Auth)...");
@@ -549,6 +605,62 @@ export async function bootstrap() {
       console.log("[Bootstrap] Long-term memory configured for PostgreSQL (user-scoped)");
     }
 
+    if (config.cost.enabled) {
+      costStoreAdapter = new PostgresCostStoreAdapter(
+        dbAdapter,
+        new NodeIdGeneratorAdapter(),
+      );
+      rateLimitAdapter = new RedisRateLimitAdapter(config.userSystem.redisUrl, {
+        rpmLimitPerUser: config.cost.rpmLimitPerUser,
+        tpmLimitPerUser: config.cost.tpmLimitPerUser,
+        globalRpmLimit: config.cost.globalRpmLimit,
+        globalTpmLimit: config.cost.globalTpmLimit,
+        windowMs: config.cost.windowMs,
+      });
+      await rateLimitAdapter.connect();
+
+      const resolveUserId = () => contextStorage.getStore()?.userId;
+      hooks.push(
+        new CostAccountingHook({
+          enabled: true,
+          pricing: {
+            inputPricePer1M: config.cost.inputPricePer1M,
+            outputPricePer1M: config.cost.outputPricePer1M,
+            modelPrices: config.cost.modelPrices,
+          },
+          costStore: costStoreAdapter,
+          defaultModelName: config.model.modelName,
+          tracer,
+          resolveUserId,
+        }),
+        new RateLimitHook({
+          enabled: config.cost.tpmLimitPerUser > 0 || config.cost.globalTpmLimit > 0,
+          rateLimit: rateLimitAdapter,
+          tpmEstimatePerCall: config.cost.tpmEstimatePerCall,
+          tracer,
+          resolveUserId,
+        }),
+      );
+
+      const rpmEnabled =
+        config.cost.rpmLimitPerUser > 0 || config.cost.globalRpmLimit > 0;
+      setCostRouteDependencies({
+        costStore: costStoreAdapter,
+        rateLimit: rateLimitAdapter,
+        enabled: true,
+      });
+      setConsoleRateLimit(new RateLimitGuard(rateLimitAdapter), rpmEnabled);
+      console.log(
+        `[Bootstrap] Cost tracking enabled: rpm=${config.cost.rpmLimitPerUser || "off"}/user ` +
+          `tpm=${config.cost.tpmLimitPerUser || "off"}/user ` +
+          `globalRpm=${config.cost.globalRpmLimit || "off"} globalTpm=${config.cost.globalTpmLimit || "off"}`,
+      );
+    } else {
+      setCostRouteDependencies({ costStore: null, rateLimit: null, enabled: false });
+      setConsoleRateLimit(null, false);
+      console.log("[Bootstrap] Cost tracking disabled");
+    }
+
     // Message queue is a required Redis-backed service.
     mqAdapter = new RedisMessageQueueAdapter(
       config.userSystem.redisUrl,
@@ -592,7 +704,7 @@ export async function bootstrap() {
     taskTimeoutMs: config.execution.taskTimeoutMs,
   });
 
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter };
 
   const hitlRepositoryFactory = (userId: string) =>
     new PostgresHITLRepository(dbAdapter!, userId);
@@ -816,8 +928,16 @@ export async function bootstrap() {
       container.model.setTracer(tracer);
     }
 
+    const resolveUserId = () => contextStorage.getStore()?.userId;
+    const directorModel = createDirectorModel(container.model, config, {
+      costStore: bootstrapState.costStore,
+      rateLimit: bootstrapState.rateLimit,
+      tracer,
+      resolveUserId,
+    });
+
     const director = new DirectorAgent({
-      model: container.model,
+      model: directorModel,
       agentFactory: container.agentFactory,
       toolRegistry,
       skillRegistry,
@@ -836,7 +956,7 @@ export async function bootstrap() {
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
       tracer,
-      resolveUserId: () => contextStorage.getStore()?.userId,
+      resolveUserId,
       wrapTool,
     });
 
@@ -862,7 +982,7 @@ export async function reloadDirector(): Promise<void> {
     throw new Error("无法在任务执行中重载，请等待当前任务完成后再试");
   }
 
-  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer } = bootstrapState;
+  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer, costStore, rateLimit } = bootstrapState;
 
   // 1. Reload prompts
   clearPromptCache();
@@ -894,8 +1014,15 @@ export async function reloadDirector(): Promise<void> {
 
   // 4. Rebuild DirectorAgent (if container exists)
   if (bootstrapState.container) {
+    const resolveUserId = () => contextStorage.getStore()?.userId;
+    const directorModel = createDirectorModel(bootstrapState.container.model, config, {
+      costStore,
+      rateLimit,
+      tracer,
+      resolveUserId,
+    });
     const director = new DirectorAgent({
-      model: bootstrapState.container.model,
+      model: directorModel,
       agentFactory: bootstrapState.container.agentFactory,
       toolRegistry,
       skillRegistry,
@@ -913,7 +1040,7 @@ export async function reloadDirector(): Promise<void> {
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
       tracer,
-      resolveUserId: () => contextStorage.getStore()?.userId,
+      resolveUserId,
       wrapTool: bootstrapState.wrapTool,
     });
     setDirector(director);

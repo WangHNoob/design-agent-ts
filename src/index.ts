@@ -78,6 +78,23 @@ export { NINE_SPAN_PHASES, isSpanPhase } from "./port/tracing/types.js";
 export type { AuditAction, AuditOutcome, AuditEntry, AppendAuditInput, AuditListOptions } from "./port/audit/types.js";
 export type { AuditStorePort } from "./port/audit/AuditStorePort.js";
 
+// Port 接口层 — 成本与限流
+export type {
+  CostGroupDimension,
+  RateLimitCode,
+  CostUsageRecord,
+  CostAggregate,
+  CostAggregateOptions,
+  TopSpendersOptions,
+  RateLimitRemaining,
+} from "./port/cost/types.js";
+export type { CostStorePort } from "./port/cost/CostStorePort.js";
+export type {
+  RateLimitCheckInput,
+  RateLimitResult,
+  RateLimitPort,
+} from "./port/cost/RateLimitPort.js";
+
 // Port 接口层 — 工具安全
 export type { ToolRiskLevel } from "./port/tool/ToolRiskLevel.js";
 export type { ToolApprovalPort, ToolApprovalKey, GrantToolApprovalInput } from "./port/tool/ToolApprovalPort.js";

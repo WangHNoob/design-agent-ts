@@ -337,3 +337,25 @@ export const auditLogs = pgTable(
     check("audit_logs_outcome_check", sql`${table.outcome} in ('success', 'denied', 'error')`),
   ],
 );
+
+export const costUsage = pgTable(
+  "cost_usage",
+  {
+    id: uuid("id").primaryKey(),
+    userId,
+    sessionId: varchar("session_id", { length: 100 }),
+    traceId: varchar("trace_id", { length: 100 }),
+    executionId: varchar("execution_id", { length: 100 }),
+    agentName: varchar("agent_name", { length: 100 }),
+    workflowId: varchar("workflow_id", { length: 255 }),
+    modelName: varchar("model_name", { length: 100 }),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    estimatedCostMicros: bigint("estimated_cost_micros", { mode: "number" }).notNull().default(0),
+    createdAt,
+  },
+  (table) => [
+    index("idx_cost_usage_user_created").on(table.userId, table.createdAt),
+    index("idx_cost_usage_created").on(table.createdAt),
+  ],
+);
