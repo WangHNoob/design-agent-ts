@@ -122,6 +122,26 @@ export function validateConfig(config: FrameworkConfig, options: ConfigValidatio
     );
   }
 
+  if (config.mcp.exposeMode !== "all" && config.mcp.exposeMode !== "on_demand") {
+    issues.push('MCP_EXPOSE_MODE must be "all" or "on_demand".');
+  }
+  if (!Array.isArray(config.mcp.defaultExposePrefixes)) {
+    issues.push("MCP_DEFAULT_EXPOSE_PREFIXES must be an array of strings.");
+  }
+  if (
+    typeof config.mcp.skillToolAllowlist !== "object"
+    || config.mcp.skillToolAllowlist === null
+    || Array.isArray(config.mcp.skillToolAllowlist)
+  ) {
+    issues.push("MCP_SKILL_TOOL_ALLOWLIST must be a JSON object of skillName → string[].");
+  } else {
+    for (const [skill, patterns] of Object.entries(config.mcp.skillToolAllowlist)) {
+      if (!Array.isArray(patterns) || patterns.some((p) => typeof p !== "string")) {
+        issues.push(`MCP_SKILL_TOOL_ALLOWLIST["${skill}"] must be an array of strings.`);
+      }
+    }
+  }
+
   if (config.mcp.enabled) {
     config.mcp.servers.forEach((server, index) => {
       const label = server.name || `#${index}`;

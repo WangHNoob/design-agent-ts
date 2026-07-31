@@ -75,6 +75,9 @@ function config(
     mcp: {
       enabled: false,
       servers: [],
+      exposeMode: "on_demand",
+      defaultExposePrefixes: ["kb_"],
+      skillToolAllowlist: {},
     },
     enabledToolGroups: [],
     limits: {
@@ -219,12 +222,26 @@ describe("validateConfig", () => {
   });
 
   test("rejects stdio MCP server without command", () => {
-    const cfg = { ...config(), mcp: { enabled: true, servers: [{ name: "s1", transport: "stdio" as const, enabled: true }] } };
+    const cfg = {
+      ...config(),
+      mcp: {
+        ...config().mcp,
+        enabled: true,
+        servers: [{ name: "s1", transport: "stdio" as const, enabled: true }],
+      },
+    };
     expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/command is required for stdio transport/);
   });
 
   test("rejects http MCP server with invalid url", () => {
-    const cfg = { ...config(), mcp: { enabled: true, servers: [{ name: "s1", transport: "http" as const, enabled: true, url: "not-a-url" }] } };
+    const cfg = {
+      ...config(),
+      mcp: {
+        ...config().mcp,
+        enabled: true,
+        servers: [{ name: "s1", transport: "http" as const, enabled: true, url: "not-a-url" }],
+      },
+    };
     expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/a valid url is required for http transport/);
   });
 
@@ -232,6 +249,7 @@ describe("validateConfig", () => {
     const cfg = {
       ...config(),
       mcp: {
+        ...config().mcp,
         enabled: true,
         servers: [
           { name: "stdio-srv", transport: "stdio" as const, enabled: true, command: "node", args: ["srv.js"] },
@@ -240,6 +258,17 @@ describe("validateConfig", () => {
       },
     };
     expect(() => validateConfig(cfg, { port: 4527 })).not.toThrow();
+  });
+
+  test("rejects invalid MCP_EXPOSE_MODE", () => {
+    const cfg = {
+      ...config(),
+      mcp: {
+        ...config().mcp,
+        exposeMode: "maybe" as "all",
+      },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/MCP_EXPOSE_MODE/);
   });
 
   test("rejects invalid MEMORY_PROTECT_RECENT_TURNS", () => {

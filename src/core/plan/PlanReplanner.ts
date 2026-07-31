@@ -1,8 +1,13 @@
 import type { ChatModelPort } from "../../port/model/ChatModelPort.js";
 import { ChatMessage } from "../../port/message/ChatMessage.js";
-import type { Domain, SubTask, TaskPlan } from "../schema/TaskPlan.js";
+import type { SubTask, TaskPlan } from "../schema/TaskPlan.js";
 import type { TaskResult } from "../schema/TaskResult.js";
 import { PlanViolationError } from "./PlanViolationError.js";
+import { generateStructured } from "../structured/generateStructured.js";
+import { ReplanRemainingArraySchema } from "../structured/schemas.js";
+import {
+  isStructuredExhaustedError,
+} from "../structured/StructuredParseError.js";
 
 export interface PlanReplannerOptions {
   domainToolDefaults?: Readonly<Record<string, readonly string[]>>;
@@ -34,42 +39,6 @@ const DEFAULT_REPLAN_PROMPT = `你是任务重规划助手（Replanner）。原�
 [
   { "id": "T3", "fragmentId": "T3", "domain": "combat_design", "description": "...", "dependencies": ["T1"], "priority": 1 }
 ]`;
-
-function extractJsonArray(text: string): string {
-  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (codeBlockMatch) return codeBlockMatch[1]!.trim();
-  const arrayMatch = text.match(/\[[\s\S]*\]/);
-  if (arrayMatch) return arrayMatch[0];
-  return text;
-}
-
-function parseAllowedTools(raw: unknown): string[] | undefined {
-  if (raw === undefined || raw === null) return undefined;
-  if (!Array.isArray(raw)) return undefined;
-  return raw.map((v) => String(v)).filter(Boolean);
-}
-
-function normalizeRemainingTasks(
-  raw: unknown[],
-  _domainToolDefaults?: Readonly<Record<string, readonly string[]>>,
-): SubTask[] {
-  return raw.map((item, idx) => {
-    const t = item as Record<string, unknown>;
-    const id = String(t.id ?? t.taskId ?? `R${idx + 1}`);
-    const domain = String(t.domain ?? "system_design").toLowerCase().replace(/-/g, "_") as Domain;
-    const allowedTools = parseAllowedTools(t.allowedTools);
-    return {
-      id,
-      fragmentId: String(t.fragmentId ?? id),
-      domain,
-      description: String(t.description ?? t.requirement ?? t.assignment ?? ""),
-      dependencies: Array.isArray(t.dependencies) ? t.dependencies.map(String) : [],
-      priority: typeof t.priority === "number" ? t.priority : idx + 1,
-      // Align with TaskPlanner: omit when LLM did not declare allowedTools
-      ...(allowedTools !== undefined ? { allowedTools } : {}),
-    };
-  });
-}
 
 /**
  * Validate remaining tasks: no unknown deps (except completed ids), no cycles among remaining.
@@ -157,27 +126,43 @@ export class PlanReplanner {
       .replace(/\{failed\}/g, failedSummary)
       .replace(/\{context\}/g, context);
 
-    const response = await this.model.generate([
+    const messages = [
       ChatMessage.text("system", "system", prompt),
       ChatMessage.text("user", "user", "请输出剩余子任务 JSON 数组。"),
-    ]);
+    ];
 
-    const rawText = ChatMessage.textContent(response.message) ?? "[]";
-    let parsed: unknown[];
+    let remaining: SubTask[];
     try {
-      parsed = JSON.parse(extractJsonArray(rawText)) as unknown[];
-      if (!Array.isArray(parsed)) {
-        throw new Error("replan response is not an array");
-      }
+      const result = await generateStructured<import("../structured/schemas.js").ReplanRemainingParsed[]>(
+        this.model,
+        messages,
+        ReplanRemainingArraySchema,
+        {
+          preferArray: true,
+          maxRetries: 2,
+          onExhausted: "throw",
+        },
+      );
+      remaining = result.value.map((t) => ({
+        id: t.id,
+        fragmentId: t.fragmentId,
+        domain: t.domain,
+        description: t.description,
+        dependencies: t.dependencies,
+        priority: t.priority,
+        ...(t.allowedTools !== undefined ? { allowedTools: t.allowedTools } : {}),
+      }));
     } catch (err) {
+      const reason = isStructuredExhaustedError(err)
+        ? `replan structured parse exhausted: ${err.issues.join("; ")}`
+        : `replan JSON parse failed: ${err instanceof Error ? err.message : String(err)}`;
       throw new PlanViolationError({
         taskId: input.failedTask.taskId,
         code: "invalid_plan",
-        reason: `replan JSON parse failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason,
       });
     }
 
-    const remaining = normalizeRemainingTasks(parsed, this.options.domainToolDefaults);
     // Drop any tasks that collide with already-completed ids
     const filtered = remaining.filter((t) => !completedIds.has(t.id));
     validateRemainingTasks(filtered, completedIds);

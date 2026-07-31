@@ -16,4 +16,9 @@ export interface SkillPort {
   getKeywords(): readonly string[];
   /** Full content of the skill file (SKILL.md markdown body). */
   getContent(): string;
+  /**
+   * MCP tool names / prefixes declared by the skill (frontmatter `mcpTools`).
+   * Used when mcp.exposeMode=on_demand to grant tools to matching agents.
+   */
+  getMcpTools(): readonly string[];
 }

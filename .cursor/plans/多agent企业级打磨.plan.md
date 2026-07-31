@@ -43,10 +43,10 @@ todos:
     status: completed
   - id: p3-structured-mcp
     content: 结构化输出校验重试降级 + MCP 按需暴露与统一超时熔断
-    status: pending
+    status: completed
   - id: p3-e2e-adaptor
     content: 浏览器 e2e 进 CI + 第二适配器 PoC（可选）与同一 Trace/Eval 对比
-    status: pending
+    status: cancelled
 isProject: false
 ---
 

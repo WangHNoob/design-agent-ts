@@ -15,13 +15,14 @@ export function buildSkillFromVersion(version: ArtifactVersion): SkillPort | nul
       def.keywords,
       def.tasks,
       version.content,
+      def.mcpTools,
     );
   }
 
   if (version.kind === "skill") {
     const fm = parseSkillFrontmatter(version.content);
     if (!fm) return null;
-    return new MarkdownSkill(fm.name, fm.description, version.content);
+    return new MarkdownSkill(fm.name, fm.description, version.content, fm.mcpTools);
   }
 
   return null;

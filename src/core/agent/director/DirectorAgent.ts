@@ -25,6 +25,7 @@ import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
 import type { SubTask, TaskPlan } from "../../schema/TaskPlan.js";
 import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
+import { resolveExposedMcpTools, stripAndMergeMcpToolNames } from "../../structured/mcpExpose.js";
 import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
 import { SessionToolRegistry } from "../../tool/SessionToolRegistry.js";
@@ -182,6 +183,17 @@ export interface DirectorDeps {
   };
   /** Extra tool names (e.g. MCP-sourced tools) appended to the query agent's toolset. */
   extraToolNames?: string[];
+  /**
+   * MCP on-demand exposure knobs (composition root).
+   * When omitted, MCP tools are only those already in descriptor.toolNames / extraToolNames.
+   */
+  mcp?: {
+    exposeMode: "all" | "on_demand";
+    defaultExposePrefixes: string[];
+    skillToolAllowlist: Record<string, string[]>;
+    /** All registered MCP tool names (registry already holds the ToolPort instances). */
+    toolNames: string[];
+  };
   /** 会话级共享黑板仓库（缺省时禁用黑板）。 */
   blackboardStore?: BlackboardStorePort;
   /** 黑板行为配置（缺省或 enabled=false 时退回无缓存行为）。 */
@@ -456,6 +468,21 @@ export class DirectorAgent {
     }
 
     let descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
+    const mcpTools = this.resolveMcpToolsForTask(task, descriptor, options);
+    const allMcpNames = this.deps.mcp?.toolNames ?? [];
+    if (allMcpNames.length > 0) {
+      // Always strip registered MCP from base descriptor first so defaultExposePrefixes
+      // cannot leak past an explicit empty / narrow task whitelist.
+      descriptor = {
+        ...descriptor,
+        toolNames: stripAndMergeMcpToolNames(descriptor.toolNames, allMcpNames, mcpTools),
+      };
+    }
+    if (mcpTools.length > 0) {
+      // Keep plan-hard whitelist in sync with concrete MCP names (patterns like kb_* expand here).
+      // Never expand when task.allowedTools === [] (mcpTools is already empty in that case).
+      allowedTools = Array.from(new Set([...allowedTools, ...mcpTools]));
+    }
     if (multi.enabled && multi.allowInvoke) {
       descriptor = {
         ...descriptor,
@@ -480,6 +507,40 @@ export class DirectorAgent {
     }
 
     return { descriptor, toolRegistry };
+  }
+
+  /**
+   * Resolve MCP tools for a task under mcp.exposeMode + task.allowedTools semantics:
+   * - undefined → defaultExposePrefixes ∪ skill patterns
+   * - [] → none
+   * - non-empty → only patterns in allowedTools (no defaultExposePrefixes)
+   */
+  private resolveMcpToolsForTask(
+    task: TaskAssignment,
+    descriptor: AgentDescriptor,
+    options?: DirectorStreamOptions,
+  ): string[] {
+    const mcp = this.deps.mcp;
+    if (!mcp || mcp.toolNames.length === 0) return [];
+
+    const role = AGENT_NAME_TO_ROLE[descriptor.name];
+    const skill = role
+      ? this.skillRegistry(options).matchSkill(task.assignment, role)
+      : null;
+    const skillPatterns = task.allowedTools === undefined
+      ? [
+        ...(skill?.getMcpTools() ?? []),
+        ...(skill ? (mcp.skillToolAllowlist[skill.getName()] ?? []) : []),
+      ]
+      : [];
+
+    return resolveExposedMcpTools({
+      allMcpToolNames: mcp.toolNames,
+      exposeMode: mcp.exposeMode,
+      defaultExposePrefixes: mcp.defaultExposePrefixes,
+      skillPatterns,
+      taskAllowedTools: task.allowedTools,
+    });
   }
 
   async execute(
@@ -1346,7 +1407,7 @@ export class DirectorAgent {
         "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
         "tavily_search", "tavily_extract",
         ...this.blackboardToolNames(),
-        ...(this.deps.extraToolNames ?? []),
+        ...this.resolveQueryMcpToolNames(),
       ],
       options: {},
     };
@@ -1374,7 +1435,7 @@ export class DirectorAgent {
         "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
         "tavily_search", "tavily_extract",
         ...this.blackboardToolNames(),
-        ...(this.deps.extraToolNames ?? []),
+        ...this.resolveQueryMcpToolNames(),
       ],
       options: {},
     };
@@ -1385,6 +1446,19 @@ export class DirectorAgent {
       memoryPort,
       hooks
     );
+  }
+
+  /** QueryAgent: knowledge-related MCP prefixes (defaultExposePrefixes) or all when exposeMode=all. */
+  private resolveQueryMcpToolNames(): string[] {
+    const mcp = this.deps.mcp;
+    if (mcp && mcp.toolNames.length > 0) {
+      return resolveExposedMcpTools({
+        allMcpToolNames: mcp.toolNames,
+        exposeMode: mcp.exposeMode,
+        defaultExposePrefixes: mcp.defaultExposePrefixes,
+      });
+    }
+    return this.deps.extraToolNames ?? [];
   }
 
   /** 黑板启用时返回 4 个 blackboard_* 工具名，供 Agent 描述符引用。 */

@@ -123,6 +123,8 @@ export interface WorkflowDefinition {
   description: string;
   keywords: string[];
   tasks: WorkflowTask[];
+  /** Frontmatter mcpTools patterns for on-demand MCP exposure. */
+  mcpTools: string[];
 }
 
 export function parseWorkflowContent(content: string): WorkflowDefinition | null {
@@ -134,7 +136,8 @@ export function parseWorkflowContent(content: string): WorkflowDefinition | null
   if (!name) return null;
 
   const keywords = extractStringList(yaml, "keywords");
+  const mcpTools = extractStringList(yaml, "mcpTools");
   const tasks = parseTasks(yaml);
 
-  return { name, description, keywords, tasks };
+  return { name, description, keywords, tasks, mcpTools };
 }

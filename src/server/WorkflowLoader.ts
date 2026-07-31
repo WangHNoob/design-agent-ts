@@ -149,6 +149,7 @@ export interface WorkflowDefinition {
   keywords: string[];
   tasks: WorkflowTask[];
   content: string;
+  mcpTools: string[];
 }
 
 /**
@@ -164,9 +165,10 @@ export function parseWorkflowFile(filePath: string): WorkflowDefinition | null {
   if (!name) return null;
 
   const keywords = extractStringList(yaml, "keywords");
+  const mcpTools = extractStringList(yaml, "mcpTools");
   const tasks = parseTasks(yaml);
 
-  return { name, description, keywords, tasks, content };
+  return { name, description, keywords, tasks, content, mcpTools };
 }
 
 /**
@@ -210,6 +212,7 @@ export function loadWorkflows(registry: SkillRegistry): void {
       def.keywords,
       def.tasks,
       def.content,
+      def.mcpTools,
     );
     registry.register(skill);
     console.log(

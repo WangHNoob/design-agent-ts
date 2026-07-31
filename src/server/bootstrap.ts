@@ -8,6 +8,7 @@ import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
 import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
+import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
 import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
 import { setSessionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
 import { setHITLRouteDependencies } from "./routes/hitl.js";
@@ -236,7 +237,17 @@ export async function lateBootstrapDirector(): Promise<void> {
       maxTokens: config.limits.contextMaxTokens,
       compressionThreshold: config.limits.contextCompressionThreshold,
     },
-    extraToolNames: bootstrapState.mcpToolNames,
+    extraToolNames: resolveExposedMcpTools({
+      allMcpToolNames: bootstrapState.mcpToolNames,
+      exposeMode: config.mcp.exposeMode,
+      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+    }),
+    mcp: {
+      exposeMode: config.mcp.exposeMode,
+      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+      skillToolAllowlist: config.mcp.skillToolAllowlist,
+      toolNames: bootstrapState.mcpToolNames,
+    },
     blackboardStore: bootstrapState.blackboardStore,
     blackboardConfig: bootstrapState.config.blackboard,
     tracer,
@@ -496,8 +507,18 @@ export async function lateBootstrapDirector(): Promise<void> {
   const blackboardStore = new BlackboardStore();
   setInterval(() => blackboardStore.evictAll(), 60_000).unref?.();
 
-  // Grant MCP tools to all sub-agents (persists across hot-reload resets).
-  setExtraSubAgentToolNames(mcpToolNames);
+  // MCP exposure: on_demand only injects defaultExposePrefixes into base descriptors;
+  // skill/task-specific MCP tools are merged in DirectorAgent.prepareTaskAgent.
+  const mcpExposedForSubAgents = resolveExposedMcpTools({
+    allMcpToolNames: mcpToolNames,
+    exposeMode: config.mcp.exposeMode,
+    defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+  });
+  setExtraSubAgentToolNames(mcpExposedForSubAgents);
+  console.log(
+    `[Bootstrap] MCP exposeMode=${config.mcp.exposeMode}: `
+    + `${mcpExposedForSubAgents.length}/${mcpToolNames.length} tools in sub-agent base descriptors`,
+  );
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations, config.limits.modelMaxTokens);
 
   // Initialize hooks
@@ -1060,7 +1081,17 @@ export async function lateBootstrapDirector(): Promise<void> {
         maxTokens: config.limits.contextMaxTokens,
         compressionThreshold: config.limits.contextCompressionThreshold,
       },
-      extraToolNames: bootstrapState.mcpToolNames,
+      extraToolNames: resolveExposedMcpTools({
+        allMcpToolNames: bootstrapState.mcpToolNames,
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+      }),
+      mcp: {
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+        skillToolAllowlist: config.mcp.skillToolAllowlist,
+        toolNames: bootstrapState.mcpToolNames,
+      },
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
       tracer,
@@ -1167,7 +1198,17 @@ export async function reloadDirector(): Promise<void> {
         maxTokens: config.limits.contextMaxTokens,
         compressionThreshold: config.limits.contextCompressionThreshold,
       },
-      extraToolNames: bootstrapState.mcpToolNames,
+      extraToolNames: resolveExposedMcpTools({
+        allMcpToolNames: bootstrapState.mcpToolNames,
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+      }),
+      mcp: {
+        exposeMode: config.mcp.exposeMode,
+        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
+        skillToolAllowlist: config.mcp.skillToolAllowlist,
+        toolNames: bootstrapState.mcpToolNames,
+      },
       blackboardStore: bootstrapState.blackboardStore,
       blackboardConfig: bootstrapState.config.blackboard,
       tracer,
