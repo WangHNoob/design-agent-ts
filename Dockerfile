@@ -10,7 +10,9 @@ COPY package.json ./
 COPY prompts/ ./prompts/
 COPY knowledge/ ./knowledge/
 COPY contrib/ ./contrib/
-COPY settings.json ./
+# Default empty settings; docker-compose bind-mounts host ./settings.json over this
+# so UI-saved LLM keys survive image rebuilds.
+COPY settings.example.json ./settings.json
 
 RUN mkdir -p sessions data/long-term-memory
 

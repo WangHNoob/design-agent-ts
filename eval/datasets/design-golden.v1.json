@@ -1,0 +1,76 @@
+{
+  "id": "design-golden-v1",
+  "name": "Design Golden V1",
+  "version": "1.0.0",
+  "description": "设计类 Offline golden：文档结构关键字段 + 计划合理性（LLM Judge 可选）",
+  "metrics": [
+    {
+      "id": "doc_structure",
+      "name": "文档结构关键字段",
+      "kind": "exact_match",
+      "passThreshold": 1
+    },
+    {
+      "id": "plan_reasonableness",
+      "name": "计划合理性",
+      "kind": "llm_judge",
+      "criteria": "评估输出是否构成合理的游戏设计方案：目标清晰、系统拆分合理、有可落地的数值或机制要点。分数 0-1。",
+      "passThreshold": 0.6
+    }
+  ],
+  "cases": [
+    {
+      "id": "combat-basic",
+      "input": "设计一套回合制战斗系统，包含伤害公式与技能冷却。",
+      "tags": ["design", "combat"],
+      "recordedOutput": "# 回合制战斗系统设计\n\n## 目标\n提供可扩展的回合制战斗框架。\n\n## 核心机制\n- 行动顺序：速度值决定\n- 伤害公式：ATK * SkillMul - DEF * 0.5\n- 技能冷却：按回合计数\n\n## 数值要点\n基础攻击 100，防御 40，技能倍率 1.2~2.0\n",
+      "sourceTraceId": "trace-fixture-combat-basic"
+    },
+    {
+      "id": "economy-loop",
+      "input": "设计休闲放置玩法的资源循环：产出、消耗、成长。",
+      "tags": ["design", "economy"],
+      "recordedOutput": "# 放置玩法资源循环\n\n## 目标\n形成可持续的产出-消耗闭环。\n\n## 核心机制\n- 挂机产出金币与材料\n- 升级建筑提高产出\n- 商店消耗资源换成长\n\n## 数值要点\n小时产出曲线与升级成本保持边际递减\n",
+      "sourceTraceId": "trace-fixture-economy-loop"
+    },
+    {
+      "id": "incomplete-doc",
+      "input": "设计一个公会系统。",
+      "tags": ["design", "negative"],
+      "recordedOutput": "公会可以加人。",
+      "sourceTraceId": "trace-fixture-incomplete"
+    }
+  ],
+  "baselines": [
+    {
+      "caseId": "combat-basic",
+      "metricId": "doc_structure",
+      "expectedContains": ["## 目标", "## 核心机制", "## 数值要点", "伤害公式"]
+    },
+    {
+      "caseId": "combat-basic",
+      "metricId": "plan_reasonableness",
+      "judgeRubric": "必须包含可计算的伤害相关描述与冷却概念。"
+    },
+    {
+      "caseId": "economy-loop",
+      "metricId": "doc_structure",
+      "expectedContains": ["## 目标", "## 核心机制", "## 数值要点", "产出"]
+    },
+    {
+      "caseId": "economy-loop",
+      "metricId": "plan_reasonableness",
+      "judgeRubric": "应体现产出、消耗、成长三者关系。"
+    },
+    {
+      "caseId": "incomplete-doc",
+      "metricId": "doc_structure",
+      "expectedContains": ["## 目标", "## 核心机制", "## 数值要点"]
+    },
+    {
+      "caseId": "incomplete-doc",
+      "metricId": "plan_reasonableness",
+      "judgeRubric": "内容过短且缺少系统设计时应给低分。"
+    }
+  ]
+}

@@ -60,3 +60,7 @@ frontend/node_modules/
 
 # Knowledge base (large files, not for git)
 /knowledge/
+
+# Eval offline reports (generated)
+eval/reports/
+

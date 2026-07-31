@@ -9,13 +9,20 @@ import { promptsRoute } from "./routes/prompts.js";
 import { skillsRoute } from "./routes/skills.js";
 import { workflowsRoute } from "./routes/workflows.js";
 import { usersRoute } from "./routes/users.js";
+import { tracesRoute } from "./routes/traces.js";
+import { auditRoute } from "./routes/audit.js";
+import { costRoute } from "./routes/cost.js";
+import { versionsRoute } from "./routes/versions.js";
 import type { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
+import type { TenantContext } from "../port/user/TenantIsolationPort.js";
 import type { DatabasePort } from "../port/infra/DatabasePort.js";
+import type { ContextStoragePort } from "../port/infra/ContextStoragePort.js";
 import { authMiddleware, requireAuth } from "./middleware/auth.js";
 
 let betterAuthAdapter: BetterAuthAdapter | null = null;
 let tenantPort: TenantIsolationPort | null = null;
+let tenantContextStorage: ContextStoragePort<TenantContext> | null = null;
 let databasePort: DatabasePort | null = null;
 
 export function setAuthAdapter(adapter: BetterAuthAdapter) {
@@ -24,6 +31,10 @@ export function setAuthAdapter(adapter: BetterAuthAdapter) {
 
 export function setTenantPort(port: TenantIsolationPort) {
   tenantPort = port;
+}
+
+export function setTenantContextStorage(storage: ContextStoragePort<TenantContext>) {
+  tenantContextStorage = storage;
 }
 
 export function setDatabasePort(db: DatabasePort) {
@@ -43,9 +54,9 @@ export function createApp() {
       if (!origin || allowed.some((p) => p.test(origin))) return origin;
       return "http://localhost:3001";
     },
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "Last-Event-ID"],
     allowMethods: ["POST", "GET", "OPTIONS", "PUT", "DELETE"],
-    exposeHeaders: ["Content-Length", "Set-Cookie"],
+    exposeHeaders: ["Content-Length", "Set-Cookie", "X-Execution-Id", "X-Session-Id"],
     maxAge: 600,
     credentials: true,
   }));
@@ -66,7 +77,10 @@ export function createApp() {
   // Resolves Better Auth session → TenantContext for all /api/* routes,
   // then protects business API routes by default.
   if (tenantPort) {
-    app.use("/api/*", authMiddleware(tenantPort));
+    if (!tenantContextStorage) {
+      throw new Error("Tenant context storage is not configured");
+    }
+    app.use("/api/*", authMiddleware(tenantPort, tenantContextStorage));
     app.use("/api/*", requireAuth());
   }
 
@@ -74,11 +88,15 @@ export function createApp() {
   app.route("/api/users", usersRoute);
   app.route("/api/console", consoleRoute);
   app.route("/api/sessions", sessionsRoute);
+  app.route("/api/traces", tracesRoute);
+  app.route("/api/audit", auditRoute);
+  app.route("/api/cost", costRoute);
   app.route("/api/hitl", hitlRoute);
   app.route("/api/settings", settingsRoute);
   app.route("/api/prompts", promptsRoute);
   app.route("/api/skills", skillsRoute);
   app.route("/api/workflows", workflowsRoute);
+  app.route("/api/versions", versionsRoute);
 
   // ─── Health & Monitoring ───────────────────────────────────────
   app.get("/health", async (c) => {
