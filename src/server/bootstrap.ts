@@ -34,6 +34,7 @@ import type { ChatModelPort } from "../port/model/ChatModelPort.js";
 import type { CostStorePort } from "../port/cost/CostStorePort.js";
 import type { RateLimitPort } from "../port/cost/RateLimitPort.js";
 import { ToolLoopDetectorHook } from "../core/hook/ToolLoopDetectorHook.js";
+import { KnowledgeFlywheelHook } from "../core/hook/KnowledgeFlywheelHook.js";
 import { DefaultTracer, NoOpTracer } from "../core/tracing/DefaultTracer.js";
 import { ConsoleTraceExporter } from "../core/tracing/ConsoleTraceExporter.js";
 import { PostgresTraceStoreAdapter } from "../adapter/postgres/PostgresTraceStoreAdapter.js";
@@ -558,6 +559,10 @@ export async function lateBootstrapDirector(): Promise<void> {
       maxActiveMessages: config.memory.maxActiveMessages,
     }),
   ];
+  if (config.mcp.enabled) {
+    hooks.push(new KnowledgeFlywheelHook(toolRegistry));
+    console.log("[Bootstrap] Knowledge flywheel hook enabled (auto report/attribution)");
+  }
 
   // Trace context (separate ALS from tenant) + store/tracer
   const traceContextStorage = new NodeContextStorageAdapter<TraceRuntimeState>();
