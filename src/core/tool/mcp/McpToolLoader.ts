@@ -7,6 +7,8 @@ export interface McpClientEntry {
   readonly client: McpClientPort;
   /** Optional prefix applied to every tool name from this server (e.g. "kb_"). */
   readonly toolPrefix?: string;
+  /** Optional default tool args merged into every call (e.g. { projectId }). */
+  readonly defaultArgs?: Record<string, unknown>;
 }
 
 /** Per-server load outcome — drives the frontend status panel. */
@@ -50,13 +52,13 @@ export async function loadMcpTools(entries: McpClientEntry[]): Promise<McpLoadRe
   const serverResults: McpServerLoadResult[] = [];
 
   for (const entry of entries) {
-    const { client, toolPrefix = "" } = entry;
+    const { client, toolPrefix = "", defaultArgs = {} } = entry;
     const serverToolNames: string[] = [];
     try {
       await client.connect();
       const definitions = await client.listTools();
       for (const definition of definitions) {
-        const adapter = new McpToolAdapter(client, definition, toolPrefix);
+        const adapter = new McpToolAdapter(client, definition, toolPrefix, defaultArgs);
         tools.push(adapter);
         toolNames.push(adapter.name);
         serverToolNames.push(adapter.name);

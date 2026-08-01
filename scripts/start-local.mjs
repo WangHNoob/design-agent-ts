@@ -120,6 +120,8 @@ async function main() {
       POSTGRES_PORT: "5433",
       MCP_ENABLED: "true",
       MCP_SERVERS: mcpServers,
+      MCP_PROJECT_ID: process.env.MCP_PROJECT_ID || "default_project",
+      MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY: process.env.MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY || "true",
     },
   });
 
