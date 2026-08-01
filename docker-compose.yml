@@ -88,6 +88,11 @@ services:
       # Knowledge
       - KNOWLEDGE_WIKI_PATH=./knowledge/wiki
       - KNOWLEDGE_GRAPH_PATH=./knowledge/processed
+      # Knowledge Hub MCP (host-side KH; override MCP_SERVERS for in-compose networking)
+      - MCP_ENABLED=${MCP_ENABLED:-true}
+      - MCP_SERVERS=${MCP_SERVERS:-}
+      - MCP_EXPOSE_MODE=${MCP_EXPOSE_MODE:-on_demand}
+      - MCP_DEFAULT_EXPOSE_PREFIXES=${MCP_DEFAULT_EXPOSE_PREFIXES:-kb_}
       # Web Search
       - TAVILY_ENABLED=${TAVILY_ENABLED:-false}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
