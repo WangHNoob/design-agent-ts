@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-const KH_DIR = "D:/knowledge-hub";
+const KH_DIR = resolve(ROOT, "..", "knowledge-hub");
 
 const COLORS = {
   kh: "\x1b[35m", // magenta
@@ -97,7 +97,18 @@ async function main() {
   // Fix: shell may have stale env vars from Docker runs.
   // Explicitly set the correct ones so --env-file values take effect.
   const localPgUrl = "postgresql://postgres:whbwhb2026@localhost:5433/game_designer";
-  const mcpServers = '[{"name":"knowledge-hub","transport":"stdio","enabled":true,"command":"npx","args":["tsx","D:/knowledge-hub/src/server/mcpStdio.ts"],"env":{"DATABASE_URL":"postgres://postgres:whbwhb2026@127.0.0.1:5432/knowledge_hub","KH_JWT_SECRET":"dev-secret-change-me","KH_DATA_DIR":"D:/knowledge-hub/data"}}]';
+  const mcpServers = JSON.stringify([{
+    name: "knowledge-hub",
+    transport: "stdio",
+    enabled: true,
+    command: "npx",
+    args: ["tsx", resolve(KH_DIR, "src/server/mcpStdio.ts")],
+    env: {
+      DATABASE_URL: process.env.KH_DATABASE_URL || "postgres://postgres:khpw@127.0.0.1:5432/knowledge_hub",
+      KH_JWT_SECRET: process.env.KH_JWT_SECRET || "dev-secret-change-me",
+      KH_DATA_DIR: resolve(KH_DIR, "data"),
+    },
+  }]);
   spawnProcess("all", "npx", ["concurrently", "-n", "backend,frontend", "-c", "cyan,magenta", "npm run dev", "npm run dev:web"], {
     cwd: ROOT,
     env: {
@@ -107,6 +118,7 @@ async function main() {
       POSTGRES_PASSWORD: "whbwhb2026",
       POSTGRES_DB: "game_designer",
       POSTGRES_PORT: "5433",
+      MCP_ENABLED: "true",
       MCP_SERVERS: mcpServers,
     },
   });
