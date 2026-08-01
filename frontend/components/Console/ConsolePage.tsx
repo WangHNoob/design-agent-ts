@@ -101,7 +101,7 @@ export default function ConsolePage({ mode }: Props) {
   const roleLocked = !!task && (task.messages.length > 0);
   const [requirement, setRequirement] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
-  const [rightPanelTab, setRightPanelTab] = useState<'steps' | 'logs' | 'files'>('steps');
+  const [rightPanelTab, setRightPanelTab] = useState<'steps' | 'logs' | 'files' | 'knowledge'>('steps');
   const [useStream, setUseStream] = useState(true);
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(false);
@@ -612,6 +612,7 @@ export default function ConsolePage({ mode }: Props) {
   const loading = task?.loading || false;
   const timeline = task?.timeline || [];
   const logs = task?.logs || [];
+  const knowledgeSources = task?.knowledgeSources || [];
   const sessionId = task?.sessionId || null;
   const status = task?.status || 'idle';
   const statusText = task?.statusText || '就绪';
@@ -780,6 +781,7 @@ export default function ConsolePage({ mode }: Props) {
             <RightPanel
               timeline={timeline}
               logs={logs}
+              knowledgeSources={knowledgeSources}
               sessionId={sessionId}
               messageCount={messageCount}
               executionTime={executionTime}

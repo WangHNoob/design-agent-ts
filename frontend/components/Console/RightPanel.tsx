@@ -1,25 +1,29 @@
 'use client';
 
 import { useState } from 'react';
-import { GitBranch, Terminal, FolderOpen } from 'lucide-react';
+import { GitBranch, Terminal, FolderOpen, BookOpen } from 'lucide-react';
 import StepsTimeline, { type TimelineEntry } from './StepsTimeline';
 import DetailedLogs, { type DetailedLog } from './DetailedLogs';
 import FileBrowserPanel from './FileBrowserPanel';
+import KnowledgeSourcesPanel from './KnowledgeSourcesPanel';
+import type { KnowledgeSource } from '@/lib/stores/taskStore';
 
 interface Props {
   timeline: TimelineEntry[];
   logs: DetailedLog[];
+  knowledgeSources: KnowledgeSource[];
   sessionId: string | null;
   messageCount: number;
   executionTime: string;
   onClearLogs: () => void;
-  activeTab?: 'steps' | 'logs' | 'files';
-  onChangeTab?: (tab: 'steps' | 'logs' | 'files') => void;
+  activeTab?: 'steps' | 'logs' | 'files' | 'knowledge';
+  onChangeTab?: (tab: 'steps' | 'logs' | 'files' | 'knowledge') => void;
 }
 
 export default function RightPanel({
   timeline,
   logs,
+  knowledgeSources,
   sessionId,
   messageCount,
   executionTime,
@@ -27,9 +31,9 @@ export default function RightPanel({
   activeTab: activeTabProp,
   onChangeTab,
 }: Props) {
-  const [internalTab, setInternalTab] = useState<'steps' | 'logs' | 'files'>('steps');
+  const [internalTab, setInternalTab] = useState<'steps' | 'logs' | 'files' | 'knowledge'>('steps');
   const activeTab = activeTabProp ?? internalTab;
-  const setActiveTab = (tab: 'steps' | 'logs' | 'files') => {
+  const setActiveTab = (tab: 'steps' | 'logs' | 'files' | 'knowledge') => {
     setInternalTab(tab);
     onChangeTab?.(tab);
   };
@@ -44,6 +48,7 @@ export default function RightPanel({
         <div className="flex items-center gap-1">
           <TabBtn active={activeTab === 'steps'} onClick={() => setActiveTab('steps')} icon={<GitBranch size={14} />} label="步骤" count={timeline.length} />
           <TabBtn active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} icon={<Terminal size={14} />} label="日志" count={logs.length} />
+          <TabBtn active={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')} icon={<BookOpen size={14} />} label="证据" count={knowledgeSources.length} />
           <TabBtn active={activeTab === 'files'} onClick={() => setActiveTab('files')} icon={<FolderOpen size={14} />} label="文件" />
         </div>
       </div>
@@ -64,6 +69,9 @@ export default function RightPanel({
         )}
         {activeTab === 'logs' && (
           <DetailedLogs logs={logs} onClear={onClearLogs} />
+        )}
+        {activeTab === 'knowledge' && (
+          <KnowledgeSourcesPanel sources={knowledgeSources} />
         )}
         {activeTab === 'files' && sessionId && (
           <FileBrowserPanel sessionId={sessionId} />
