@@ -1,4 +1,4 @@
----
+﻿---
 name: "table-config-generation"
 description: "配表生成工作流 — 专注于配置表的查询、创建、修改与校验，由数值策划主导，QA最终校验"
 keywords:
@@ -21,7 +21,7 @@ tasks:
       配表任务: {requirement}
       
       请按以下步骤操作：
-      1. 使用 table_list 查看相关知识库中已有的配表分类
+      1. 使用 kb_list_tables 查看相关知识库中已有的配表分类
       2. 使用 table_read 查看相关配表的结构和数据
       3. 使用 table_copy_to_workspace 将需要修改的表复制到 workspace
       4. 在 workspace 副本上进行修改（table_write / table_write_headers / table_add_sheet）
@@ -61,7 +61,7 @@ TASK-001 (数值策划: 配表创建/修改)
 ## 配表操作规范
 
 TASK-001 必须严格遵循 copy-on-write 原则：
-1. `table_list` → 发现目标表
+1. `kb_list_tables` → 发现目标表
 2. `table_read` → 查看现状
 3. `table_copy_to_workspace` → 复制到 workspace
 4. 修改 workspace 副本

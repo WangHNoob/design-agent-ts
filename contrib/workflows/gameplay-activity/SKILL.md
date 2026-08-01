@@ -1,4 +1,4 @@
----
+﻿---
 name: "gameplay-activity"
 description: "玩法活动策划工作流 — 覆盖玩法规则、奖励投放、活动节奏、复用框架、商业化关联五大维度"
 keywords:
@@ -27,7 +27,7 @@ tasks:
       
       【边界约束】养成和玩法都必须考虑商业化关联
       
-      使用 wiki_lookup 查询相关玩法文档，使用 kg_query 查询玩法间的关系。
+      使用 wiki_lookup 查询相关玩法文档，使用 kb_get_neighbors 查询玩法间的关系。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "gameplay_design_output.md"
@@ -45,7 +45,7 @@ tasks:
       - 与经济的关系：该活动对整体经济的影响（通胀风险、材料产出占比）
       
       基于 TASK-001 的玩法规则（使用 workspace_read 读取），设计奖励方案。
-      使用 wiki_relations 查询奖励物品的产出与消耗关系。
+      使用 kb_get_relations 查询奖励物品的产出与消耗关系。
     dependencies:
       - "TASK-001"
     outputType: "DOCUMENT"
@@ -81,7 +81,7 @@ tasks:
       - 换皮成本：复用该框架推出新活动的工作量评估
       
       基于 TASK-001 的玩法规则（使用 workspace_read 读取），抽象出可复用的框架。
-      使用 table_list 查看是否有类似活动的配表可参考。
+      使用 kb_list_tables 查看是否有类似活动的配表可参考。
     dependencies:
       - "TASK-001"
     outputType: "DOCUMENT"

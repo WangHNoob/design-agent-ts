@@ -1,4 +1,4 @@
----
+﻿---
 name: "hybrid-design"
 description: "混合型工作流 — 当功能跨多个分类时（如赛季战令=玩法活动+运营活动），合并对应分类的维度"
 keywords:
@@ -21,7 +21,7 @@ tasks:
       3. 合并维度清单，去重，生成完整的设计维度列表
       4. 输出维度清单到 workspace（dimensions.json）
       
-      使用 wiki_lookup 查询相关文档，使用 kg_query 分析系统间关系。
+      使用 wiki_lookup 查询相关文档，使用 kb_get_neighbors 分析系统间关系。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "system_design_output.md"

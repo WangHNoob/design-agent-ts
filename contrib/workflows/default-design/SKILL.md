@@ -1,4 +1,4 @@
----
+﻿---
 name: "default-design"
 description: "通用游戏策划工作流，由人为定义固定任务结构，供 DirectorAgent 选择使用"
 keywords:
@@ -14,7 +14,7 @@ tasks:
       系统设计: {requirement}
       
       【能力要求】规则设计、流程设计、状态机、边界处理、系统架构
-      使用 wiki_lookup 查询相关系统文档，使用 kg_query 查询系统间依赖关系。
+      使用 wiki_lookup 查询相关系统文档，使用 kb_get_neighbors 查询系统间依赖关系。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "system_design_output.md"
@@ -25,7 +25,7 @@ tasks:
       
       【能力要求】公式设计、成长曲线、经济平衡、产销分析
       基于 TASK-001 的系统设计（使用 workspace_read 读取），设计数值模型。
-      使用 table_list 查看相关配表，使用 table_copy_to_workspace 复制到 workspace 进行修改。
+      使用 kb_list_tables 查看相关配表，使用 table_copy_to_workspace 复制到 workspace 进行修改。
     dependencies: []
     outputType: "MIXED"
     outputTemplate: "numerical_plan_output.md"

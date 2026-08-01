@@ -1,4 +1,4 @@
----
+﻿---
 name: "universal-dimensions"
 description: "通用维度工作流 — 覆盖配表需求、跨系统影响、前端表现、数据埋点四大通用维度，适用于所有功能设计"
 keywords:
@@ -22,7 +22,7 @@ tasks:
       - 字段定义：每个表的字段名、类型、取值范围、默认值
       - 枚举值：需要定义哪些枚举类型（状态、类型、品质等）
       
-      使用 wiki_table_refs 查询相关文档引用的配表，使用 table_list 查看知识库中已有的配表分类。
+      使用 kb_get_page_tables 查询相关文档引用的配表，使用 kb_list_tables 查看知识库中已有的配表分类。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "executive_plan_output.md"
@@ -39,7 +39,7 @@ tasks:
       - 数据流向：数据如何在系统间流转
       - 冲突处理：与现有系统的冲突点及解决方案
       
-      使用 kg_query 查询系统间的依赖关系，使用 wiki_relations 查询实体间的关系。
+      使用 kb_get_neighbors 查询系统间的依赖关系，使用 kb_get_relations 查询实体间的关系。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "system_design_output.md"
