@@ -8,6 +8,7 @@ export interface ToolRiskResolverConfig {
 }
 
 const DEFAULT_READ_PREFIXES = [
+  "kb_",
   "wiki_",
   "kg_",
   "tavily_",
