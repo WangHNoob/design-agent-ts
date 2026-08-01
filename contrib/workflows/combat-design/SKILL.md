@@ -1,4 +1,4 @@
----
+﻿---
 name: "combat-design"
 description: "战斗设计工作流 — 覆盖技能体系、怪物与BOSS设计、伤害模型、战斗平衡四大维度"
 keywords:
@@ -24,7 +24,7 @@ tasks:
       - 技能效果：伤害、控制、增益、减益、位移等
       - 技能升级：等级成长、品质提升、觉醒效果
       
-      使用 wiki_lookup 查询技能相关文档，使用 kg_query 查询技能与角色的关系。
+      使用 wiki_lookup 查询技能相关文档，使用 kb_get_neighbors 查询技能与角色的关系。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "combat_design_output.md"
@@ -41,7 +41,7 @@ tasks:
       - 技能机制：普通攻击、特殊技能、阶段转换、狂暴机制
       - AI 行为：仇恨机制、技能释放优先级、站位逻辑
       
-      使用 wiki_relations 查询怪物与关卡的关系，使用 table_list 查看怪物配表。
+      使用 kb_get_relations 查询怪物与关卡的关系，使用 kb_list_tables 查看怪物配表。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "combat_design_output.md"

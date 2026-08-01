@@ -1,4 +1,4 @@
----
+﻿---
 name: "cultivation-system"
 description: "养成系统策划工作流 — 覆盖系统规则、产销关系、数值模型、玩法体验、商业化关联五大维度"
 keywords:
@@ -25,7 +25,7 @@ tasks:
       - 状态流转：养成对象的状态变化（未解锁→可养成→已满级等）
       - 边界与异常：上限处理、资源不足、冲突规则
       
-      使用 wiki_lookup 查询相关系统文档，使用 kg_query 查询系统间依赖关系。
+      使用 wiki_lookup 查询相关系统文档，使用 kb_get_neighbors 查询系统间依赖关系。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "system_design_output.md"
@@ -44,7 +44,7 @@ tasks:
       
       【边界约束】经济循环必须闭环：有产出（Source）就有消耗（Sink）
       
-      使用 wiki_relations 查询材料的产出与消耗关系，使用 wiki_table_refs 查看相关配表。
+      使用 kb_get_relations 查询材料的产出与消耗关系，使用 kb_get_page_tables 查看相关配表。
     dependencies:
       - "TASK-001"
     outputType: "DOCUMENT"
@@ -65,7 +65,7 @@ tasks:
       【边界约束】数值设计预留扩展空间，避免数值膨胀不可控
       
       基于 TASK-001、TASK-002 的产出（使用 workspace_read 读取），设计数值模型。
-      使用 table_list 查看相关配表，使用 table_copy_to_workspace 复制到 workspace 进行修改。
+      使用 kb_list_tables 查看相关配表，使用 table_copy_to_workspace 复制到 workspace 进行修改。
     dependencies:
       - "TASK-001"
       - "TASK-002"

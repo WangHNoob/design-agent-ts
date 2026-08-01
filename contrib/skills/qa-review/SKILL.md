@@ -1,4 +1,4 @@
----
+﻿---
 name: "qa-review"
 description: "QA 审阅技能 - 指导 QAPlannerAgent 完成策划方案的质量审阅"
 ---
@@ -32,8 +32,8 @@ description: "QA 审阅技能 - 指导 QAPlannerAgent 完成策划方案的质�
 
 5. **查询知识库验证**
    - 使用 wiki_lookup 验证引用的知识库节点是否存在
-   - 使用 kg_query 验证节点间的关系是否正确
-   - 使用 wiki_relations 验证系统间的依赖关系
+   - 使用 kb_get_neighbors 验证节点间的关系是否正确
+   - 使用 kb_get_relations 验证系统间的依赖关系
 
 6. **生成审阅报告**
    - 列出所有发现的问题（分类：严重/一般/建议）
@@ -177,7 +177,7 @@ description: "QA 审阅技能 - 指导 QAPlannerAgent 完成策划方案的质�
 4. table_validate → schema级配表校验（字段存在性、FK完整性）
 5. table_check_cell → 抽查关键字段的有效性
 6. wiki_lookup → 验证引用的知识库节点
-7. kg_query → 验证节点间的关系
-8. wiki_relations → 验证系统间的依赖关系
+7. kb_get_neighbors → 验证节点间的关系
+8. kb_get_relations → 验证系统间的依赖关系
 9. field_report → 获取完整字段注册表（Markdown，可附在审阅报告中）
 10. workspace_write → 写入审阅报告和问题清单

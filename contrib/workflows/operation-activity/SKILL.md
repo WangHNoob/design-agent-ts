@@ -1,4 +1,4 @@
----
+﻿---
 name: "operation-activity"
 description: "运营活动策划工作流 — 覆盖付费设计、定价策略、概率与保底、投放节奏、留存目标五大维度"
 keywords:
@@ -24,7 +24,7 @@ tasks:
       - 心理驱动：利用什么心理机制（稀缺性、锚定效应、损失厌恶、社交炫耀）
       - 付费深度分层：小R（6-30元）、中R（98-328元）、大R（648+元）的不同付费点
       
-      使用 wiki_lookup 查询相关运营活动文档，使用 kg_query 查询付费点与系统的关系。
+      使用 wiki_lookup 查询相关运营活动文档，使用 kb_get_neighbors 查询付费点与系统的关系。
     dependencies: []
     outputType: "DOCUMENT"
     outputTemplate: "executive_plan_output.md"
@@ -41,7 +41,7 @@ tasks:
       - 免费 vs 付费差距：付费玩家比免费玩家快多少、强多少
       
       基于 TASK-001 的付费设计（使用 workspace_read 读取），设计价格体系。
-      使用 wiki_relations 查询付费道具的价值评估。
+      使用 kb_get_relations 查询付费道具的价值评估。
     dependencies:
       - "TASK-001"
     outputType: "DOCUMENT"
@@ -61,7 +61,7 @@ tasks:
       【边界约束】运营活动标注合规要求（概率公示、未成年保护）
       
       基于 TASK-001 的付费设计（使用 workspace_read 读取），设计概率模型。
-      使用 table_list 查看是否有抽卡配表可参考，使用 table_copy_to_workspace 复制到 workspace 进行修改。
+      使用 kb_list_tables 查看是否有抽卡配表可参考，使用 table_copy_to_workspace 复制到 workspace 进行修改。
     dependencies:
       - "TASK-001"
     outputType: "CONFIG_TABLE"

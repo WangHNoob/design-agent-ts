@@ -1,4 +1,4 @@
----
+﻿---
 name: "rpg-character-system"
 description: "RPG角色系统策划工作流 — 覆盖从系统设计、数值规划、战斗设计到QA审阅的完整角色系统开发流程"
 keywords:
@@ -35,7 +35,7 @@ tasks:
       【关键边界】成长公式、战力计算、收益曲线、瓶颈节奏
       
       基于 TASK-001 的系统设计（使用 workspace_read 读取），设计数值模型。
-      使用 table_list 查看 Hero、HeroLevel、HeroStarGrowth 等配表，使用 table_copy_to_workspace 复制到 workspace 进行修改。
+      使用 kb_list_tables 查看 Hero、HeroLevel、HeroStarGrowth 等配表，使用 table_copy_to_workspace 复制到 workspace 进行修改。
     dependencies:
       - "TASK-001"
     outputType: "CONFIG_TABLE"

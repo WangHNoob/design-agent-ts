@@ -1,4 +1,4 @@
----
+﻿---
 name: "system-design"
 description: "系统设计技能 - 指导 SystemDesignerAgent 完成游戏系统的架构设计"
 ---
@@ -12,12 +12,12 @@ description: "系统设计技能 - 指导 SystemDesignerAgent 完成游戏系统
 1. **理解需求**
    - 从 TaskAssignment 中提取 requirement 和 sessionId/taskId
    - 使用 wiki_lookup 查找相关系统的已有设计
-   - 使用 kg_query 查询系统间的依赖关系
+   - 使用 kb_get_neighbors 查询系统间的依赖关系
 
 2. **查询知识库**
    - 优先使用 wiki_read 读取相关系统的设计文档
-   - 使用 wiki_relations 查询系统的依赖、产出、影响关系
-   - 使用 wiki_table_refs 查询系统引用的配置表
+   - 使用 kb_get_relations 查询系统的依赖、产出、影响关系
+   - 使用 kb_get_page_tables 查询系统引用的配置表
 
 3. **设计系统架构**
    - 定义系统概述（目标、定位、核心玩法）
@@ -86,8 +86,8 @@ description: "系统设计技能 - 指导 SystemDesignerAgent 完成游戏系统
 ## 工具使用优先级
 
 1. wiki_lookup → 定位主题
-2. wiki_read / wiki_read_section → 读取完整内容
-3. wiki_relations → 查询实体关系
-4. kg_query → 查询知识图谱
-5. wiki_table_refs → 查询配置表引用
+2. wiki_read / kb_get_section → 读取完整内容
+3. kb_get_relations → 查询实体关系
+4. kb_get_neighbors → 查询知识图谱
+5. kb_get_page_tables → 查询配置表引用
 6. workspace_write → 写入输出文件
