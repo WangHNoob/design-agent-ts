@@ -149,6 +149,16 @@ export interface FrameworkConfig {
      * Merged with SKILL.md frontmatter `mcpTools` when present.
      */
     skillToolAllowlist: Record<string, string[]>;
+    /**
+     * Explicit Knowledge Hub projectId injected into every kb_* tool call.
+     * Empty = do not inject (server falls back to JWT user currentProjectId).
+     */
+    defaultProjectId: string;
+    /**
+     * When true (default), skip registering local wiki/kg/grep knowledge tools
+     * if MCP connected and exposed at least one kb_* tool — avoid dual sources.
+     */
+    disableLocalKnowledgeWhenHealthy: boolean;
   };
   /**
    * Tool groups to enable. If empty, all groups are enabled.

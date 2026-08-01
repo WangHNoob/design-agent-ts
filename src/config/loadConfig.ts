@@ -225,6 +225,8 @@ export function loadConfig(): FrameworkConfig {
         ? process.env.MCP_DEFAULT_EXPOSE_PREFIXES.split(",").map((s) => s.trim()).filter(Boolean)
         : ["kb_"],
       skillToolAllowlist: parseSkillToolAllowlist(process.env.MCP_SKILL_TOOL_ALLOWLIST),
+      defaultProjectId: (process.env.MCP_PROJECT_ID ?? "").trim(),
+      disableLocalKnowledgeWhenHealthy: process.env.MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY !== "false",
     },
     enabledToolGroups: process.env.ENABLED_TOOL_GROUPS
       ? process.env.ENABLED_TOOL_GROUPS.split(",").map((s) => s.trim()).filter(Boolean)

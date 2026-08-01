@@ -27,6 +27,7 @@ export class McpToolAdapter implements ToolPort {
     private readonly client: McpClientPort,
     private readonly definition: McpToolDefinition,
     private readonly toolPrefix = "",
+    private readonly defaultArgs: Record<string, unknown> = {},
   ) {
     this.exposedName = toolPrefix ? `${toolPrefix}${definition.name}` : definition.name;
   }
@@ -46,7 +47,9 @@ export class McpToolAdapter implements ToolPort {
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
     try {
-      const result = await this.client.callTool(this.definition.name, args);
+      // Default args (e.g. projectId) fill gaps; explicit caller args win.
+      const merged = { ...this.defaultArgs, ...args };
+      const result = await this.client.callTool(this.definition.name, merged);
       if (result.isError) {
         return ToolResult.error(result.content || `MCP tool "${this.definition.name}" returned an error`);
       }
