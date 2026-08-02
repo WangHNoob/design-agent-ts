@@ -12,11 +12,19 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
 
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  // Navigate in an effect — never call router during render (updates Router).
+  useEffect(() => {
+    if (!mounted || isLoading) return;
+    if (!isAuthenticated && !isPublic) {
+      router.replace("/login");
+    }
+  }, [mounted, isLoading, isAuthenticated, isPublic, router]);
 
   // During SSR (not mounted), render children directly to avoid
   // flashing a loading spinner on every page.
@@ -24,8 +32,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Client-side: show loading while checking auth
-  if (isLoading) {
+  // Client-side: show loading while checking auth / redirecting
+  if (isLoading || (!isAuthenticated && !isPublic)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-paper">
         <div className="flex flex-col items-center gap-3">
@@ -34,11 +42,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
-  }
-
-  if (!isAuthenticated && !isPublic) {
-    router.replace("/login");
-    return null;
   }
 
   return <>{children}</>;
