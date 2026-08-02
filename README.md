@@ -47,7 +47,7 @@ game-designer-ts 的回答是：**把一份策划案当成一个团队项目来�
 
 - **一位主策划统筹全局**：`DirectorAgent` 接到需求后，先把它拆成一张带依赖关系的任务清单，再把每项任务派给最合适的专职 Agent。
 - **六位专职策划各司其职**：战斗、数值、玩法、系统、执行、质量审查——每位都有自己的专业提示词、自己的工具集，钻进各自领域做深。
-- **都从同一口井取水**：各 Agent 优先查询 [Knowledge Hub](https://github.com/) 里**已发布、带证据、可追溯**的知识资产，不足时再联网补充——保证大家基于同一份事实工作，而非各自臆想。
+- **都从同一口井取水**：各 Agent 优先查询 [Knowledge Hub](https://github.com/WangHNoob/knowledge-hub) 里**已发布、带证据、可追溯**的知识资产，不足时再联网补充——保证大家基于同一份事实工作，而非各自臆想。
 - **人始终在环里**：任务拆解后、单份产出后、最终整合后，三个节点都可以让人确认或修改，绝不"静默往下冲"。
 - **产出会自动对账**：所有 Agent 交稿后，系统提取各自定义的字段，检测跨领域冲突（同一属性被赋了不同值），生成冲突报告——而不是把六份文档一拼了事。
 
@@ -208,13 +208,21 @@ HTTP 只负责创建幂等 Execution 并入队；`ExecutionWorker` 消费 Redis 
 
 各专职 Agent 的知识取材遵循一条明确的优先级策略（见各 `prompts/*.md`）：
 
-1. **Knowledge Hub 优先**（`kb_*` 工具）——先查已发布、带信任分与证据链的知识资产。
-2. **文件知识库备用**（`wiki_*`、`kg_*`）——Knowledge Hub 不可用或空结果时，走本地 wiki 与知识图谱。
+1. **Knowledge Hub 优先**（`kb_*` MCP 工具）——查已发布、带信任分与证据链的知识资产。默认 `MCP_ENABLED=true`。
+2. **本地 wiki / kg 仅作灾难降级**——当 MCP 已成功加载 `kb_search` 时，默认**不再注册**本地 `wiki_*` / `grep` / `kg_*`，避免双源冲突；需要双开时设 `MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY=false`。
 3. **主动联网补充**（`tavily-search`）——涉及时效性内容、检索无果或用户明确要求时，精准联网 1–3 次。
-4. **来源标注**——都找不到时，明确说明，绝不臆造。
+4. **来源标注与飞轮回写**——任务侧栏展示 trust / evidence；低证据或空检索时由代码钩子调用 `kb_report_*`，会话结束批量 `kb_submit_attribution`，而不仅依赖 prompt 自觉。
+
+联调必配：
+
+| 变量 | 说明 |
+|------|------|
+| `MCP_ENABLED=true` | 打开 MCP |
+| `MCP_SERVERS` | 指向 KH `/mcp`（HTTP + Bearer JWT） |
+| `MCP_PROJECT_ID` | **显式** Knowledge Hub 项目 ID，禁止静默 `default_project` |
+| （勿设）`toolPrefix: "kb_"` | 工具名已是 `kb_*`，再加前缀会变成 `kb_kb_search` |
 
 这套策略让 AI 的产出**有据可查**：每一句设计判断，尽量落到一份可追溯的知识来源上。
-
 ---
 
 ## 七、技术栈
