@@ -93,6 +93,8 @@ services:
       - MCP_SERVERS=${MCP_SERVERS:-}
       - MCP_EXPOSE_MODE=${MCP_EXPOSE_MODE:-on_demand}
       - MCP_DEFAULT_EXPOSE_PREFIXES=${MCP_DEFAULT_EXPOSE_PREFIXES:-kb_}
+      - MCP_PROJECT_ID=${MCP_PROJECT_ID:-}
+      - MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY=${MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY:-true}
       # Web Search
       - TAVILY_ENABLED=${TAVILY_ENABLED:-false}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
@@ -122,6 +124,8 @@ services:
       # SettingsManager writes settings.json; syncEnvFromSettings writes .env.
       - ./settings.json:/app/settings.json
       - ./.env:/app/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
