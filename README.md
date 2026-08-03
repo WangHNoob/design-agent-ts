@@ -161,21 +161,41 @@ Layer 2: [玩法设计] [执行规划]      ← 依赖数值，并行
 
 ### Integrator：跨 Agent 冲突检测
 
-不是把产出拼起来就完事。`Integrator` 提取各 Agent 产出中的字段定义，检测跨域冲突（如同一属性被不同 Agent 赋了不同值），生成冲突报告，确保最终方案自洽。
+不是把产出拼起来就完事。`Integrator.integrateStructured()` 用启发式（表格行 / `key: value`）抽取字段写入 `FieldRegistry`，检测跨域同字段多值冲突，生成冲突报告与字段注册表写入工作空间 `final/`。这是 **可验证信号**，不是模型自评「一致」。
+
+诚实边界：复杂 prose 里的隐含矛盾可能漏检——报告为空不等于真一致。
 
 ### HITL：人始终能按下暂停键
 
-三个标准审阅点嵌入流程，每个可独立开关。生产主链使用 `DurableHumanReviewGateway`：把审阅点写入 PostgreSQL，执行进入 `waiting_hitl`，审批后再经 Redis 队列恢复；图外失败返回 `rejected` + `fallback: true`，**禁止静默自动批准**。
+标准审阅点契约（`FrameworkConfig.hitl.reviewPoints`，可独立开关）：
 
 ```
 hitl-1-task-plan    → 任务规划完成后，人工确认/修改
-hitl-2-agent-output → 单个 Agent 产出后，人工审阅
-hitl-3-final        → 最终整合结果，人工验收
+hitl-2-agent-output → 单个 Agent 产出后，人工审阅（契约位）
+hitl-3-final        → 最终整合结果，人工验收（契约位）
 ```
+
+**生产主链**（`bootstrap` → `DirectorAgent`）使用 `DurableHumanReviewGateway`：审阅点写入 PostgreSQL，Execution 进入七态中的 `waiting_hitl`，人审批后经 Redis 队列 resume。缺 `executionId` / 租户上下文直接抛错；超时走 `HITL_TIMEOUT_POLICY`（默认 `auto_reject`）并带 `fallback: true`，**禁止静默自动批准**。
+
+诚实边界：当前 `DirectorAgent` design 流**已落地 HITL-1**；HITL-2/3 在配置与 `LangGraphDirectorGraph` 脚手架中存在，跨 Agent 冲突主要靠 `Integrator` 冲突报告 fail loud。组装时务必用 Durable 网关覆盖 `Container` 默认的 `LangGraphHumanReviewGateway`（后者依赖图内 `interrupt`，不适合多 Worker 生产）。
+
+### Plan 硬保障与工具白名单三态
+
+不完全信任 LLM 规划。`PlanHardGuard` + `runPlanWithReplan` 约束可执行性与重规划预算；每步 `allowedTools` 三态：
+
+| 值 | 语义 |
+|----|------|
+| `undefined` | 继承 domain 默认工具面（可含 MCP on-demand 前缀） |
+| `[]` | **严格零外部工具 / 零 MCP** |
+| 非空数组 | 仅白名单；经 `stripAndMergeMcpToolNames` + `WhitelistToolRegistry` 防 MCP 权限泄漏 |
 
 ### Hooks：横切关注点与业务解耦
 
-在 Agent 执行的关键阶段插入拦截点（`pre/post_reasoning`、`pre/post_tool_exec`、`pre/post_agent_call`、`on_error`、`on_iteration_budget`），承载上下文管理、记忆注入/抽取、流式事件发射、输出格式校验等——与业务逻辑完全分离。
+在 Agent 执行关键阶段插入 `HookPoint`（与业务逻辑解耦）：
+
+`pre/post_reasoning` · `pre/post_tool_execution` · `pre/post_agent_call` · `pre/post_summary` · `on_error` · `on_iteration_budget`
+
+组装根注册的典型实现包括：Tracing、Cancellation、Validation、IterationBudget、TokenBudget、ToolLoopDetector、ContextManagement、MemoryInjection、KnowledgeFlywheel、StreamEmitter 等。Trace Span 另有九态相位（`NINE_SPAN_PHASES`），与 Execution 七态状态机不要混称。
 
 ### 长期记忆（LTM）
 
@@ -303,16 +323,21 @@ cp .env.example .env
 cp settings.example.json settings.json   # 若不存在；UI 保存的 LLM 配置会写回此文件
 # 必填：LLM_API_KEY、BETTER_AUTH_SECRET（也可在设置页填写，会持久化到 settings.json / .env）
 # 改代码后需重新 build 镜像；LLM 配置已挂载宿主机，重建后无需重填
+
+node docker-start.mjs            # 智能检测：PG/Redis 可达则只起 app
+node docker-start.mjs --infra    # 强制起基础设施（含监控 profile 时另见脚本）
+node docker-start.mjs --rebuild  # 本地 build 后打进镜像再 up
+# 等价：docker compose up -d
 ```
 
-| 入口 | 默认地址 |
-|------|----------|
-| 前端 | http://localhost:3001 |
-| 后端 API / health | http://localhost:13000 、`/health` |
-| PostgreSQL | localhost:5432 |
-| Redis | localhost:6379 |
+| 入口 | Docker Compose 默认 | 说明 |
+|------|---------------------|------|
+| 前端 | http://localhost:3001 | 容器内 Next 映射 |
+| 后端 API / health | http://localhost:13000 、`/health` | `BACKEND_PORT` 可改 |
+| PostgreSQL | localhost:5432（`POSTGRES_PORT`） | `.env.example` 本地联调示例也可能用 `15432` |
+| Redis | localhost:6379（`REDIS_PORT`） | 同上，示例可能用 `16379` |
 
-`migrate` 服务会在 backend 之前应用 `drizzle/*.sql`。若从旧 PG 18 卷升级失败，需重建 `postgres_data` 卷（开发数据会清空）。
+以你 `.env` 里的 `POSTGRES_URL` / `REDIS_URL` 为准。`migrate` 服务会在 backend 之前应用 `drizzle/*.sql`。
 
 Docker 将宿主机 `./settings.json` 与 `./.env` 挂载进 backend，设置页保存的模型密钥会写回宿主机，**镜像重建后仍保留**。
 
@@ -322,20 +347,27 @@ Docker 将宿主机 `./settings.json` 与 `./.env` 挂载进 backend，设置页
 pnpm install
 cp .env.example .env
 # 至少填写：LLM_API_KEY、LLM_PROVIDER、LLM_MODEL、BETTER_AUTH_SECRET、
-# POSTGRES_URL、REDIS_URL，并设 MQ_ENABLED=true
+# POSTGRES_URL、REDIS_URL，并设 MQ_ENABLED=true（validateConfig 缺任一项 fail-fast）
 
 # 先有可用的 PostgreSQL/Redis，再应用迁移
 pnpm db:migrate   # 或 docker compose up migrate
 
-pnpm dev          # 后端（默认读 .env 的 PORT，示例为 4527）
-pnpm dev:web      # 前端（3001）
+pnpm dev          # 后端（默认 PORT=4527）
+pnpm dev:web      # 前端 Next.js（本地默认端口 4528，见 frontend/package.json）
 
 pnpm test
 pnpm run build
 pnpm eval:offline   # Eval V1 Offline（默认 exact_match，无需 LLM）
 ```
 
-`pnpm dev:local` 还会尝试拉起 Knowledge Hub；脚本内 KH 路径是本机约定，换机器需改 `scripts/start-local.mjs`。
+| 入口 | 本地 `pnpm` 默认 |
+|------|------------------|
+| 后端 | http://localhost:4527 |
+| 前端 | http://localhost:4528 |
+
+`pnpm dev:local` 还会尝试拉起同级目录的 Knowledge Hub；脚本内 KH 路径与部分凭据是本机约定，换机器需改 `scripts/start-local.mjs`。
+
+联调 Knowledge Hub：`MCP_ENABLED=true`、`MCP_SERVERS` 指向 KH `/mcp`、**显式**设置 `MCP_PROJECT_ID`；MCP 已加载 `kb_search` 时默认禁用本地 wiki 双源（`MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY`）。
 
 完整云部署步骤见 [DEPLOY.md](./DEPLOY.md)。
 
@@ -354,4 +386,4 @@ pnpm eval:offline   # Eval V1 Offline（默认 exact_match，无需 LLM）
 
 ## License
 
-[MIT](./LICENSE)
+MIT（见 `package.json` `license` 字段）。
