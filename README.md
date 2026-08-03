@@ -218,10 +218,6 @@ HTTP 只负责创建幂等 Execution 并入队；`ExecutionWorker` 消费 Redis 
 
 **禁止**执行完成后伪分块模拟流式。
 
-### 企业级运行时能力（已落地）
-
-在 P0 基础设施之上，编排侧现役能力包括：Trace 九态落库、Token/工具循环硬护栏、模型 Fallback、工具四策略与 MCP 熔断、Eval V1（`pnpm eval:offline`）、HITL 运营面（超时/CAS）、审计与工具风险分级、成本 RPM/TPM、Saga 补偿与协作式取消、Prompt/Skill/Workflow 版本快照、Plan 硬保障、跨 Agent 失控防护与 Handoff、记忆驱逐前归档、结构化输出校验重试。细节与环境变量见 `.env.example` 与 `AGENTS.md`「运行时护栏」。可选的浏览器 e2e / 第二适配器 PoC **未做**。
-
 ---
 
 ## 六、知识来源：站在 Knowledge Hub 之上
