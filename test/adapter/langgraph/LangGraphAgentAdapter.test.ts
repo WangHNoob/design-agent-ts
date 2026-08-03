@@ -32,6 +32,7 @@ vi.mock("@langchain/openai", () => ({
 
 import { LangGraphAgentAdapter } from "../../../src/adapter/langgraph/LangGraphAgentAdapter.js";
 import { LangGraphModelAdapter } from "../../../src/adapter/langgraph/LangGraphModelAdapter.js";
+import { SystemMessage } from "@langchain/core/messages";
 import type { AgentDescriptor } from "../../../src/port/agent/AgentDescriptor.js";
 import { ChatMessage } from "../../../src/port/message/ChatMessage.js";
 import { CancellationHook } from "../../../src/core/hook/CancellationHook.js";
@@ -113,5 +114,33 @@ describe("LangGraphAgentAdapter", () => {
 
     expect(response.success).toBe(false);
     expect(response.metadata?.aborted).toBe(true);
+  });
+
+  it("历史中包含 system 消息时，LLM 调用只保留首条 system（修复非首位 system 报错）", async () => {
+    const adapter = new LangGraphAgentAdapter(descriptor, [], createModel(), []);
+    const model = (
+      adapter as unknown as { modelAdapter: { getLangChainModel(): { bindTools: ReturnType<typeof vi.fn> } } }
+    ).modelAdapter.getLangChainModel();
+
+    // 模拟长会话压缩后产生的归档摘要 system 消息 + MemoryInjectionHook 注入
+    const response = await adapter.process("session-1", [
+      ChatMessage.text("system", "archive", "[上下文归档 #archive-1] 已摘要 2 条较早消息：……"),
+      ChatMessage.text("user", "user", "继续设计"),
+    ]);
+
+    expect(response.success).toBe(true);
+
+    const bindTools = model.bindTools;
+    expect(bindTools.mock.calls.length).toBeGreaterThan(0);
+    const bound = bindTools.mock.results[0].value as { stream: ReturnType<typeof vi.fn> };
+    const streamCall = bound.stream.mock.calls[0];
+    const msgs = streamCall[0] as unknown[];
+
+    // 第一条是 descriptor.systemPrompt 对应的 SystemMessage
+    expect(msgs[0]).toBeInstanceOf(SystemMessage);
+    // 其余任何消息都不得是 SystemMessage（Anthropic/OpenAI 只允许首位 system）
+    for (const m of msgs.slice(1)) {
+      expect(m).not.toBeInstanceOf(SystemMessage);
+    }
   });
 });

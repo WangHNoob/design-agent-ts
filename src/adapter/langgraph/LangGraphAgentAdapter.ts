@@ -31,6 +31,20 @@ const AgentState = Annotation.Root({
   iteration: Annotation<number>({ value: (_x, y) => y, default: () => 0 }),
 });
 
+/**
+ * LLM providers (Anthropic/OpenAI) only permit system messages as the first
+ * message. Conversation history can legitimately contain system messages —
+ * context archives produced by ContextManager and long-term memory injected
+ * by MemoryInjectionHook — which would otherwise end up in non-leading
+ * positions and be rejected by the provider. Demote them to HumanMessage so
+ * their content is preserved without violating the provider constraint.
+ */
+function demoteNonLeadingSystemMessages(msgs: BaseMessage[]): BaseMessage[] {
+  return msgs.map((m) =>
+    m instanceof SystemMessage ? new HumanMessage({ content: m.content }) : m,
+  );
+}
+
 export class LangGraphAgentAdapter implements AgentPort {
   private descriptor: AgentDescriptor;
   private compiledGraph: unknown;
@@ -276,7 +290,7 @@ export class LangGraphAgentAdapter implements AgentPort {
         // Use HumanMessage instead of SystemMessage because Anthropic only
         // allows system messages as the first message in the conversation.
         const remaining = descriptor.maxIterations - state.iteration;
-        const injectedMessages = [...effectiveMessages];
+        const injectedMessages = demoteNonLeadingSystemMessages(effectiveMessages);
         if (remaining === 1) {
           injectedMessages.push(
             new HumanMessage({ content: "【系统提示】这是最后一次推理机会。你必须立即输出完整的文本结果，禁止发起任何工具调用。" })
@@ -449,7 +463,10 @@ export class LangGraphAgentAdapter implements AgentPort {
         streamOptions.signal = config.signal;
       }
       const response = await this.aggregateStream(
-        await rawModel.stream([systemMsg, ...state.messages, finalInstruction], streamOptions)
+        await rawModel.stream(
+          [systemMsg, ...demoteNonLeadingSystemMessages(state.messages), finalInstruction],
+          streamOptions,
+        )
       );
       return { messages: [response], iteration: state.iteration };
     };
