@@ -1,5 +1,7 @@
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import { ChatMessage } from "../../port/message/ChatMessage.js";
 import type { MemoryManager } from "../memory/MemoryManager.js";
@@ -18,10 +20,15 @@ export class MemoryInjectionHook implements AgentHook {
   /** Higher priority = runs earlier, before context compression. */
   priority = 60;
 
+  private readonly logger: LoggerPort;
+
   constructor(
     private readonly memoryManager: MemoryManager,
     private readonly namespace?: string,
-  ) {}
+    logger?: LoggerPort,
+  ) {
+    this.logger = logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (point !== "pre_reasoning" || !context.messages || context.messages.length === 0) {
@@ -52,7 +59,7 @@ export class MemoryInjectionHook implements AgentHook {
       context.messages = [...systemMsgs, memoryMsg, ...otherMsgs];
     } catch (err) {
       // Memory injection failure should never break the agent flow
-      console.error("[MemoryInjectionHook] Failed to inject memories:", err);
+      this.logger.error("[MemoryInjectionHook] Failed to inject memories:", { err });
     }
 
     return context;

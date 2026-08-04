@@ -1,6 +1,8 @@
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 import type { TracerPort } from "../../port/tracing/TracerPort.js";
 import { hashToolCall } from "../guard/hash.js";
 
@@ -10,6 +12,7 @@ export interface ToolLoopDetectorHookOptions {
   /** Abort when the same (tool, paramsHash) appears this many times in the window. */
   maxRepeats: number;
   tracer?: TracerPort;
+  logger?: LoggerPort;
 }
 
 /**
@@ -20,7 +23,11 @@ export class ToolLoopDetectorHook implements AgentHook {
 
   private readonly recentByTrace = new Map<string, string[]>();
 
-  constructor(private readonly options: ToolLoopDetectorHookOptions) {}
+  private readonly logger: LoggerPort;
+
+  constructor(private readonly options: ToolLoopDetectorHookOptions) {
+    this.logger = options.logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (point !== "pre_tool_execution") return context;
@@ -46,7 +53,7 @@ export class ToolLoopDetectorHook implements AgentHook {
       const reason =
         `Tool loop detected: tool=${toolName} repeats=${repeats} ` +
         `window=${this.options.windowSize} maxRepeats=${this.options.maxRepeats} hash=${fingerprint}`;
-      console.warn(`[ToolLoopDetectorHook] ${reason}`);
+      this.logger.warn(`[ToolLoopDetectorHook] ${reason}`);
       context.abort = true;
       context.abortReason = reason;
       context.metadata.toolLoopDetected = true;
