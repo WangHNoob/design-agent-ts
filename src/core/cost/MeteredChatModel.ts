@@ -81,7 +81,7 @@ export class MeteredChatModel implements ChatModelPort {
   }
 
   reconfigure(config: ModelConfig): void {
-    this.base.reconfigure(config);
+    this.base.reconfigure?.(config);
   }
 
   private resolveUserId(): string | undefined {

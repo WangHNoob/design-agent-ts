@@ -63,11 +63,9 @@ export class Container {
   }
 
   reconfigureModel(config: ModelConfig): void {
-    if (this.model instanceof LangGraphModelAdapter) {
-      this.model.reconfigure(config);
-      if (this.agentFactory instanceof LangGraphAgentFactory) {
-        this.agentFactory.clearCache();
-      }
-    }
+    // Capability dispatch: only implementations that declare reconfigure /
+    // clearCache actually receive the call (no instanceof concrete classes).
+    this.model.reconfigure?.(config);
+    this.agentFactory.clearCache?.();
   }
 }

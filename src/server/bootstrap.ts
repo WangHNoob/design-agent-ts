@@ -79,7 +79,6 @@ import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./route
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
 import type { McpClientPort } from "../port/mcp/McpClientPort.js";
-import { LangGraphModelAdapter } from "../adapter/langgraph/LangGraphModelAdapter.js";
 import { PostgresAuditStoreAdapter } from "../adapter/postgres/PostgresAuditStoreAdapter.js";
 import { PostgresCostStoreAdapter } from "../adapter/postgres/PostgresCostStoreAdapter.js";
 import { RedisRateLimitAdapter } from "../adapter/redis/RedisRateLimitAdapter.js";
@@ -205,9 +204,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     { compensateFailureQueue: bootstrapState.compensateFailureQueue },
   );
   bootstrapState.container = container;
-  if (container.model instanceof LangGraphModelAdapter) {
-    container.model.setTracer(tracer);
-  }
+  container.model.setTracer?.(tracer);
 
   const resolveUserId = () => contextStorage.getStore()?.userId;
   const directorModel = createDirectorModel(container.model, config, {
@@ -1090,9 +1087,7 @@ export async function lateBootstrapDirector(): Promise<void> {
       { compensateFailureQueue },
     );
     bootstrapState.container = container;
-    if (container.model instanceof LangGraphModelAdapter) {
-      container.model.setTracer(tracer);
-    }
+    container.model.setTracer?.(tracer);
 
     const resolveUserId = () => contextStorage.getStore()?.userId;
     const directorModel = createDirectorModel(container.model, config, {
