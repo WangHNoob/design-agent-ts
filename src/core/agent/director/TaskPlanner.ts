@@ -8,6 +8,8 @@ import {
   TaskPlanSchema,
   RefinedRequirementsArraySchema,
 } from "../../structured/schemas.js";
+import type { LoggerPort } from "../../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../../observability/ConsoleLogger.js";
 
 // ---------------------------------------------------------------------------
 // LLM-based planning (fallback when no workflow matched)
@@ -147,23 +149,27 @@ function buildSingleTaskFallbackPlan(requirement: string, role: string): TaskPla
 export class TaskPlanner {
   private promptTemplate: string;
 
+  private readonly logger: LoggerPort;
+
   constructor(
     private model: ChatModelPort,
     promptTemplate?: string,
+    logger?: LoggerPort,
   ) {
     this.promptTemplate = promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
+    this.logger = logger ?? new ConsoleLogger();
   }
 
   async plan(requirement: string, role: string, skill: SkillPort | null): Promise<TaskPlan> {
     const workflowTasks = skill?.getWorkflowTasks() ?? [];
 
     if (workflowTasks.length > 0) {
-      console.log(`[TaskPlanner] Using workflow: ${skill!.getName()} (${workflowTasks.length} tasks) for role=${role}`);
+      this.logger.info(`[TaskPlanner] Using workflow: ${skill!.getName()} (${workflowTasks.length} tasks) for role=${role}`);
       return this.planFromWorkflow(workflowTasks, requirement, role, skill!.getName());
     }
 
     // No workflow matched — fall back to LLM-generated plan.
-    console.log(`[TaskPlanner] No workflow matched, using LLM planning for role=${role}`);
+    this.logger.info(`[TaskPlanner] No workflow matched, using LLM planning for role=${role}`);
     return this.planFromLLM(requirement, role, skill);
   }
 
@@ -184,7 +190,7 @@ export class TaskPlanner {
       refinedReqs = await this.refineRequirements(workflowTasks, requirement);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      console.warn("[TaskPlanner] LLM refinement failed, using template substitution:", err);
+      this.logger.warn("[TaskPlanner] LLM refinement failed, using template substitution:", { err });
       warnings.push(`任务细化 LLM 失败，已用模板降级：${detail}`);
       refinedReqs = new Map();
       for (const wt of workflowTasks) {
@@ -242,7 +248,7 @@ export class TaskPlanner {
 
     if (result.degraded) {
       const issues = result.issues?.join("; ") ?? "structured parse degraded";
-      console.warn("[TaskPlanner] refineRequirements structured parse degraded:", issues);
+      this.logger.warn("[TaskPlanner] refineRequirements structured parse degraded:", { issues });
       // Throw so planFromWorkflow records an auditable warning for the UI.
       throw new Error(`任务细化结构化输出降级：${issues}`);
     }
@@ -305,9 +311,8 @@ export class TaskPlanner {
 
     if (result.degraded) {
       const issues = result.issues?.join("; ") ?? "structured parse degraded";
-      console.warn(
-        "[TaskPlanner] planFromLLM structured parse degraded → single-task fallback:",
-        issues,
+      this.logger.warn(
+        `[TaskPlanner] planFromLLM structured parse degraded → single-task fallback: ${issues}`,
       );
       return {
         ...buildSingleTaskFallbackPlan(requirement, role),
@@ -320,7 +325,7 @@ export class TaskPlanner {
     const cleaned = cleanupDependencies(filtered);
 
     if (cleaned.length === 0) {
-      console.warn(
+      this.logger.warn(
         "[TaskPlanner] planFromLLM produced no role-accessible subTasks → single-task fallback",
       );
       return {

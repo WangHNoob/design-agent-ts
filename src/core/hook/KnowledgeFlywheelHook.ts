@@ -1,5 +1,7 @@
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import type { ToolRegistry } from "../../port/tool/ToolRegistry.js";
 import {
@@ -17,7 +19,11 @@ export class KnowledgeFlywheelHook implements AgentHook {
   private readonly sourcesBySession = new Map<string, KnowledgeSource[]>();
   private readonly reportedKeys = new Set<string>();
 
-  constructor(private readonly tools: ToolRegistry) {}
+  private readonly logger: LoggerPort;
+
+  constructor(private readonly tools: ToolRegistry, logger?: LoggerPort) {
+    this.logger = logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     const sessionId = context.sessionId ?? "unknown";
@@ -109,7 +115,7 @@ export class KnowledgeFlywheelHook implements AgentHook {
       }
       await this.tools.executeTool(toolName, args);
     } catch (error) {
-      console.warn(`[KnowledgeFlywheelHook] ${toolName} failed:`, error instanceof Error ? error.message : error);
+      this.logger.warn(`[KnowledgeFlywheelHook] ${toolName} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

@@ -3,6 +3,8 @@ import type { HookContext } from "../../port/hook/HookContext.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
 import type { CostStorePort } from "../../port/cost/CostStorePort.js";
 import type { TracerPort } from "../../port/tracing/TracerPort.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 import { estimateCostMicros, type CostPricing } from "../cost/estimateCost.js";
 
 export interface CostAccountingHookOptions {
@@ -12,6 +14,7 @@ export interface CostAccountingHookOptions {
   defaultModelName: string;
   tracer?: TracerPort;
   resolveUserId?: () => string | undefined;
+  logger?: LoggerPort;
 }
 
 /**
@@ -20,7 +23,11 @@ export interface CostAccountingHookOptions {
 export class CostAccountingHook implements AgentHook {
   priority = 12;
 
-  constructor(private readonly options: CostAccountingHookOptions) {}
+  private readonly logger: LoggerPort;
+
+  constructor(private readonly options: CostAccountingHookOptions) {
+    this.logger = options.logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (!this.options.enabled || point !== "post_reasoning") {
@@ -70,7 +77,7 @@ export class CostAccountingHook implements AgentHook {
         ),
       });
     } catch (err) {
-      console.warn("[CostAccountingHook] Failed to record cost usage:", err);
+      this.logger.warn("[CostAccountingHook] Failed to record cost usage:", { err });
     }
 
     return context;

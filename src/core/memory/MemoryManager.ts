@@ -1,6 +1,8 @@
 import type { LongTermMemoryPort, MemoryEntry, MemorySearchResult, StoreMemoryParams, RetrieveMemoryParams } from "../../port/memory/LongTermMemoryPort.js";
 import type { ChatMessage } from "../../port/message/ChatMessage.js";
 import { MemoryExtractor } from "./MemoryExtractor.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 
 /** Configuration for the MemoryManager. */
 export interface MemoryManagerConfig {
@@ -46,12 +48,16 @@ export class MemoryManager {
   private readonly extractor: MemoryExtractor;
   private readonly config: MemoryManagerConfig;
 
+  private readonly logger: LoggerPort;
+
   constructor(
     private readonly memoryPort: LongTermMemoryPort,
     config?: Partial<MemoryManagerConfig>,
+    logger?: LoggerPort,
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.extractor = new MemoryExtractor();
+    this.logger = logger ?? new ConsoleLogger();
   }
 
   // ─── Record (Write) ─────────────────────────────────────────────
@@ -74,7 +80,7 @@ export class MemoryManager {
         const entry = await this.memoryPort.store(params);
         stored.push(entry);
       } catch (err) {
-        console.error(`[MemoryManager] Failed to store memory:`, err);
+        this.logger.error(`[MemoryManager] Failed to store memory:`, { err });
       }
     }
     return stored;
@@ -96,7 +102,7 @@ export class MemoryManager {
     try {
       return await this.memoryPort.store(params);
     } catch (err) {
-      console.error(`[MemoryManager] Failed to store task result memory:`, err);
+      this.logger.error(`[MemoryManager] Failed to store task result memory:`, { err });
       return null;
     }
   }

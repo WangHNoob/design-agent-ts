@@ -2,6 +2,8 @@ import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
 import type { TracerPort } from "../../port/tracing/TracerPort.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 
 export interface TokenBudgetHookOptions {
   /** Hard per-trace token ceiling (input+output). 0 disables. */
@@ -15,6 +17,7 @@ export interface TokenBudgetHookOptions {
   /** When false, multi-agent budget checks are skipped. Default true when multiAgentBudget > 0. */
   multiAgentEnabled?: boolean;
   tracer?: TracerPort;
+  logger?: LoggerPort;
 }
 
 /**
@@ -31,7 +34,11 @@ export class TokenBudgetHook implements AgentHook {
   private readonly usedByTrace = new Map<string, number>();
   private readonly agentRefsByTrace = new Map<string, number>();
 
-  constructor(private readonly options: TokenBudgetHookOptions) {}
+  private readonly logger: LoggerPort;
+
+  constructor(private readonly options: TokenBudgetHookOptions) {
+    this.logger = options.logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     const singleBudget = this.options.budget;
@@ -54,7 +61,7 @@ export class TokenBudgetHook implements AgentHook {
 
       if (singleBudget > 0 && used > singleBudget) {
         const reason = `Trace token budget exceeded: used=${used} budget=${singleBudget}`;
-        console.warn(`[TokenBudgetHook] ${reason}`);
+        this.logger.warn(`[TokenBudgetHook] ${reason}`);
         await this.recordGuardSpan("guard.token_budget", reason, used, singleBudget);
         context.metadata.tokenBudgetExceeded = true;
         context.metadata.tokenBudgetUsed = used;
@@ -63,7 +70,7 @@ export class TokenBudgetHook implements AgentHook {
 
       if (multiEnabled && used > multiBudget) {
         const reason = `Multi-agent token budget exceeded: used=${used} budget=${multiBudget}`;
-        console.warn(`[TokenBudgetHook] ${reason}`);
+        this.logger.warn(`[TokenBudgetHook] ${reason}`);
         await this.recordGuardSpan("guard.multi_agent_token_budget", reason, used, multiBudget);
         context.metadata.multiAgentTokenBudgetExceeded = true;
         context.metadata.multiAgentTokenBudgetUsed = used;

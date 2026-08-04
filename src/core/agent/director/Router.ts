@@ -5,6 +5,8 @@ import { ChatMessage } from "../../../port/message/ChatMessage.js";
 import { type Role, canAccessDomain } from "../../schema/Role.js";
 import { generateStructured } from "../../structured/generateStructured.js";
 import { RouteDecisionArraySchema } from "../../structured/schemas.js";
+import type { LoggerPort } from "../../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../../observability/ConsoleLogger.js";
 
 // ---------------------------------------------------------------------------
 // Deterministic domain → agent mapping (used when plan comes from a workflow)
@@ -42,11 +44,15 @@ Output format (JSON array):
 export class Router {
   private promptTemplate: string;
 
+  private readonly logger: LoggerPort;
+
   constructor(
     private model: ChatModelPort,
     promptTemplate?: string,
+    logger?: LoggerPort,
   ) {
     this.promptTemplate = promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
+    this.logger = logger ?? new ConsoleLogger();
   }
 
   async route(plan: TaskPlan, role: string): Promise<RouteDecision[]> {
@@ -63,7 +69,7 @@ export class Router {
 
   private routeDeterministic(plan: TaskPlan, role: string): RouteDecision[] {
     const typedRole = role as Role;
-    console.log(`[Router] Deterministic routing${plan.skillId ? ` from workflow: ${plan.skillId}` : " (domain→agent)"}`);
+    this.logger.info(`[Router] Deterministic routing${plan.skillId ? ` from workflow: ${plan.skillId}` : " (domain→agent)"}`);
 
     const decisions: RouteDecision[] = [];
     let priority = 1;
@@ -110,9 +116,8 @@ export class Router {
     );
 
     if (result.degraded) {
-      console.warn(
-        "[Router] structured parse exhausted → deterministic domain→agent degrade:",
-        result.issues?.join("; "),
+      this.logger.warn(
+        `[Router] structured parse exhausted → deterministic domain→agent degrade: ${result.issues?.join("; ")}`,
       );
       return this.routeDeterministic(plan, role);
     }
@@ -127,7 +132,7 @@ export class Router {
     }));
     const filtered = decisions.filter((d) => canAccessDomain(typedRole, d.domain));
     if (filtered.length === 0) {
-      console.warn("[Router] LLM routing empty after role filter → deterministic degrade");
+      this.logger.warn("[Router] LLM routing empty after role filter → deterministic degrade");
       return this.routeDeterministic(plan, role);
     }
     return filtered;

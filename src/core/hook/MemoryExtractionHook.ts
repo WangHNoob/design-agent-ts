@@ -1,5 +1,7 @@
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import type { MemoryManager } from "../memory/MemoryManager.js";
 
@@ -17,10 +19,15 @@ export class MemoryExtractionHook implements AgentHook {
   /** Lower priority = runs later, after other hooks have processed the response. */
   priority = 200;
 
+  private readonly logger: LoggerPort;
+
   constructor(
     private readonly memoryManager: MemoryManager,
     private readonly namespace?: string,
-  ) {}
+    logger?: LoggerPort,
+  ) {
+    this.logger = logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (point === "post_agent_call" && context.messages && context.messages.length > 0) {
@@ -31,13 +38,13 @@ export class MemoryExtractionHook implements AgentHook {
           ns,
         );
         if (stored.length > 0) {
-          console.log(
+          this.logger.info(
             `[MemoryExtractionHook] Extracted ${stored.length} memories from ${context.agentName ?? "unknown"} session=${context.sessionId ?? "n/a"}`
           );
         }
       } catch (err) {
         // Memory extraction failure should never break the agent flow
-        console.error("[MemoryExtractionHook] Failed to extract memories:", err);
+        this.logger.error("[MemoryExtractionHook] Failed to extract memories:", { err });
       }
     }
     return context;

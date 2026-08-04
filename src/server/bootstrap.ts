@@ -78,6 +78,7 @@ import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
 import { createDirectorModel } from "./compose/directorModel.js";
+import { ConsoleLogger } from "../core/observability/ConsoleLogger.js";
 import { toMcpTransportConfig } from "./compose/mcpTransport.js";
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
 import type { McpClientPort } from "../port/mcp/McpClientPort.js";
@@ -128,6 +129,9 @@ let bootstrapState: {
   compensateFailureQueue: CompensateFailureQueuePort;
   versionStore: VersionStorePort | null;
 } | null = null;
+
+/** Shared runtime logger for the composition root (swap here to re-route core logs). */
+const runtimeLogger = new ConsoleLogger();
 
 export function getBootstrapState() {
   return bootstrapState;
@@ -191,6 +195,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     toolRegistry,
     skillRegistry,
     humanReviewGateway: bootstrapState.durableHitlGateway ?? container.humanReviewGateway,
+    logger: runtimeLogger,
     hooks,
     prompts: directorPrompts,
     idGenerator: new NodeIdGeneratorAdapter(),
@@ -532,19 +537,20 @@ export async function lateBootstrapDirector(): Promise<void> {
   // Initialize hooks
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
     new CancellationHook(),
-    new LoggingHook(),
-    new ValidationHook(),
-    new IterationBudgetHook(config.limits.iterationBudgetDefault),
+    new LoggingHook(runtimeLogger),
+    new ValidationHook(runtimeLogger),
+    new IterationBudgetHook(config.limits.iterationBudgetDefault, runtimeLogger),
     new OutputEnforcementHook(),
     new ContextManagementHook({
       compressionThreshold: config.limits.contextCompressionThreshold,
       maxTokens: config.limits.contextMaxTokens,
       protectRecentTurns: config.memory.protectRecentTurns,
       maxActiveMessages: config.memory.maxActiveMessages,
+      logger: runtimeLogger,
     }),
   ];
   if (config.mcp.enabled) {
-    hooks.push(new KnowledgeFlywheelHook(toolRegistry));
+    hooks.push(new KnowledgeFlywheelHook(toolRegistry, runtimeLogger));
     console.log("[Bootstrap] Knowledge flywheel hook enabled (auto report/attribution)");
   }
 
@@ -1074,6 +1080,7 @@ export async function lateBootstrapDirector(): Promise<void> {
       toolRegistry,
       skillRegistry,
       humanReviewGateway: durableHitlGateway,
+      logger: runtimeLogger,
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),
@@ -1193,6 +1200,7 @@ export async function reloadDirector(): Promise<void> {
       skillRegistry,
       humanReviewGateway: bootstrapState.durableHitlGateway
         ?? bootstrapState.container.humanReviewGateway,
+      logger: runtimeLogger,
       hooks,
       prompts: directorPrompts,
       idGenerator: new NodeIdGeneratorAdapter(),

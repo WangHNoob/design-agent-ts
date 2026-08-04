@@ -1,12 +1,18 @@
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import { ChatMessage } from "../../port/message/ChatMessage.js";
 
 export class IterationBudgetHook implements AgentHook {
   priority = 60;
 
-  constructor(private readonly defaultMaxIterations = 10) {}
+  private readonly logger: LoggerPort;
+
+  constructor(private readonly defaultMaxIterations = 10, logger?: LoggerPort) {
+    this.logger = logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (point !== "pre_reasoning") return context;
@@ -16,7 +22,7 @@ export class IterationBudgetHook implements AgentHook {
     const remaining = maxIterations - iteration;
 
     if (remaining <= 0) {
-      console.warn(`[IterationBudgetHook] 迭代预算耗尽: ${iteration}/${maxIterations}`);
+      this.logger.warn(`[IterationBudgetHook] 迭代预算耗尽: ${iteration}/${maxIterations}`);
       context.abort = true;
       return context;
     }

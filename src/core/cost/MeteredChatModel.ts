@@ -8,6 +8,8 @@ import type { RateLimitPort } from "../../port/cost/RateLimitPort.js";
 import type { TracerPort } from "../../port/tracing/TracerPort.js";
 import { estimateCostMicros, type CostPricing } from "./estimateCost.js";
 import { RateLimitError } from "./RateLimitError.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 
 export interface MeteredChatModelOptions {
   /** Record token usage to CostStore. */
@@ -29,10 +31,15 @@ export interface MeteredChatModelOptions {
  * (TaskPlanner / Router) that bypass LangGraph agent hooks.
  */
 export class MeteredChatModel implements ChatModelPort {
+  private readonly logger: LoggerPort;
+
   constructor(
     private readonly base: ChatModelPort,
     private readonly options: MeteredChatModelOptions,
-  ) {}
+    logger?: LoggerPort,
+  ) {
+    this.logger = logger ?? new ConsoleLogger();
+  }
 
   async generate(
     messages: ChatMessage[],
@@ -179,7 +186,7 @@ export class MeteredChatModel implements ChatModelPort {
         ),
       });
     } catch (err) {
-      console.warn("[MeteredChatModel] Failed to record cost usage:", err);
+      this.logger.warn("[MeteredChatModel] Failed to record cost usage:", { err });
     }
   }
 }
