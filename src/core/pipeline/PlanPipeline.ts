@@ -5,6 +5,8 @@ import { isToolHitlRequiredError } from "../tool/ToolHitlRequiredError.js";
 import { PlanHardGuard } from "../plan/PlanHardGuard.js";
 import { isPlanViolationError } from "../plan/PlanViolationError.js";
 import { runFanOutBatches, type FanOutBatchInfo } from "../multiagent/FanOutLimiter.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 
 export type TaskExecutor = (task: SubTask, signal?: AbortSignal) => Promise<TaskResult>;
 
@@ -43,12 +45,16 @@ export class PlanPipeline {
   private signal?: AbortSignal;
   private options: Omit<PlanPipelineOptions, "signal">;
 
+  private readonly logger: LoggerPort;
+
   constructor(
     private plan: TaskPlan,
     private executor: TaskExecutor,
     signalOrOptions?: AbortSignal | PlanPipelineOptions,
     options: Omit<PlanPipelineOptions, "signal"> = {},
+    logger?: LoggerPort,
   ) {
+    this.logger = logger ?? new ConsoleLogger();
     if (this.isAbortSignal(signalOrOptions)) {
       this.signal = signalOrOptions;
       this.options = options;
@@ -70,7 +76,7 @@ export class PlanPipeline {
       if (this.signal?.aborted) {
         const remainingLayers = this.layers.length - layerIndex;
         const remainingTasks = this.plan.subTasks.length - resultByTaskId.size;
-        console.log(
+        this.logger.info(
           `[PlanPipeline] Aborted, cancelling ${remainingTasks} tasks across ${remainingLayers} layers`,
         );
         await this.appendCancelledResults(allResults, resultByTaskId);

@@ -1,10 +1,18 @@
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import { ChatMessage } from "../../port/message/ChatMessage.js";
 
 export class ValidationHook implements AgentHook {
   priority = 200;
+
+  private readonly logger: LoggerPort;
+
+  constructor(logger?: LoggerPort) {
+    this.logger = logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (point === "post_reasoning") {
@@ -36,7 +44,7 @@ export class ValidationHook implements AgentHook {
       }
 
       if (issues.length > 0) {
-        console.warn(`[ValidationHook] ${context.agentName ?? "unknown"} issues: ${issues.join("; ")}`);
+        this.logger.warn(`[ValidationHook] ${context.agentName ?? "unknown"} issues: ${issues.join("; ")}`);
       }
     }
 
