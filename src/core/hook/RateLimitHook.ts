@@ -3,6 +3,8 @@ import type { HookContext } from "../../port/hook/HookContext.js";
 import type { HookPoint } from "../../port/hook/HookPoint.js";
 import type { RateLimitPort } from "../../port/cost/RateLimitPort.js";
 import type { TracerPort } from "../../port/tracing/TracerPort.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 
 export interface RateLimitHookOptions {
   enabled: boolean;
@@ -11,6 +13,7 @@ export interface RateLimitHookOptions {
   tpmEstimatePerCall: number;
   tracer?: TracerPort;
   resolveUserId?: () => string | undefined;
+  logger?: LoggerPort;
 }
 
 /**
@@ -20,7 +23,11 @@ export interface RateLimitHookOptions {
 export class RateLimitHook implements AgentHook {
   priority = 13;
 
-  constructor(private readonly options: RateLimitHookOptions) {}
+  private readonly logger: LoggerPort;
+
+  constructor(private readonly options: RateLimitHookOptions) {
+    this.logger = options.logger ?? new ConsoleLogger();
+  }
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (!this.options.enabled) return context;
@@ -118,7 +125,7 @@ export class RateLimitHook implements AgentHook {
         },
       });
     } catch (err) {
-      console.warn("[RateLimitHook] Failed to record guard span:", err);
+      this.logger.warn("[RateLimitHook] Failed to record guard span:", { err });
     }
   }
 }
