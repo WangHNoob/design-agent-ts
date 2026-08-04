@@ -32,6 +32,8 @@
   - 提示词文件读取放在 `server/` 组装根，通过构造函数注入字符串
   - 第三方 HTTP 服务（如 Tavily）放在 `adapter/` 层
 
+**core 依赖白名单**：core 允许的第三方依赖仅 `zod`（结构化输出校验），且**只允许出现在 `src/core/structured/`**；其余第三方包一律禁止。若需新依赖，先讨论是否应下沉为 port 契约或上移为 adapter。
+
 ### 3. config 层不得实例化 adapter
 - `src/config/` 只负责读取配置（环境变量、配置文件）
 - 依赖注入容器（如 `Container.ts`）应放在 `src/server/`
@@ -51,6 +53,7 @@
 - [ ] **端口契约**：适配器实现是否静默破坏端口契约？降级行为是否可审计（如 `fallback` 标记）？
 - [ ] **租户边界**：仓储查询是否带 `userId`？是否出现全局 `setUserId` / 请求间共享可变租户状态？
 - [ ] **模拟数据**：代码中是否有 TODO / FIXME / mock / placeholder？未实现部分必须显式标记
+- [ ] **架构守护（工具强制）**：`pnpm lint`（eslint `no-restricted-imports` 分层规则）与 `pnpm test`（`test/architecture/layer-boundaries.test.ts` 扫描全部 import）是否通过？这两道闸不可绕过，违反分层时先改代码再提交
 
 ---
 
