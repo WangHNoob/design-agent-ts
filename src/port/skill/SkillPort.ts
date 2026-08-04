@@ -1,4 +1,4 @@
-import type { WorkflowTask } from "../../core/schema/TaskPlan.js";
+import type { WorkflowTask } from "./SkillTypes.js";
 
 export interface SkillWorkflow {
   readonly steps: string[];
