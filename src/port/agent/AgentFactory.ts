@@ -11,4 +11,9 @@ export interface AgentFactory {
     memory: MemoryPort,
     hooks: AgentHook[]
   ): AgentPort;
+  /**
+   * Optional capability: drop cached agent instances (e.g. after a model
+   * reconfigure). Implementations without a cache omit this method.
+   */
+  clearCache?(): void;
 }
