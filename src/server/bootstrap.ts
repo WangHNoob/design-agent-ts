@@ -77,6 +77,8 @@ import { ExecutionWorker, EXECUTION_QUEUE } from "./worker/ExecutionWorker.js";
 import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
+import { createDirectorModel } from "./compose/directorModel.js";
+import { toMcpTransportConfig } from "./compose/mcpTransport.js";
 import { loadMcpTools, type McpClientEntry } from "../core/tool/mcp/McpToolLoader.js";
 import type { McpClientPort } from "../port/mcp/McpClientPort.js";
 import { PostgresAuditStoreAdapter } from "../adapter/postgres/PostgresAuditStoreAdapter.js";
@@ -126,37 +128,6 @@ let bootstrapState: {
   compensateFailureQueue: CompensateFailureQueuePort;
   versionStore: VersionStorePort | null;
 } | null = null;
-
-function createDirectorModel(
-  baseModel: ChatModelPort,
-  config: FrameworkConfig,
-  deps: {
-    costStore: CostStorePort | null;
-    rateLimit: RateLimitPort | null;
-    tracer: TracerPort;
-    resolveUserId: () => string | undefined;
-  },
-): ChatModelPort {
-  if (!config.cost.enabled || !deps.costStore || !deps.rateLimit) {
-    return baseModel;
-  }
-  return new MeteredChatModel(baseModel, {
-    costEnabled: true,
-    rateLimitEnabled:
-      config.cost.tpmLimitPerUser > 0 || config.cost.globalTpmLimit > 0,
-    tpmEstimatePerCall: config.cost.tpmEstimatePerCall,
-    rateLimit: deps.rateLimit,
-    costStore: deps.costStore,
-    pricing: {
-      inputPricePer1M: config.cost.inputPricePer1M,
-      outputPricePer1M: config.cost.outputPricePer1M,
-      modelPrices: config.cost.modelPrices,
-    },
-    tracer: deps.tracer,
-    resolveUserId: deps.resolveUserId,
-    defaultAgentName: "Director",
-  });
-}
 
 export function getBootstrapState() {
   return bootstrapState;
@@ -1277,25 +1248,3 @@ export async function reloadDirector(): Promise<void> {
   }
 }
 
-/**
- * Translate a validated McpServerConfig into the adapter's transport config.
- * Returns null if required fields for the transport are missing (defensive —
- * validateConfig already enforces these).
- */
-function toMcpTransportConfig(
-  server: import("../config/FrameworkConfig.js").McpServerConfig,
-): McpTransportConfig | null {
-  switch (server.transport) {
-    case "stdio":
-      if (!server.command) return null;
-      return { transport: "stdio", command: server.command, args: server.args, env: server.env };
-    case "sse":
-      if (!server.url) return null;
-      return { transport: "sse", url: server.url, headers: server.headers };
-    case "http":
-      if (!server.url) return null;
-      return { transport: "http", url: server.url, headers: server.headers };
-    default:
-      return null;
-  }
-}
