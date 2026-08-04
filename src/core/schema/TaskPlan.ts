@@ -1,32 +1,7 @@
-export type Domain =
-  | "system_design"
-  | "combat_design"
-  | "numerical_planning"
-  | "gameplay_design"
-  | "executive_planning"
-  | "qa";
-
-export type OutputType = "DOCUMENT" | "CONFIG_TABLE" | "MIXED";
-
-/**
- * A task definition from a workflow SKILL.md (contrib/workflows/).
- * The task structure (id, domain, dependencies, output) is fixed by the workflow author;
- * only the `requirement` text is refined by LLM at planning time.
- */
-export interface WorkflowTask {
-  readonly taskId: string;
-  readonly domain: Domain;
-  readonly requirementTemplate: string;
-  readonly dependencies: readonly string[];
-  readonly outputType: OutputType;
-  readonly outputTemplate: string;
-  /**
-   * Optional per-task tool whitelist.
-   * - omitted: use domain defaults at execution time
-   * - `[]`: no external tools allowed (strict empty set)
-   */
-  readonly allowedTools?: readonly string[];
-}
+// Re-export skill-domain types from the port layer (single source of truth).
+// Ports must not import core; core may import ports.
+import type { Domain, OutputType, WorkflowTask } from "../../port/skill/SkillTypes.js";
+export type { Domain, OutputType, WorkflowTask } from "../../port/skill/SkillTypes.js";
 
 export interface SubTask {
   readonly id: string;

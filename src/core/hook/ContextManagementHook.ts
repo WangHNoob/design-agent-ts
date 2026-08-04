@@ -3,6 +3,8 @@ import type { HookPoint } from "../../port/hook/HookPoint.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import type { ArchiveEntry, MemoryPort } from "../../port/memory/MemoryPort.js";
 import { ContextManager } from "../memory/ContextManager.js";
+import type { LoggerPort } from "../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../observability/ConsoleLogger.js";
 
 export interface ContextManagementHookOptions {
   compressionThreshold?: number;
@@ -11,6 +13,7 @@ export interface ContextManagementHookOptions {
   maxActiveMessages?: number;
   /** When set, eviction archives go through this MemoryPort (preferred production path). */
   memory?: MemoryPort;
+  logger?: LoggerPort;
 }
 
 /**
@@ -23,6 +26,7 @@ export class ContextManagementHook implements AgentHook {
   private readonly options: ContextManagementHookOptions;
   private memory: MemoryPort | undefined;
   private readonly archives: ArchiveEntry[] = [];
+  private readonly logger: LoggerPort;
 
   constructor(
     compressionThresholdOrOptions: number | ContextManagementHookOptions = 0.8,
@@ -34,6 +38,7 @@ export class ContextManagementHook implements AgentHook {
         : compressionThresholdOrOptions;
     this.options = { ...options };
     this.memory = options.memory;
+    this.logger = options.logger ?? new ConsoleLogger();
     this.contextManager = new ContextManager({
       compressionThreshold: options.compressionThreshold ?? 0.8,
       maxTokens: options.maxTokens ?? 128000,
@@ -61,7 +66,7 @@ export class ContextManagementHook implements AgentHook {
       if (this.memory) {
         const compressed = await this.memory.maybeCompress(context.messages);
         if (compressed.length !== beforeCount) {
-          console.log(
+          this.logger.info(
             `[ContextManagementHook] memory.maybeCompress: ${beforeCount} → ${compressed.length} 条消息` +
             ` (归档 ${this.listArchive().length})`,
           );
@@ -77,7 +82,7 @@ export class ContextManagementHook implements AgentHook {
           this.archives.push(result.archiveEntry);
         }
         context.messages = result.messages;
-        console.log(
+        this.logger.info(
           `[ContextManagementHook] 触发压缩/驱逐: ${estimatedTokens} tokens — ` +
           `${beforeCount} → ${result.messages.length} 条消息` +
           (result.archiveEntry ? ` (归档 ${result.archiveEntry.id})` : ""),

@@ -4,6 +4,8 @@ import { AgentResponse as AR } from "../../../port/agent/AgentResponse.js";
 import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
 import type { ModelResponse } from "../../../port/model/ModelResponse.js";
 import type { AgentFactory } from "../../../port/agent/AgentFactory.js";
+import type { LoggerPort } from "../../../port/infra/LoggerPort.js";
+import { ConsoleLogger } from "../../observability/ConsoleLogger.js";
 import type { AgentDescriptor } from "../../../port/agent/AgentDescriptor.js";
 import type { ToolRegistry } from "../../../port/tool/ToolRegistry.js";
 import type { ToolPort } from "../../../port/tool/ToolPort.js";
@@ -210,6 +212,8 @@ export interface DirectorDeps {
   resolveUserId?: () => string | undefined;
   /** Optional security wrapper for session-scoped tools. */
   wrapTool?: (tool: ToolPort) => ToolPort;
+  /** Structured logger (defaults to ConsoleLogger). */
+  logger?: LoggerPort;
   /** Plan hard guards (step tools / replan budget). Defaults: enabled. */
   planHard?: DirectorPlanHardConfig;
   /** Multi-agent runaway guards + handoff. Defaults: enabled. */
@@ -226,9 +230,12 @@ export class DirectorAgent {
   private activeCallParent: CallContext;
   private readonly handoffByTask = new Map<string, HandoffPayload>();
 
+  private readonly logger: LoggerPort;
+
   constructor(private deps: DirectorDeps) {
-    this.taskPlanner = new TaskPlanner(deps.model, deps.prompts?.taskPlanner);
-    this.router = new Router(deps.model, deps.prompts?.router);
+    this.logger = deps.logger ?? new ConsoleLogger();
+    this.taskPlanner = new TaskPlanner(deps.model, deps.prompts?.taskPlanner, this.logger);
+    this.router = new Router(deps.model, deps.prompts?.router, this.logger);
     this.integrator = new Integrator();
     this.querySystemPrompt = deps.prompts?.querySystem ?? "";
     const multi = this.multiAgentConfig();
@@ -431,7 +438,7 @@ export class DirectorAgent {
       .map((decision): TaskAssignment | null => {
         const descriptor = this.getAgentDescriptor(decision.agentName, options);
         if (!descriptor) {
-          console.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
+          this.logger.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
           return null;
         }
         const originalSubTask = plan.subTasks.find(
@@ -705,7 +712,7 @@ export class DirectorAgent {
     await this.beginMultiAgentRun(options?.initialTaskResults);
 
     const skill = this.skillRegistry(options).matchSkill(requirement, role);
-    console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+    this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
     const plan = await this.getTaskPlanner(options).plan(requirement, role, skill);
 
     const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
@@ -913,7 +920,7 @@ export class DirectorAgent {
     const skillContent = skill.getContent();
     if (!skillContent) return descriptor;
 
-    console.log(`[DirectorAgent] Injecting skill "${skill.getName()}" (${skillContent.length} chars) into ${descriptor.name}`);
+    this.logger.info(`[DirectorAgent] Injecting skill "${skill.getName()}" (${skillContent.length} chars) into ${descriptor.name}`);
     return {
       ...descriptor,
       systemPrompt: `${descriptor.systemPrompt}\n\n---\n\n${skillContent}`,
@@ -1638,7 +1645,7 @@ export class DirectorAgent {
       await this.beginMultiAgentRun(options?.initialTaskResults);
 
       const skill = this.skillRegistry(options).matchSkill(requirement, role);
-      console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+      this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       let plan = options?.resumePlan;
       if (plan) {
         yield { type: "plan", data: { message: `Resuming ${plan.subTasks.length} tasks`, plan, resumed: true } };
@@ -1976,7 +1983,7 @@ export class DirectorAgent {
     }
 
     const skill = this.skillRegistry(options).matchSkill(requirement, role);
-    console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+    this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
 
     // Inject full skill content into descriptor, not just the name in assignment
     const enrichedDescriptor = skill
@@ -2043,7 +2050,7 @@ export class DirectorAgent {
       yield { type: "route", data: { message: `分配给 ${descriptor.name}` } };
 
       const skill = this.skillRegistry(options).matchSkill(requirement, role);
-      console.log(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
+      this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       yield { type: "skill_matched", data: { skillName: skill?.getName() ?? null, role } };
 
       // Inject full skill content into descriptor
