@@ -171,6 +171,7 @@ export interface DirectorDeps {
   workspace?: WorkspaceManager;
   limits?: {
     queryAgentMaxIterations?: number;
+    queryMaxTokens?: number;
     subAgentMaxIterations?: number;
     grepSearchResultLimit?: number;
     webSourceResultLimit?: number;
@@ -1408,6 +1409,7 @@ export class DirectorAgent {
       name: "QueryAgent",
       systemPrompt: querySystemPrompt ?? this.querySystemPrompt,
       maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
+      maxTokens: this.deps.limits?.queryMaxTokens,
       toolNames: [
         "wiki_lookup", "wiki_read", "wiki_list",
         "grep_search",
@@ -1436,6 +1438,7 @@ export class DirectorAgent {
       name: "QueryAgent",
       systemPrompt: querySystemPrompt ?? this.querySystemPrompt,
       maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
+      maxTokens: this.deps.limits?.queryMaxTokens,
       toolNames: [
         "wiki_lookup", "wiki_read", "wiki_list",
         "grep_search",
