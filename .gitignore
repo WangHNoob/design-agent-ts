@@ -17,6 +17,7 @@ lerna-debug.log*
 # Environment variables
 .env*
 !.env.example
+!loadtest/.env.loadtest.example
 settings.json
 
 # IDE
@@ -63,4 +64,8 @@ frontend/node_modules/
 
 # Eval offline reports (generated)
 eval/reports/
+
+# Loadtest k6 reports (generated)
+loadtest/reports/*
+!loadtest/reports/.gitkeep
 
