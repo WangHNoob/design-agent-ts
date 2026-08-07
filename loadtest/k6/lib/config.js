@@ -31,6 +31,17 @@ export const thresholds = {
     checks: ["rate>0.90"],
     http_req_duration: ["p(95)<3000"],
   },
+  /** Real-LLM query: long model latency; abort if checks drop below 90%. */
+  llmQuery: {
+    checks: ["rate>0.90"],
+    http_req_duration: ["p(95)<180000"],
+  },
+};
+
+export const llmDefaults = {
+  users: Number(__ENV.LLM_USERS || 30),
+  itersPerUser: Number(__ENV.LLM_ITERS_PER_USER || 2),
+  execTimeoutSec: Number(__ENV.LLM_EXEC_TIMEOUT_SEC || 180),
 };
 
 export function uniqueEmail(prefix) {
