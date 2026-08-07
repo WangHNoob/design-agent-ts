@@ -66,6 +66,9 @@ export interface ExecutionWorkerDependencies {
 }
 
 export class ExecutionWorker {
+  /** Short sleep before defer return to avoid claim/requeue/xadd spin when a lane is full. */
+  private static readonly DEFER_BACKOFF_MS = 75;
+
   private director: DirectorAgent | null = null;
   private subscribed = false;
   private started = false;
@@ -162,47 +165,11 @@ export class ExecutionWorker {
     service: ExecutionService,
     context: TenantContext,
   ): Promise<MessageResult> {
-    let execution = initialExecution;
-    if (execution.status === "queued") {
-      try {
-        execution = await service.claim(execution.id);
-      } catch {
-        const current = await repository.get(execution.id);
-        if (!current) return { success: false, retry: false, error: "Execution not found" };
-        if (ExecutionStateMachine.isTerminal(current.status)) return { success: true };
-        if (current.status !== "running") throw new Error(`Cannot claim execution in ${current.status}`);
-        execution = current;
-      }
-    } else if (execution.status !== "running") {
-      return { success: false, retry: false, error: `Execution is ${execution.status}` };
-    }
-
-    const acquired = await this.deps.userContextManager.acquireConcurrencySlot(
-      context,
-      this.deps.maxConcurrentPerUser,
-    );
-    if (!acquired) {
-      await service.requeue(execution.id, new Error("Tenant concurrent execution limit reached"));
-      await sessionRepository.update(execution.sessionId, {
-        status: "queued",
-        error: "Tenant concurrent execution limit reached",
-      });
-      return {
-        success: false,
-        retry: true,
-        error: "Tenant concurrent execution limit reached",
-      };
-    }
-
-    const lane = this.resolveInflightLane(execution);
+    // Prefer lane acquire while still queued — avoids claim→requeue churn when the lane is full.
+    const lane = this.resolveInflightLane(initialExecution);
     if (!this.deps.inflightLimiter.tryAcquire(lane)) {
-      this.logInflight(execution.id, lane, "lane full");
-      await this.deps.userContextManager.releaseConcurrencySlot(context);
-      await service.requeue(execution.id, new Error("Execution inflight lane full"));
-      await sessionRepository.update(execution.sessionId, {
-        status: "queued",
-        error: "Execution inflight lane full",
-      });
+      this.logInflight(initialExecution.id, lane, "lane full");
+      await this.sleepDeferBackoff();
       return {
         success: false,
         defer: true,
@@ -210,230 +177,276 @@ export class ExecutionWorker {
       };
     }
 
-    this.logInflight(execution.id, lane);
-
-    const abortController = new AbortController();
-    let polling = false;
-    const poll = async () => {
-      if (polling || abortController.signal.aborted) return;
-      polling = true;
-      try {
-        const current = await repository.get(execution.id);
-        if (!current) {
-          abortController.abort(new Error("Execution disappeared during processing"));
-          return;
-        }
-        if (current.status === "cancelled") {
-          abortController.abort(new DOMException("Execution cancelled", "AbortError"));
-        } else if (current.status === "timed_out") {
-          const timeout = new Error("Execution timed out");
-          timeout.name = "TimeoutError";
-          abortController.abort(timeout);
-        } else if (
-          current.deadlineAt
-          && Date.parse(current.deadlineAt) <= this.now().getTime()
-          && current.status === "running"
-        ) {
-          await service.timeout(current.id, "Execution deadline exceeded");
-          const timeout = new Error("Execution deadline exceeded");
-          timeout.name = "TimeoutError";
-          abortController.abort(timeout);
-        }
-      } finally {
-        polling = false;
-      }
-    };
-    const pollTimer = setInterval(() => {
-      void poll();
-    }, this.deps.pollIntervalMs);
-    pollTimer.unref?.();
-
-    this.activeExecutions.add(execution.id);
-    let sawError = false;
+    let execution = initialExecution;
+    let tenantAcquired = false;
     try {
-      await sessionRepository.update(execution.sessionId, {
-        status: "running",
-        error: "",
-      });
-      await this.append(execution, {
-        type: "execution_status",
-        data: { status: "running", recovered: initialExecution.status === "running" },
-      });
-
-      const request = this.parseExecutePayload(execution.requestPayload);
-      const tasks = await repository.listTasks(execution.id);
-      const initialTaskResults = this.initialTaskResults(tasks);
-      const resumePlan = this.parseTaskPlan(execution.planPayload);
-      const sessionMeta = await sessionRepository.get(execution.sessionId);
-      const executionOverrides = this.deps.executionOverridesFactory
-        ? await this.deps.executionOverridesFactory(sessionMeta, context.userId)
-        : undefined;
-      const options: DirectorStreamOptions = {
-        signal: abortController.signal,
-        taskTimeoutMs: this.deps.taskTimeoutMs,
-        resumePlan,
-        initialTaskResults,
-        executionId: execution.id,
-        userId: context.userId,
-        executionOverrides,
-      };
-      const attempts = new Map<string, ExecutionAttempt>();
-      let completedOutput = "";
-      let sawComplete = false;
-      let sawCancelled = false;
-      let sawHitl = false;
-
-      for await (const event of this.director!.executeStream(
-        request.requirement,
-        execution.sessionId,
-        request.mode,
-        request.role,
-        request.history,
-        options,
-      )) {
-        await this.append(execution, event);
-        if (event.type === "plan") {
-          await this.persistPlan(repository, execution, event);
-        } else if (event.type === "hitl") {
-          sawHitl = true;
-          await this.pauseForHitl(
-            repository,
-            sessionRepository,
-            service,
-            execution,
-            event,
-          );
-        } else if (event.type === "task_start") {
-          await this.startTask(repository, execution, event, attempts);
-        } else if (event.type === "task_complete") {
-          await this.completeTask(repository, execution, event, attempts);
-        } else if (event.type === "complete") {
-          sawComplete = true;
-          completedOutput = typeof event.data.output === "string" ? event.data.output : "";
-        } else if (event.type === "cancelled") {
-          sawCancelled = true;
-          completedOutput = typeof event.data.partialOutput === "string"
-            ? event.data.partialOutput
-            : completedOutput;
-        } else if (event.type === "error") {
-          sawError = true;
-          const streamError = new Error(
-            typeof event.data.error === "string" ? event.data.error : "Director execution failed",
-          ) as Error & { errorClass?: unknown };
-          streamError.errorClass = event.data.errorClass;
-          throw streamError;
+      if (execution.status === "queued") {
+        try {
+          execution = await service.claim(execution.id);
+        } catch {
+          const current = await repository.get(execution.id);
+          if (!current) return { success: false, retry: false, error: "Execution not found" };
+          if (ExecutionStateMachine.isTerminal(current.status)) return { success: true };
+          if (current.status !== "running") throw new Error(`Cannot claim execution in ${current.status}`);
+          execution = current;
         }
+      } else if (execution.status !== "running") {
+        return { success: false, retry: false, error: `Execution is ${execution.status}` };
       }
 
-      const latest = await repository.get(execution.id);
-      if (latest?.status === "cancelled" || latest?.status === "timed_out" || sawCancelled) {
-        const partialOutput = completedOutput;
+      const acquired = await this.deps.userContextManager.acquireConcurrencySlot(
+        context,
+        this.deps.maxConcurrentPerUser,
+      );
+      if (!acquired) {
+        await service.requeue(execution.id, new Error("Tenant concurrent execution limit reached"));
         await sessionRepository.update(execution.sessionId, {
-          status: latest?.status === "timed_out" ? "timed_out" : "cancelled",
-          output: partialOutput,
-          error: latest?.errorMessage ?? "Execution cancelled",
+          status: "queued",
+          error: "Tenant concurrent execution limit reached",
         });
-        if (latest) {
-          await this.append(latest, {
+        return {
+          success: false,
+          retry: true,
+          error: "Tenant concurrent execution limit reached",
+        };
+      }
+      tenantAcquired = true;
+
+      this.logInflight(execution.id, lane);
+
+      const abortController = new AbortController();
+      let polling = false;
+      const poll = async () => {
+        if (polling || abortController.signal.aborted) return;
+        polling = true;
+        try {
+          const current = await repository.get(execution.id);
+          if (!current) {
+            abortController.abort(new Error("Execution disappeared during processing"));
+            return;
+          }
+          if (current.status === "cancelled") {
+            abortController.abort(new DOMException("Execution cancelled", "AbortError"));
+          } else if (current.status === "timed_out") {
+            const timeout = new Error("Execution timed out");
+            timeout.name = "TimeoutError";
+            abortController.abort(timeout);
+          } else if (
+            current.deadlineAt
+            && Date.parse(current.deadlineAt) <= this.now().getTime()
+            && current.status === "running"
+          ) {
+            await service.timeout(current.id, "Execution deadline exceeded");
+            const timeout = new Error("Execution deadline exceeded");
+            timeout.name = "TimeoutError";
+            abortController.abort(timeout);
+          }
+        } finally {
+          polling = false;
+        }
+      };
+      const pollTimer = setInterval(() => {
+        void poll();
+      }, this.deps.pollIntervalMs);
+      pollTimer.unref?.();
+
+      this.activeExecutions.add(execution.id);
+      let sawError = false;
+      try {
+        await sessionRepository.update(execution.sessionId, {
+          status: "running",
+          error: "",
+        });
+        await this.append(execution, {
+          type: "execution_status",
+          data: { status: "running", recovered: initialExecution.status === "running" },
+        });
+
+        const request = this.parseExecutePayload(execution.requestPayload);
+        const tasks = await repository.listTasks(execution.id);
+        const initialTaskResults = this.initialTaskResults(tasks);
+        const resumePlan = this.parseTaskPlan(execution.planPayload);
+        const sessionMeta = await sessionRepository.get(execution.sessionId);
+        const executionOverrides = this.deps.executionOverridesFactory
+          ? await this.deps.executionOverridesFactory(sessionMeta, context.userId)
+          : undefined;
+        const options: DirectorStreamOptions = {
+          signal: abortController.signal,
+          taskTimeoutMs: this.deps.taskTimeoutMs,
+          resumePlan,
+          initialTaskResults,
+          executionId: execution.id,
+          userId: context.userId,
+          executionOverrides,
+        };
+        const attempts = new Map<string, ExecutionAttempt>();
+        let completedOutput = "";
+        let sawComplete = false;
+        let sawCancelled = false;
+        let sawHitl = false;
+
+        for await (const event of this.director!.executeStream(
+          request.requirement,
+          execution.sessionId,
+          request.mode,
+          request.role,
+          request.history,
+          options,
+        )) {
+          await this.append(execution, event);
+          if (event.type === "plan") {
+            await this.persistPlan(repository, execution, event);
+          } else if (event.type === "hitl") {
+            sawHitl = true;
+            await this.pauseForHitl(
+              repository,
+              sessionRepository,
+              service,
+              execution,
+              event,
+            );
+          } else if (event.type === "task_start") {
+            await this.startTask(repository, execution, event, attempts);
+          } else if (event.type === "task_complete") {
+            await this.completeTask(repository, execution, event, attempts);
+          } else if (event.type === "complete") {
+            sawComplete = true;
+            completedOutput = typeof event.data.output === "string" ? event.data.output : "";
+          } else if (event.type === "cancelled") {
+            sawCancelled = true;
+            completedOutput = typeof event.data.partialOutput === "string"
+              ? event.data.partialOutput
+              : completedOutput;
+          } else if (event.type === "error") {
+            sawError = true;
+            const streamError = new Error(
+              typeof event.data.error === "string" ? event.data.error : "Director execution failed",
+            ) as Error & { errorClass?: unknown };
+            streamError.errorClass = event.data.errorClass;
+            throw streamError;
+          }
+        }
+
+        const latest = await repository.get(execution.id);
+        if (latest?.status === "cancelled" || latest?.status === "timed_out" || sawCancelled) {
+          const partialOutput = completedOutput;
+          await sessionRepository.update(execution.sessionId, {
+            status: latest?.status === "timed_out" ? "timed_out" : "cancelled",
+            output: partialOutput,
+            error: latest?.errorMessage ?? "Execution cancelled",
+          });
+          if (latest) {
+            await this.append(latest, {
+              type: "execution_terminal",
+              data: {
+                status: latest.status === "timed_out" ? "timed_out" : "cancelled",
+                partialOutput,
+                error: latest.errorMessage,
+              },
+            });
+          }
+          return { success: true };
+        }
+        if (sawHitl || latest?.status === "waiting_hitl") {
+          return { success: true };
+        }
+        if (!sawComplete) {
+          throw new Error("Director stream ended without a complete event");
+        }
+
+        const completed = await service.complete(execution.id, {
+          resultPayload: { output: completedOutput },
+        });
+        await sessionRepository.update(execution.sessionId, {
+          status: "completed",
+          output: completedOutput,
+          error: "",
+        });
+        await this.append(completed, {
+          type: "execution_terminal",
+          data: { status: "completed", output: completedOutput },
+        });
+        return { success: true };
+      } catch (error) {
+        const current = await repository.get(execution.id);
+        if (current?.status === "cancelled" || current?.status === "timed_out") {
+          await sessionRepository.update(execution.sessionId, {
+            status: current.status,
+            error: current.errorMessage ?? ErrorClassifier.message(error),
+          });
+          await this.append(current, {
             type: "execution_terminal",
+            data: { status: current.status, error: current.errorMessage },
+          });
+          return { success: true };
+        }
+
+        const errorClass = ErrorClassifier.classify(error);
+        if (errorClass === "transient" && message.retryCount < message.maxRetries) {
+          const requeued = await service.requeue(execution.id, error);
+          await sessionRepository.update(execution.sessionId, {
+            status: "queued",
+            error: ErrorClassifier.message(error),
+          });
+          await this.append(requeued, {
+            type: "execution_retry",
             data: {
-              status: latest.status === "timed_out" ? "timed_out" : "cancelled",
-              partialOutput,
-              error: latest.errorMessage,
+              status: "queued",
+              retryCount: message.retryCount + 1,
+              error: ErrorClassifier.message(error),
+            },
+          });
+          return { success: false, retry: true, error: ErrorClassifier.message(error) };
+        }
+
+        const failed = await service.fail(execution.id, error);
+        const errorText = failed.errorMessage ?? ErrorClassifier.message(error);
+        await sessionRepository.update(execution.sessionId, {
+          status: failed.status === "cancelled" || failed.status === "timed_out"
+            ? failed.status
+            : "failed",
+          error: errorText,
+        });
+        // Emit a first-class error event so SSE clients that only listen for `error`
+        // (not `execution_terminal`) still surface an explicit failure message.
+        // Skip if Director already yielded `error` (already appended above).
+        if (!sawError) {
+          await this.append(failed, {
+            type: "error",
+            data: {
+              error: errorText,
+              phase: "execution",
+              errorClass: failed.errorClass,
+              status: failed.status,
             },
           });
         }
-        return { success: true };
-      }
-      if (sawHitl || latest?.status === "waiting_hitl") {
-        return { success: true };
-      }
-      if (!sawComplete) {
-        throw new Error("Director stream ended without a complete event");
-      }
-
-      const completed = await service.complete(execution.id, {
-        resultPayload: { output: completedOutput },
-      });
-      await sessionRepository.update(execution.sessionId, {
-        status: "completed",
-        output: completedOutput,
-        error: "",
-      });
-      await this.append(completed, {
-        type: "execution_terminal",
-        data: { status: "completed", output: completedOutput },
-      });
-      return { success: true };
-    } catch (error) {
-      const current = await repository.get(execution.id);
-      if (current?.status === "cancelled" || current?.status === "timed_out") {
-        await sessionRepository.update(execution.sessionId, {
-          status: current.status,
-          error: current.errorMessage ?? ErrorClassifier.message(error),
-        });
-        await this.append(current, {
-          type: "execution_terminal",
-          data: { status: current.status, error: current.errorMessage },
-        });
-        return { success: true };
-      }
-
-      const errorClass = ErrorClassifier.classify(error);
-      if (errorClass === "transient" && message.retryCount < message.maxRetries) {
-        const requeued = await service.requeue(execution.id, error);
-        await sessionRepository.update(execution.sessionId, {
-          status: "queued",
-          error: ErrorClassifier.message(error),
-        });
-        await this.append(requeued, {
-          type: "execution_retry",
-          data: {
-            status: "queued",
-            retryCount: message.retryCount + 1,
-            error: ErrorClassifier.message(error),
-          },
-        });
-        return { success: false, retry: true, error: ErrorClassifier.message(error) };
-      }
-
-      const failed = await service.fail(execution.id, error);
-      const errorText = failed.errorMessage ?? ErrorClassifier.message(error);
-      await sessionRepository.update(execution.sessionId, {
-        status: failed.status === "cancelled" || failed.status === "timed_out"
-          ? failed.status
-          : "failed",
-        error: errorText,
-      });
-      // Emit a first-class error event so SSE clients that only listen for `error`
-      // (not `execution_terminal`) still surface an explicit failure message.
-      // Skip if Director already yielded `error` (already appended above).
-      if (!sawError) {
         await this.append(failed, {
-          type: "error",
+          type: "execution_terminal",
           data: {
-            error: errorText,
-            phase: "execution",
-            errorClass: failed.errorClass,
             status: failed.status,
+            errorClass: failed.errorClass,
+            error: errorText,
           },
         });
+        return { success: false, retry: false, error: ErrorClassifier.message(error) };
+      } finally {
+        clearInterval(pollTimer);
+        this.activeExecutions.delete(execution.id);
       }
-      await this.append(failed, {
-        type: "execution_terminal",
-        data: {
-          status: failed.status,
-          errorClass: failed.errorClass,
-          error: errorText,
-        },
-      });
-      return { success: false, retry: false, error: ErrorClassifier.message(error) };
     } finally {
-      clearInterval(pollTimer);
-      this.activeExecutions.delete(execution.id);
       this.deps.inflightLimiter.release(lane);
-      await this.deps.userContextManager.releaseConcurrencySlot(context);
+      if (tenantAcquired) {
+        await this.deps.userContextManager.releaseConcurrencySlot(context);
+      }
     }
+  }
+
+  private sleepDeferBackoff(): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ExecutionWorker.DEFER_BACKOFF_MS);
+      timer.unref?.();
+    });
   }
 
   private resolveInflightLane(execution: Execution): InflightLane {
