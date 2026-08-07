@@ -58,6 +58,8 @@ class FakeRedisClient implements RedisMessageQueueClient {
     this.concurrentReads += 1;
     this.maxConcurrentReads = Math.max(this.maxConcurrentReads, this.concurrentReads);
     try {
+      const countIndex = args.indexOf("COUNT");
+      const count = countIndex >= 0 ? Math.max(1, Number(args[countIndex + 1])) : 1;
       const blockIndex = args.indexOf("BLOCK");
       const blockMs = Number(args[blockIndex + 1]);
       const streamsIndex = args.indexOf("STREAMS");
@@ -65,17 +67,24 @@ class FakeRedisClient implements RedisMessageQueueClient {
       const streamKeys = streamArgs.slice(0, streamArgs.length / 2).map(String);
       const consumer = String(args[2]);
       const result: Array<[string, FakeEntry[]]> = [];
+      let remaining = count;
 
       for (const streamKey of streamKeys) {
-        const entries = this.streams.get(streamKey) ?? [];
-        const nextIndex = this.nextIndexes.get(streamKey) ?? 0;
-        const entry = entries[nextIndex];
-        if (!entry) continue;
-        this.nextIndexes.set(streamKey, nextIndex + 1);
-        const pending = this.pending.get(streamKey) ?? new Map<string, PendingEntry>();
-        pending.set(entry[0], { entry, consumer, idleMs: 0 });
-        this.pending.set(streamKey, pending);
-        result.push([streamKey, [entry]]);
+        if (remaining <= 0) break;
+        const batch: FakeEntry[] = [];
+        while (remaining > 0) {
+          const entries = this.streams.get(streamKey) ?? [];
+          const nextIndex = this.nextIndexes.get(streamKey) ?? 0;
+          const entry = entries[nextIndex];
+          if (!entry) break;
+          this.nextIndexes.set(streamKey, nextIndex + 1);
+          const pending = this.pending.get(streamKey) ?? new Map<string, PendingEntry>();
+          pending.set(entry[0], { entry, consumer, idleMs: 0 });
+          this.pending.set(streamKey, pending);
+          batch.push(entry);
+          remaining -= 1;
+        }
+        if (batch.length > 0) result.push([streamKey, batch]);
       }
 
       if (result.length > 0) return result;
@@ -184,7 +193,12 @@ class FakeRedisClient implements RedisMessageQueueClient {
 
 function createAdapter(
   client: FakeRedisClient,
-  options: { blockMs?: number; visibilityTimeoutMs?: number; maxRetries?: number } = {},
+  options: {
+    blockMs?: number;
+    visibilityTimeoutMs?: number;
+    maxRetries?: number;
+    maxInflight?: number;
+  } = {},
 ): RedisMessageQueueAdapter {
   return new RedisMessageQueueAdapter(
     "redis://unused",
@@ -194,6 +208,7 @@ function createAdapter(
       blockMs: options.blockMs ?? 5,
       visibilityTimeoutMs: options.visibilityTimeoutMs ?? 10,
       maxRetries: options.maxRetries ?? 2,
+      maxInflight: options.maxInflight,
     },
   );
 }
@@ -454,5 +469,59 @@ describe("RedisMessageQueueAdapter", () => {
       completed: 0,
       failed: 1,
     });
+  });
+
+  test("processes multiple messages concurrently up to maxInflight", async () => {
+    const client = new FakeRedisClient();
+    const adapter = createAdapter(client, {
+      visibilityTimeoutMs: 10_000,
+      maxInflight: 3,
+    });
+    let started = 0;
+    let maxStarted = 0;
+    const release: Array<() => void> = [];
+    await adapter.subscribe("parallel", async () => {
+      started += 1;
+      maxStarted = Math.max(maxStarted, started);
+      await new Promise<void>((resolve) => {
+        release.push(() => {
+          started -= 1;
+          resolve();
+        });
+      });
+      return { success: true };
+    });
+    await adapter.publish("parallel", 1);
+    await adapter.publish("parallel", 2);
+    await adapter.publish("parallel", 3);
+    await adapter.publish("parallel", 4);
+    await adapter.start();
+    await waitFor(() => maxStarted >= 3, 1000);
+    expect(maxStarted).toBe(3);
+    await waitFor(() => {
+      while (release.length) release.shift()!();
+      return (client.pending.get("mq:parallel")?.size ?? 0) === 0;
+    }, 1000);
+    await adapter.stop();
+  });
+
+  test("defer republishes without incrementing retryCount", async () => {
+    const client = new FakeRedisClient();
+    const adapter = createAdapter(client, { maxRetries: 2, maxInflight: 1 });
+    const retryCounts: number[] = [];
+    let hits = 0;
+    await adapter.subscribe("defer-q", async (message) => {
+      hits += 1;
+      retryCounts.push(message.retryCount);
+      if (hits === 1) return { success: false, defer: true, error: "lane full" };
+      return { success: true };
+    });
+    await adapter.publish("defer-q", { n: 1 });
+    await adapter.start();
+    await waitFor(() => hits >= 2, 1000);
+    await adapter.stop();
+    expect(hits).toBeGreaterThanOrEqual(2);
+    expect(retryCounts[0]).toBe(0);
+    expect(retryCounts[1]).toBe(0);
   });
 });
