@@ -94,6 +94,9 @@ export default function (data) {
   check(null, {
     "execution completed": () => terminal.status === "completed",
   });
+  if (terminal.status !== "completed") {
+    console.warn(`vu=${vu} iter=${iter} terminal=${terminal.status} executionId=${executionId}`);
+  }
 
   sleep(0.5);
 }
