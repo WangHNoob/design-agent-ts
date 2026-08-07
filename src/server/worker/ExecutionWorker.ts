@@ -196,6 +196,7 @@ export class ExecutionWorker {
 
     const lane = this.resolveInflightLane(execution);
     if (!this.deps.inflightLimiter.tryAcquire(lane)) {
+      this.logInflight(execution.id, lane, "lane full");
       await this.deps.userContextManager.releaseConcurrencySlot(context);
       await service.requeue(execution.id, new Error("Execution inflight lane full"));
       await sessionRepository.update(execution.sessionId, {
@@ -208,6 +209,8 @@ export class ExecutionWorker {
         error: "Execution inflight lane full",
       };
     }
+
+    this.logInflight(execution.id, lane);
 
     const abortController = new AbortController();
     let polling = false;
@@ -439,6 +442,15 @@ export class ExecutionWorker {
       return mode;
     }
     return "query";
+  }
+
+  private logInflight(executionId: string, lane: InflightLane, reason?: string): void {
+    const counts = this.deps.inflightLimiter.counts();
+    const max = this.deps.inflightLimiter.maxCounts();
+    const suffix = reason ? ` reason=${reason}` : "";
+    console.log(
+      `[ExecutionWorker] inflight query=${counts.query}/${max.query} design=${counts.design}/${max.design} execution=${executionId} mode=${lane}${suffix}`,
+    );
   }
 
   private parsePayload(message: QueueMessage<unknown>): ExecutionQueuePayload {
