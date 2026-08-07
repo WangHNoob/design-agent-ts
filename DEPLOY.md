@@ -540,7 +540,51 @@ docker exec -it gdt-postgres psql -U game_designer -d game_designer -c 'SELECT i
 
 ---
 
-## 十二、安全检查清单
+## 十二、单机 2G 内存部署（Query 并行）
+
+适用于总内存约 **2 GB** 的云主机（如 1 核 2G），以单进程有界并行提升短 query 吞吐。
+
+### 进程与堆内存
+
+- **只跑一个 backend 进程**；不要 `docker compose scale backend` 或多副本水平扩展（会争抢同一 Redis 队列且内存翻倍）。
+- 在 backend 容器/进程环境设置：
+
+```env
+NODE_OPTIONS=--max-old-space-size=768
+```
+
+为 OS、Redis、PostgreSQL、前端与监控留出约 1.2 GB。
+
+### 执行并行度
+
+```env
+QUERY_MAX_INFLIGHT=4
+DESIGN_MAX_INFLIGHT=1
+```
+
+- `QUERY_MAX_INFLIGHT=4` 为 2G 起步值；稳态无 OOM 后可阶梯试 6/8，**仍保持单进程**。
+- `QUERY_MAX_TOKENS=1024`（默认）配合 query 快路径，控制单次 completion 体积。
+
+Worker 在 acquire / defer 时会打一行观测日志，便于确认分槽是否生效：
+
+```text
+[ExecutionWorker] inflight query=2/4 design=0/1 execution=<id> mode=query
+[ExecutionWorker] inflight query=4/4 design=0/1 execution=<id> mode=query reason=lane full
+```
+
+### Redis / PostgreSQL 内存
+
+- **Redis**：执行队列与 Streams 为主；`config/redis.conf` 已启用 AOF，2G 机器建议 `maxmemory 256mb` + `maxmemory-policy allkeys-lru`（Compose 内可在 redis 服务加 command 或挂载覆盖）。
+- **PostgreSQL**：会话、执行、Trace 表会随使用增长；2G 主机可将 `shared_buffers` 设为 **128MB** 量级，并依赖 `pg-backup` 定期备份而非无限膨胀。
+
+### 忙时行为与 50s SLO
+
+- 槽位满时 execution **重新入队排队**（defer），不返回 429，**不 kill 已在跑的 LLM 请求**。
+- **p95 ≤ 50s** 是短 query 的**优化目标 / 观测 SLO**，不是硬超时；现有 `EXECUTION_TASK_TIMEOUT_MS`（默认 300000 ms）仍远大于短 query，勿借 SLA 名义缩短为 50s 强杀。
+
+---
+
+## 十三、安全检查清单
 
 - [ ] `BETTER_AUTH_SECRET` 已替换为随机字符串
 - [ ] `POSTGRES_PASSWORD` 已替换为强密码
