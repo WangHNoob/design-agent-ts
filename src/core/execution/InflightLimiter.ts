@@ -17,7 +17,8 @@ export class InflightLimiter {
   }
 
   private resolve(lane: InflightLane): "query" | "design" {
-    return lane === "design" ? "design" : "query";
+    // design + table share the heavy lane; only query uses QUERY_MAX_INFLIGHT
+    return lane === "query" ? "query" : "design";
   }
 
   tryAcquire(lane: InflightLane): boolean {
