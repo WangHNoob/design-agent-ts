@@ -211,6 +211,8 @@ export function loadConfig(): FrameworkConfig {
       pollIntervalMs: Number(process.env.EXECUTION_POLL_INTERVAL_MS ?? 1000),
       eventMaxLength: Number(process.env.EXECUTION_EVENT_MAX_LENGTH ?? 10000),
       sseHeartbeatMs: Number(process.env.SSE_HEARTBEAT_MS ?? 15000),
+      queryMaxInflight: Number(process.env.QUERY_MAX_INFLIGHT ?? 4),
+      designMaxInflight: Number(process.env.DESIGN_MAX_INFLIGHT ?? 1),
     },
     memory: {
       archiveEnabled: process.env.MEMORY_ARCHIVE_ENABLED !== "false",
@@ -243,6 +245,7 @@ export function loadConfig(): FrameworkConfig {
       sessionListLimit: Number(process.env.SESSION_LIST_LIMIT) || 500,
       hitlMaxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS) || 10,
       modelMaxTokens: Number(process.env.MODEL_MAX_TOKENS) || 65536,
+      queryMaxTokens: Number(process.env.QUERY_MAX_TOKENS ?? 1024),
     },
     blackboard: {
       enabled: process.env.BLACKBOARD_ENABLED !== "false",

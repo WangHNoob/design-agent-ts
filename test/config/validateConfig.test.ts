@@ -66,6 +66,8 @@ function config(
       pollIntervalMs: 1000,
       eventMaxLength: 10000,
       sseHeartbeatMs: 15000,
+      queryMaxInflight: 4,
+      designMaxInflight: 1,
     },
     memory: {
       archiveEnabled: true,
@@ -92,6 +94,7 @@ function config(
       sessionListLimit: 500,
       hitlMaxRevisionRounds: 10,
       modelMaxTokens: 65536,
+      queryMaxTokens: 1024,
     },
     blackboard: {
       enabled: true,
@@ -290,5 +293,37 @@ describe("validateConfig", () => {
       execution: { ...config().execution, sseHeartbeatMs: -1 },
     };
     expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/SSE_HEARTBEAT_MS/);
+  });
+
+  test("rejects invalid QUERY_MAX_INFLIGHT", () => {
+    const cfg = {
+      ...config(),
+      execution: { ...config().execution, queryMaxInflight: 0 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/QUERY_MAX_INFLIGHT/);
+  });
+
+  test("rejects QUERY_MAX_INFLIGHT above 32", () => {
+    const cfg = {
+      ...config(),
+      execution: { ...config().execution, queryMaxInflight: 33 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/QUERY_MAX_INFLIGHT/);
+  });
+
+  test("rejects invalid DESIGN_MAX_INFLIGHT", () => {
+    const cfg = {
+      ...config(),
+      execution: { ...config().execution, designMaxInflight: 0 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/DESIGN_MAX_INFLIGHT/);
+  });
+
+  test("rejects invalid QUERY_MAX_TOKENS", () => {
+    const cfg = {
+      ...config(),
+      limits: { ...config().limits, queryMaxTokens: 0 },
+    };
+    expect(() => validateConfig(cfg, { port: 4527 })).toThrow(/QUERY_MAX_TOKENS/);
   });
 });

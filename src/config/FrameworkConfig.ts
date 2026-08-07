@@ -115,6 +115,10 @@ export interface FrameworkConfig {
     eventMaxLength: number;
     /** SSE comment-frame heartbeat interval (ms). 0 disables. Default 15000. */
     sseHeartbeatMs: number;
+    /** Max concurrent query-mode executions per process. Default 4. */
+    queryMaxInflight: number;
+    /** Max concurrent design-mode executions per process. Default 1. */
+    designMaxInflight: number;
   };
   /**
    * Short-term sliding-window memory: protect recent messages, archive summaries on eviction.
@@ -178,6 +182,8 @@ export interface FrameworkConfig {
     sessionListLimit: number;
     hitlMaxRevisionRounds: number;
     modelMaxTokens: number;
+    /** Max output tokens for query-mode LLM calls. Default 1024. */
+    queryMaxTokens: number;
   };
   /**
    * 共享黑板：多 Agent 协作时缓存工具/联网调用结果，避免重复调用。

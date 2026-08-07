@@ -108,6 +108,25 @@ export function validateConfig(config: FrameworkConfig, options: ConfigValidatio
     issues.push("SSE_HEARTBEAT_MS must be a non-negative number (0 disables heartbeat).");
   }
   if (
+    !Number.isInteger(config.execution.queryMaxInflight)
+    || config.execution.queryMaxInflight <= 0
+    || config.execution.queryMaxInflight > 32
+  ) {
+    issues.push("QUERY_MAX_INFLIGHT must be a positive integer <= 32.");
+  }
+  if (
+    !Number.isInteger(config.execution.designMaxInflight)
+    || config.execution.designMaxInflight <= 0
+  ) {
+    issues.push("DESIGN_MAX_INFLIGHT must be a positive integer.");
+  }
+  if (
+    !Number.isInteger(config.limits.queryMaxTokens)
+    || config.limits.queryMaxTokens <= 0
+  ) {
+    issues.push("QUERY_MAX_TOKENS must be a positive integer.");
+  }
+  if (
     !Number.isInteger(config.memory.protectRecentTurns)
     || config.memory.protectRecentTurns < 1
   ) {
