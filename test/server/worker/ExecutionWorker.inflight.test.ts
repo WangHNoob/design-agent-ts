@@ -184,7 +184,7 @@ function queueMessage(executionId: string): QueueMessage<unknown> {
 }
 
 describe("ExecutionWorker inflight lanes", () => {
-  test("tryAcquire false → defer 且不调用 Director，并释放租户槽", async () => {
+  test("tryAcquire false → defer 且不调用 Director，不 claim / 不占租户槽", async () => {
     const executeStream = vi.fn();
     const executions = new MemoryExecutionRepository();
     const sessions = new MemorySessionRepository();
@@ -246,7 +246,8 @@ describe("ExecutionWorker inflight lanes", () => {
     });
 
     expect(executeStream).not.toHaveBeenCalled();
-    expect(release).toHaveBeenCalledTimes(1);
+    // Lane check runs before claim / tenant slot — no tenant acquire, so no release.
+    expect(release).not.toHaveBeenCalled();
     expect((await executions.get(created.entity.id))?.status).toBe("queued");
     expect((await sessions.get("session-1"))?.status).toBe("queued");
     expect(limiter.counts()).toEqual({ query: 1, design: 0 });
