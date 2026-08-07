@@ -15,6 +15,16 @@ describe("Mock Adapters", () => {
     expect(adapter.getModelName()).toBe("mock-model");
   });
 
+  it("MockModelAdapter 默认响应应为可解析 JSON（便于 mock 框架压测）", async () => {
+    const adapter = new MockModelAdapter();
+    const res = await adapter.generate([]);
+    const text = ChatMessage.textContent(res.message) ?? "";
+    expect(() => JSON.parse(text)).not.toThrow();
+    const parsed = JSON.parse(text) as { planId?: string; subTasks?: unknown[] };
+    expect(parsed.planId).toBeTruthy();
+    expect(Array.isArray(parsed.subTasks)).toBe(true);
+  });
+
   it("MockAgentAdapter 应返回预设 AgentResponse", async () => {
     const descriptor = { name: "Test", systemPrompt: "", maxIterations: 5, toolNames: [], options: {} };
     const adapter = new MockAgentAdapter(descriptor);
