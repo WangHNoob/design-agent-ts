@@ -10,7 +10,36 @@ export class MockModelAdapter implements ChatModelPort {
 
   constructor(responses?: ChatMessage[]) {
     this.presetResponses = responses ?? [
-      CM.text("assistant", "mock", "This is a mock response."),
+      CM.text(
+        "assistant",
+        "mock",
+        JSON.stringify({
+          planId: "mock-plan",
+          subTasks: [
+            {
+              id: "T1",
+              fragmentId: "F1",
+              domain: "system_design",
+              description: "Mock loadtest task",
+              dependencies: [],
+              priority: 1,
+            },
+          ],
+        }),
+      ),
+      CM.text(
+        "assistant",
+        "mock",
+        JSON.stringify([
+          {
+            fragmentId: "F1",
+            domain: "system_design",
+            agentName: "SystemDesigner",
+            assignment: "Mock loadtest assignment",
+            priority: 1,
+          },
+        ]),
+      ),
     ];
   }
 
