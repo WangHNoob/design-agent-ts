@@ -37,6 +37,8 @@ export interface RedisMessageQueueOptions {
   readonly blockMs?: number;
   readonly visibilityTimeoutMs?: number;
   readonly maxRetries?: number;
+  /** Max concurrent in-flight handlers; default 1 preserves serial processing. */
+  readonly maxInflight?: number;
   readonly keyPrefix?: string;
   readonly client?: RedisMessageQueueClient;
   readonly clientFactory?: RedisMessageQueueClientFactory;
@@ -61,7 +63,9 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
   private readonly blockMs: number;
   private readonly visibilityTimeoutMs: number;
   private readonly defaultMaxRetries: number;
+  private readonly maxInflight: number;
   private readonly inFlight = new Set<string>();
+  private readonly runningHandlers = new Set<Promise<void>>();
   private running = false;
   private loopPromise: Promise<void> | null = null;
 
@@ -75,6 +79,7 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
     this.blockMs = Math.min(2_000, Math.max(1, Math.trunc(opts.blockMs ?? 1_000)));
     this.visibilityTimeoutMs = Math.max(1, Math.trunc(opts.visibilityTimeoutMs ?? 30_000));
     this.defaultMaxRetries = Math.max(0, Math.trunc(opts.maxRetries ?? 3));
+    this.maxInflight = Math.max(1, Math.trunc(opts.maxInflight ?? 1));
     this.consumerName = `${hostname()}-${process.pid}-${this.idGen.randomUUID()}`;
     this.redis =
       opts.client ??
@@ -164,6 +169,9 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
   async stop(): Promise<void> {
     this.running = false;
     await this.loopPromise;
+    if (this.runningHandlers.size > 0) {
+      await Promise.all([...this.runningHandlers]);
+    }
   }
 
   async healthCheck(): Promise<boolean> {
@@ -192,19 +200,30 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
       }
 
       try {
+        if (!(await this.awaitInflightSlot())) break;
+
         let processed = false;
         for (const [queue, handler] of subscriptions) {
           if (!this.running) break;
+          if (!(await this.awaitInflightSlot())) break;
           const streamKey = this.buildStreamKey(queue);
           const claimed = await this.claimIdleEntries(streamKey);
           for (const entry of claimed) {
-            if (!this.running) break;
+            if (!(await this.awaitInflightSlot())) break;
             processed = true;
-            await this.processEntry(streamKey, handler, entry);
+            this.dispatchEntry(streamKey, handler, entry);
           }
         }
 
         if (!this.running) break;
+        if (!(await this.awaitInflightSlot())) break;
+
+        const available = this.maxInflight - this.runningHandlers.size;
+        if (available <= 0) {
+          await this.pause(Math.min(this.blockMs, 10));
+          continue;
+        }
+
         const current = [...this.handlers.entries()];
         if (current.length === 0) continue;
         const streamKeys = current.map(([queue]) => this.buildStreamKey(queue));
@@ -213,7 +232,7 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
           this.consumerGroup,
           this.consumerName,
           "COUNT",
-          1,
+          available,
           "BLOCK",
           this.blockMs,
           "STREAMS",
@@ -229,8 +248,9 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
           const handler = subscriptionsByStream.get(streamKey);
           if (!handler) continue;
           for (const entry of entries) {
+            if (!(await this.awaitInflightSlot())) break;
             processed = true;
-            await this.processEntry(streamKey, handler, entry);
+            this.dispatchEntry(streamKey, handler, entry);
           }
         }
 
@@ -242,6 +262,28 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
         await this.pause(Math.min(this.blockMs, 100));
       }
     }
+  }
+
+  /** Wait until an inflight slot is free; returns false if stopped. */
+  private async awaitInflightSlot(): Promise<boolean> {
+    while (this.running && this.runningHandlers.size >= this.maxInflight) {
+      await Promise.race([
+        ...this.runningHandlers,
+        this.pause(Math.min(this.blockMs, 10)),
+      ]);
+    }
+    return this.running;
+  }
+
+  private dispatchEntry(
+    streamKey: string,
+    handler: MessageHandler,
+    entry: StreamEntry,
+  ): void {
+    const p = this.processEntry(streamKey, handler, entry).finally(() => {
+      this.runningHandlers.delete(p);
+    });
+    this.runningHandlers.add(p);
   }
 
   private async claimIdleEntries(streamKey: string): Promise<StreamEntry[]> {
@@ -302,6 +344,12 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
       }
 
       if (result.success) {
+        await this.ackAndDelete(streamKey, entryId);
+        return;
+      }
+
+      if (result.defer === true) {
+        await this.appendMessage(streamKey, { ...message });
         await this.ackAndDelete(streamKey, entryId);
         return;
       }
