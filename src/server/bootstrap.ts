@@ -203,6 +203,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     workspace: workspaceManager,
     limits: {
       queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
+      queryMaxTokens: config.limits.queryMaxTokens,
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
     },
     memory: {
@@ -1098,6 +1099,7 @@ export async function lateBootstrapDirector(): Promise<void> {
       workspace: workspaceManager,
       limits: {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
+        queryMaxTokens: config.limits.queryMaxTokens,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
         grepSearchResultLimit: config.limits.grepSearchResultLimit,
         webSourceResultLimit: config.limits.webSourceResultLimit,
@@ -1218,6 +1220,7 @@ export async function reloadDirector(): Promise<void> {
       workspace: workspaceManager,
       limits: {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
+        queryMaxTokens: config.limits.queryMaxTokens,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
       },
       memory: {
