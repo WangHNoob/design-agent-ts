@@ -32,6 +32,11 @@ export interface MessageResult {
   readonly error?: string;
   /** Whether to retry the message on failure. */
   readonly retry?: boolean;
+  /**
+   * Re-queue without incrementing retryCount (back-pressure / lane full).
+   * Ignored when success is true.
+   */
+  readonly defer?: boolean;
 }
 
 /** Options for publishing a message. */
