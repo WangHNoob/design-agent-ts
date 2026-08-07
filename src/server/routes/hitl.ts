@@ -284,9 +284,14 @@ hitlRoute.post("/checkpoints/:id/review", async (c) => {
       error: "",
       hitlCheckpointId: checkpoint.id,
     });
+    const mode = execution.requestPayload.mode;
     await dependencies.queue.publish(
       EXECUTION_QUEUE,
-      { executionId: resumed.id, userId: tenant.userId },
+      {
+        executionId: resumed.id,
+        userId: tenant.userId,
+        ...(mode === "design" || mode === "query" || mode === "table" ? { mode } : {}),
+      },
       { userId: tenant.userId, maxRetries: dependencies.maxRetries },
     );
 

@@ -6,6 +6,7 @@ import type {
 import { ErrorClassifier } from "../../core/execution/ErrorClassifier.js";
 import { ExecutionService } from "../../core/execution/ExecutionService.js";
 import { ExecutionStateMachine } from "../../core/execution/ExecutionStateMachine.js";
+import type { InflightLane, InflightLimiter } from "../../core/execution/InflightLimiter.js";
 import type { TaskPlan } from "../../core/schema/TaskPlan.js";
 import type { TaskResult } from "../../core/schema/TaskResult.js";
 import type { UserContextManager } from "../../core/user/UserContextManager.js";
@@ -33,6 +34,8 @@ export const EXECUTION_QUEUE = "executions";
 export interface ExecutionQueuePayload {
   readonly executionId: string;
   readonly userId: string;
+  /** Used for lane limiting; if missing, worker loads mode from execution.requestPayload */
+  readonly mode?: "design" | "query" | "table";
 }
 
 interface ExecutePayload {
@@ -50,6 +53,7 @@ export interface ExecutionWorkerDependencies {
   userContextManager: UserContextManager;
   contextStorage: ContextStoragePort<TenantContext>;
   idGenerator: IdGeneratorPort;
+  inflightLimiter: InflightLimiter;
   maxConcurrentPerUser: number;
   pollIntervalMs: number;
   taskTimeoutMs: number;
@@ -187,6 +191,21 @@ export class ExecutionWorker {
         success: false,
         retry: true,
         error: "Tenant concurrent execution limit reached",
+      };
+    }
+
+    const lane = this.resolveInflightLane(execution);
+    if (!this.deps.inflightLimiter.tryAcquire(lane)) {
+      await this.deps.userContextManager.releaseConcurrencySlot(context);
+      await service.requeue(execution.id, new Error("Execution inflight lane full"));
+      await sessionRepository.update(execution.sessionId, {
+        status: "queued",
+        error: "Execution inflight lane full",
+      });
+      return {
+        success: false,
+        defer: true,
+        error: "Execution inflight lane full",
       };
     }
 
@@ -409,8 +428,17 @@ export class ExecutionWorker {
     } finally {
       clearInterval(pollTimer);
       this.activeExecutions.delete(execution.id);
+      this.deps.inflightLimiter.release(lane);
       await this.deps.userContextManager.releaseConcurrencySlot(context);
     }
+  }
+
+  private resolveInflightLane(execution: Execution): InflightLane {
+    const mode = execution.requestPayload.mode;
+    if (mode === "design" || mode === "query" || mode === "table") {
+      return mode;
+    }
+    return "query";
   }
 
   private parsePayload(message: QueueMessage<unknown>): ExecutionQueuePayload {
@@ -419,9 +447,16 @@ export class ExecutionWorker {
       throw new Error("Execution queue payload must be an object");
     }
     const record = message.payload as Record<string, unknown>;
-    const keys = Object.keys(record).sort();
-    if (keys.length !== 2 || keys[0] !== "executionId" || keys[1] !== "userId") {
-      throw new Error("Execution queue payload must contain only executionId and userId");
+    const keys = Object.keys(record);
+    const allowed = new Set(["executionId", "userId", "mode"]);
+    if (
+      keys.length < 2
+      || keys.length > 3
+      || !keys.every((key) => allowed.has(key))
+      || !("executionId" in record)
+      || !("userId" in record)
+    ) {
+      throw new Error("Execution queue payload must contain only executionId, userId, and optional mode");
     }
     if (
       typeof record.executionId !== "string"
@@ -434,7 +469,13 @@ export class ExecutionWorker {
     if (record.userId !== message.userId) {
       throw new Error("Execution queue payload userId does not match message.userId");
     }
-    return { executionId: record.executionId, userId: record.userId };
+    if (!("mode" in record)) {
+      return { executionId: record.executionId, userId: record.userId };
+    }
+    if (record.mode !== "design" && record.mode !== "query" && record.mode !== "table") {
+      throw new Error("Execution queue payload mode must be design, query, or table");
+    }
+    return { executionId: record.executionId, userId: record.userId, mode: record.mode };
   }
 
   private parseExecutePayload(payload: Readonly<Record<string, unknown>>): ExecutePayload {
