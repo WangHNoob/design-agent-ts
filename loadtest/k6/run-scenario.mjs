@@ -66,6 +66,9 @@ function runLocalK6(k6Path) {
   if (process.env.DURATION) env.DURATION = process.env.DURATION;
   if (process.env.ORIGIN) env.ORIGIN = process.env.ORIGIN;
   else if (!env.ORIGIN) env.ORIGIN = "http://localhost:3001";
+  for (const key of ["LLM_USERS", "LLM_ITERS_PER_USER", "LLM_EXEC_TIMEOUT_SEC"]) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
 
   console.log(`Running local k6 scenario ${name} against ${baseUrl}`);
   // Do not use shell:true — paths with spaces (e.g. Program Files) break otherwise.

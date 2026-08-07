@@ -18,6 +18,7 @@ lerna-debug.log*
 .env*
 !.env.example
 !loadtest/.env.loadtest.example
+!loadtest/.env.loadtest.llm.example
 settings.json
 
 # IDE

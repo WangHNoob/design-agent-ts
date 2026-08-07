@@ -21,7 +21,8 @@
     "dev:local": "node scripts/start-local.mjs",
     "eval:offline": "tsx --env-file=.env scripts/run-offline-eval.ts --exact-only",
     "loadtest:scenario": "node loadtest/k6/run-scenario.mjs",
-    "loadtest:all": "node loadtest/k6/run-all.mjs"
+    "loadtest:all": "node loadtest/k6/run-all.mjs",
+    "loadtest:llm": "node loadtest/k6/run-scenario.mjs 07-query-llm"
   },
   "keywords": [
     "game-design",
