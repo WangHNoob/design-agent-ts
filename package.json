@@ -19,7 +19,9 @@
     "dev:web": "pnpm --filter game-designer-frontend dev",
     "dev:all": "concurrently -n server,web -c cyan,magenta \"pnpm dev\" \"pnpm dev:web\"",
     "dev:local": "node scripts/start-local.mjs",
-    "eval:offline": "tsx --env-file=.env scripts/run-offline-eval.ts --exact-only"
+    "eval:offline": "tsx --env-file=.env scripts/run-offline-eval.ts --exact-only",
+    "loadtest:scenario": "node loadtest/k6/run-scenario.mjs",
+    "loadtest:all": "node loadtest/k6/run-all.mjs"
   },
   "keywords": [
     "game-design",
