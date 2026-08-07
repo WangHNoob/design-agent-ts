@@ -65,6 +65,7 @@ import { PostgresHITLRepository, PostgresHITLTimeoutScanAdapter } from "../adapt
 import { AlwaysFreshHITLCheck } from "../core/hitl/AlwaysFreshHITLCheck.js";
 import { sweepHITLTimeouts } from "../core/hitl/HITLTimeoutSweeper.js";
 import { ExecutionService } from "../core/execution/ExecutionService.js";
+import { InflightLimiter } from "../core/execution/InflightLimiter.js";
 import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
@@ -773,6 +774,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         visibilityTimeoutMs: config.messageQueue.visibilityTimeoutMs,
         blockMs: config.messageQueue.blockMs,
         maxRetries: config.messageQueue.maxRetries,
+        maxInflight: config.execution.queryMaxInflight + config.execution.designMaxInflight,
       },
     );
     await mqAdapter.connect();
@@ -815,6 +817,10 @@ export async function lateBootstrapDirector(): Promise<void> {
     userContextManager: userContextManager!,
     contextStorage,
     idGenerator,
+    inflightLimiter: new InflightLimiter({
+      query: config.execution.queryMaxInflight,
+      design: config.execution.designMaxInflight,
+    }),
     maxConcurrentPerUser: config.userSystem.maxConcurrentPerUser,
     pollIntervalMs: config.execution.pollIntervalMs,
     taskTimeoutMs: config.execution.taskTimeoutMs,
@@ -968,9 +974,14 @@ export async function lateBootstrapDirector(): Promise<void> {
               error: "",
               hitlCheckpointId: checkpoint.id,
             });
+            const mode = execution.requestPayload.mode;
             await mqAdapter!.publish(
               EXECUTION_QUEUE,
-              { executionId: resumed.id, userId: checkpoint.userId },
+              {
+                executionId: resumed.id,
+                userId: checkpoint.userId,
+                ...(mode === "design" || mode === "query" || mode === "table" ? { mode } : {}),
+              },
               { userId: checkpoint.userId, maxRetries: config.messageQueue.maxRetries },
             );
           },

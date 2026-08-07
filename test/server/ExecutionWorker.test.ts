@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { DirectorAgent, StreamEvent } from "../../src/core/agent/director/DirectorAgent.js";
 import { ExecutionService } from "../../src/core/execution/ExecutionService.js";
+import { InflightLimiter } from "../../src/core/execution/InflightLimiter.js";
 import { ExecutionWorker } from "../../src/server/worker/ExecutionWorker.js";
 import type { TaskResult } from "../../src/core/schema/TaskResult.js";
 import type { ExecutionEventStore, NewExecutionEvent } from "../../src/port/execution/ExecutionEventStore.js";
@@ -226,6 +227,7 @@ async function fixture(director: DirectorAgent) {
     } as never,
     contextStorage: storage,
     idGenerator,
+    inflightLimiter: new InflightLimiter({ query: 8, design: 8 }),
     maxConcurrentPerUser: 2,
     pollIntervalMs: 5,
     taskTimeoutMs: 1000,

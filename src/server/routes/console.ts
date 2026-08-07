@@ -156,7 +156,7 @@ async function createExecution(
   if (result.created) {
     await dependencies.queue.publish(
       EXECUTION_QUEUE,
-      { executionId: result.entity.id, userId: tenant.userId },
+      { executionId: result.entity.id, userId: tenant.userId, mode: body.mode },
       { userId: tenant.userId, maxRetries: dependencies.maxRetries },
     );
   }
