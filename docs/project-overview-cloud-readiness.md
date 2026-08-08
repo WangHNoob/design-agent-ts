@@ -3,6 +3,13 @@
 > 生成日期：2026-06-09  
 > 依据范围：当前代码、配置、Docker、前端 API、测试目录与 CodeGraph 索引；`README.md` 未作为主要事实来源。
 
+> ⚠️ **快照过时声明（2026-08-08 更新）**：本文是 2026-06-09 的历史快照，文中多数"工程缺口"此后已关闭。当前事实以 `README.md` 与代码为准。已关闭项速查：
+> - **认证**：`requireAuth()` 已默认保护全部 `/api/*`（`src/server/app.ts:84`），匿名请求 401；CORS 已用 localhost 白名单（非 `origin: '*'`）。
+> - **会话持久化**：主路径为 Postgres `SessionRepository`（`src/server/bootstrap.ts:823-824`）；文件型 `SessionManager` 已废弃；工作区已租户隔离（`data/users/<userId>/workspace`）。
+> - **消息队列**：HTTP 202 → Redis Streams → `ExecutionWorker` 已是任务执行主链；取消/恢复均已持久化；Redis 并发槽位已接入执行入口。
+> - **可观测性**：无独立 `o11y/` 子项目（该目录从未存在于本仓）；观测子系统在仓内（`src/core/tracing/` + `/api/traces` + `/api/audit`）。
+> - **基础设施**：`docker-compose.yml` 已含 Postgres(pgvector)/Redis/migrate/backend/frontend/prometheus/alertmanager/grafana；表结构仅经 `drizzle/` 迁移，`initializeSchema()` 为无调用方的废弃代码。
+
 ## 1. 项目目标
 
 本项目是一个 TypeScript 版本的多智能体游戏策划系统基座，核心目标是把“游戏设计需求”转化为可执行的多角色策划协作流程，并输出策划案、知识查询结果或配表结果。
@@ -39,8 +46,8 @@
 
 ### 可观察性子系统
 
-- `o11y/` 下存在独立的 Python 后端、Next 前端和 Java SDK，用于 Trace、Span、Log、Runtime Status 等观测能力。
-- 该部分像是并行建设的观测平台，目前与主后端的生产级链路打通程度还需要继续确认。
+- 观测能力在仓内实现：`src/core/tracing/`（九态 Session/Trace/Span）+ `src/server/routes/traces.ts` + `/api/audit` + Prometheus `/metrics`（`src/server/app.ts:120`）。
+- （本文早期版本提到的独立 `o11y/` Python/Next/Java 子项目不存在于本仓，2026-08-08 核实。）
 
 ## 3. 架构概况
 
