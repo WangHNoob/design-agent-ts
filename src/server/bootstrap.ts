@@ -6,7 +6,12 @@ import { ToolManager } from "../core/tool/ToolManager.js";
 import { SkillManager } from "../core/skill/SkillManager.js";
 import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
-import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
+import { DirectorAgent, type DirectorDeps } from "../core/agent/director/DirectorAgent.js";
+import type { AgentHook } from "../port/hook/AgentHook.js";
+import type { LoggerPort } from "../port/infra/LoggerPort.js";
+import type { AgentFactory } from "../port/agent/AgentFactory.js";
+import type { HumanReviewGateway } from "../core/agent/director/HumanReviewGateway.js";
+import type { ToolPort } from "../port/tool/ToolPort.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
 import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
@@ -165,6 +170,98 @@ function buildDirectorStreamingAndFaqDeps(
   };
 }
 
+/**
+ * Single source of truth for DirectorAgent deps. All three construction sites
+ * (bootstrap main path / lateBootstrapDirector / reloadDirector) go through
+ * this — edit here, not at the call sites.
+ */
+function buildDirectorDeps(params: {
+  config: FrameworkConfig;
+  container: Container;
+  model: ChatModelPort;
+  prompts: Record<string, string | undefined>;
+  hooks: AgentHook[];
+  logger: LoggerPort;
+  settings: AppSettings;
+  agentFactory?: AgentFactory;
+  humanReviewGateway?: HumanReviewGateway;
+  wrapTool?: (tool: ToolPort) => ToolPort;
+}): DirectorDeps {
+  if (!bootstrapState) throw new Error("Bootstrap not yet called");
+  const {
+    toolRegistry,
+    skillRegistry,
+    workspaceManager,
+    mcpToolNames,
+    blackboardStore,
+    tracer,
+    contextStorage,
+  } = bootstrapState;
+  const resolveUserId = () => contextStorage.getStore()?.userId;
+  return {
+    model: params.model,
+    agentFactory: params.agentFactory ?? params.container.agentFactory,
+    toolRegistry,
+    skillRegistry,
+    humanReviewGateway:
+      params.humanReviewGateway ?? bootstrapState.durableHitlGateway ?? params.container.humanReviewGateway,
+    logger: params.logger,
+    hooks: params.hooks,
+    prompts: params.prompts,
+    idGenerator: new NodeIdGeneratorAdapter(),
+    workspace: workspaceManager,
+    limits: {
+      queryAgentMaxIterations: params.config.limits.queryAgentMaxIterations,
+      queryMaxTokens: params.config.limits.queryMaxTokens,
+      subAgentMaxIterations: params.config.limits.subAgentMaxIterations,
+      grepSearchResultLimit: params.config.limits.grepSearchResultLimit,
+      webSourceResultLimit: params.config.limits.webSourceResultLimit,
+      eventDrainIntervalMs: params.config.execution.eventDrainIntervalMs,
+      inFlightPartialOutputTimeoutMs: params.config.execution.inFlightPartialOutputTimeoutMs,
+    },
+    memory: {
+      archiveEnabled: params.config.memory.archiveEnabled,
+      protectRecentTurns: params.config.memory.protectRecentTurns,
+      maxActiveMessages: params.config.memory.maxActiveMessages,
+      maxTokens: params.config.limits.contextMaxTokens,
+      compressionThreshold: params.config.limits.contextCompressionThreshold,
+    },
+    extraToolNames: resolveExposedMcpTools({
+      allMcpToolNames: mcpToolNames,
+      exposeMode: params.config.mcp.exposeMode,
+      defaultExposePrefixes: params.config.mcp.defaultExposePrefixes,
+    }),
+    mcp: {
+      exposeMode: params.config.mcp.exposeMode,
+      defaultExposePrefixes: params.config.mcp.defaultExposePrefixes,
+      skillToolAllowlist: params.config.mcp.skillToolAllowlist,
+      toolNames: mcpToolNames,
+    },
+    blackboardStore,
+    blackboardConfig: params.config.blackboard,
+    tracer,
+    resolveUserId,
+    wrapTool: params.wrapTool ?? bootstrapState.wrapTool,
+    planHard: {
+      enabled: params.config.guards.planHardEnabled,
+      maxReplans: params.config.guards.planMaxReplans,
+      rejectUnauthorizedTools: params.config.guards.planRejectUnauthorizedTools,
+      domainToolDefaults: params.config.guards.planDomainToolDefaults,
+    },
+    multiAgent: {
+      enabled: params.config.guards.multiAgentEnabled,
+      maxFanOut: params.config.guards.multiAgentMaxFanOut,
+      maxDepth: params.config.guards.multiAgentMaxDepth,
+      detectCycles: params.config.guards.multiAgentDetectCycles,
+      handoffMaxChars: params.config.guards.handoffMaxChars,
+      handoffMaxKeyPoints: params.config.guards.handoffMaxKeyPoints,
+      handoffMaxTotalChars: params.config.guards.handoffMaxTotalChars,
+      allowInvoke: params.config.guards.multiAgentAllowInvoke,
+    },
+    ...buildDirectorStreamingAndFaqDeps(params.config, toolRegistry, params.settings),
+  };
+}
+
 export function getBootstrapState() {
   return bootstrapState;
 }
@@ -221,65 +318,15 @@ export async function lateBootstrapDirector(): Promise<void> {
     resolveUserId,
   });
 
-  const director = new DirectorAgent({
+  const director = new DirectorAgent(buildDirectorDeps({
+    config,
+    container,
     model: directorModel,
-    agentFactory: container.agentFactory,
-    toolRegistry,
-    skillRegistry,
-    humanReviewGateway: bootstrapState.durableHitlGateway ?? container.humanReviewGateway,
-    logger: runtimeLogger,
-    hooks,
     prompts: directorPrompts,
-    idGenerator: new NodeIdGeneratorAdapter(),
-    workspace: workspaceManager,
-    limits: {
-      queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
-      queryMaxTokens: config.limits.queryMaxTokens,
-      subAgentMaxIterations: config.limits.subAgentMaxIterations,
-      eventDrainIntervalMs: config.execution.eventDrainIntervalMs,
-      inFlightPartialOutputTimeoutMs: config.execution.inFlightPartialOutputTimeoutMs,
-    },
-    memory: {
-      archiveEnabled: config.memory.archiveEnabled,
-      protectRecentTurns: config.memory.protectRecentTurns,
-      maxActiveMessages: config.memory.maxActiveMessages,
-      maxTokens: config.limits.contextMaxTokens,
-      compressionThreshold: config.limits.contextCompressionThreshold,
-    },
-    extraToolNames: resolveExposedMcpTools({
-      allMcpToolNames: bootstrapState.mcpToolNames,
-      exposeMode: config.mcp.exposeMode,
-      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-    }),
-    mcp: {
-      exposeMode: config.mcp.exposeMode,
-      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-      skillToolAllowlist: config.mcp.skillToolAllowlist,
-      toolNames: bootstrapState.mcpToolNames,
-    },
-    blackboardStore: bootstrapState.blackboardStore,
-    blackboardConfig: bootstrapState.config.blackboard,
-    tracer,
-    resolveUserId,
-    wrapTool: bootstrapState.wrapTool,
-      planHard: {
-        enabled: config.guards.planHardEnabled,
-        maxReplans: config.guards.planMaxReplans,
-        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
-        domainToolDefaults: config.guards.planDomainToolDefaults,
-      },
-      multiAgent: {
-        enabled: config.guards.multiAgentEnabled,
-        maxFanOut: config.guards.multiAgentMaxFanOut,
-        maxDepth: config.guards.multiAgentMaxDepth,
-        detectCycles: config.guards.multiAgentDetectCycles,
-        handoffMaxChars: config.guards.handoffMaxChars,
-        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
-        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
-        allowInvoke: config.guards.multiAgentAllowInvoke,
-      },
-      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
-    });
+    hooks,
+    logger: runtimeLogger,
+    settings,
+  }));
 
     setDirector(director);
     await bootstrapState.executionWorker?.start();
@@ -1139,67 +1186,17 @@ export async function lateBootstrapDirector(): Promise<void> {
       resolveUserId,
     });
 
-    const director = new DirectorAgent({
+    const director = new DirectorAgent(buildDirectorDeps({
+      config,
+      container,
       model: directorModel,
-      agentFactory: container.agentFactory,
-      toolRegistry,
-      skillRegistry,
-      humanReviewGateway: durableHitlGateway,
-      logger: runtimeLogger,
-      hooks,
       prompts: directorPrompts,
-      idGenerator: new NodeIdGeneratorAdapter(),
-      workspace: workspaceManager,
-      limits: {
-        queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
-        queryMaxTokens: config.limits.queryMaxTokens,
-        subAgentMaxIterations: config.limits.subAgentMaxIterations,
-        grepSearchResultLimit: config.limits.grepSearchResultLimit,
-        webSourceResultLimit: config.limits.webSourceResultLimit,
-        eventDrainIntervalMs: config.execution.eventDrainIntervalMs,
-        inFlightPartialOutputTimeoutMs: config.execution.inFlightPartialOutputTimeoutMs,
-      },
-      memory: {
-        archiveEnabled: config.memory.archiveEnabled,
-        protectRecentTurns: config.memory.protectRecentTurns,
-        maxActiveMessages: config.memory.maxActiveMessages,
-        maxTokens: config.limits.contextMaxTokens,
-        compressionThreshold: config.limits.contextCompressionThreshold,
-      },
-      extraToolNames: resolveExposedMcpTools({
-        allMcpToolNames: bootstrapState.mcpToolNames,
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-      }),
-      mcp: {
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-        skillToolAllowlist: config.mcp.skillToolAllowlist,
-        toolNames: bootstrapState.mcpToolNames,
-      },
-      blackboardStore: bootstrapState.blackboardStore,
-      blackboardConfig: bootstrapState.config.blackboard,
-      tracer,
-      resolveUserId,
+      hooks,
+      logger: runtimeLogger,
+      settings,
+      humanReviewGateway: durableHitlGateway,
       wrapTool,
-      planHard: {
-        enabled: config.guards.planHardEnabled,
-        maxReplans: config.guards.planMaxReplans,
-        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
-        domainToolDefaults: config.guards.planDomainToolDefaults,
-      },
-      multiAgent: {
-        enabled: config.guards.multiAgentEnabled,
-        maxFanOut: config.guards.multiAgentMaxFanOut,
-        maxDepth: config.guards.multiAgentMaxDepth,
-        detectCycles: config.guards.multiAgentDetectCycles,
-        handoffMaxChars: config.guards.handoffMaxChars,
-        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
-        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
-        allowInvoke: config.guards.multiAgentAllowInvoke,
-      },
-      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
-    });
+    }));
 
     setDirector(director);
     await executionWorker.start();
@@ -1269,66 +1266,15 @@ export async function reloadDirector(): Promise<void> {
       tracer,
       resolveUserId,
     });
-    const director = new DirectorAgent({
+    const director = new DirectorAgent(buildDirectorDeps({
+      config,
+      container: bootstrapState.container,
       model: directorModel,
-      agentFactory: bootstrapState.container.agentFactory,
-      toolRegistry,
-      skillRegistry,
-      humanReviewGateway: bootstrapState.durableHitlGateway
-        ?? bootstrapState.container.humanReviewGateway,
-      logger: runtimeLogger,
-      hooks,
       prompts: directorPrompts,
-      idGenerator: new NodeIdGeneratorAdapter(),
-      workspace: workspaceManager,
-      limits: {
-        queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
-        queryMaxTokens: config.limits.queryMaxTokens,
-        subAgentMaxIterations: config.limits.subAgentMaxIterations,
-        eventDrainIntervalMs: config.execution.eventDrainIntervalMs,
-        inFlightPartialOutputTimeoutMs: config.execution.inFlightPartialOutputTimeoutMs,
-      },
-      memory: {
-        archiveEnabled: config.memory.archiveEnabled,
-        protectRecentTurns: config.memory.protectRecentTurns,
-        maxActiveMessages: config.memory.maxActiveMessages,
-        maxTokens: config.limits.contextMaxTokens,
-        compressionThreshold: config.limits.contextCompressionThreshold,
-      },
-      extraToolNames: resolveExposedMcpTools({
-        allMcpToolNames: bootstrapState.mcpToolNames,
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-      }),
-      mcp: {
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-        skillToolAllowlist: config.mcp.skillToolAllowlist,
-        toolNames: bootstrapState.mcpToolNames,
-      },
-      blackboardStore: bootstrapState.blackboardStore,
-      blackboardConfig: bootstrapState.config.blackboard,
-      tracer,
-      resolveUserId,
-      wrapTool: bootstrapState.wrapTool,
-      planHard: {
-        enabled: config.guards.planHardEnabled,
-        maxReplans: config.guards.planMaxReplans,
-        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
-        domainToolDefaults: config.guards.planDomainToolDefaults,
-      },
-      multiAgent: {
-        enabled: config.guards.multiAgentEnabled,
-        maxFanOut: config.guards.multiAgentMaxFanOut,
-        maxDepth: config.guards.multiAgentMaxDepth,
-        detectCycles: config.guards.multiAgentDetectCycles,
-        handoffMaxChars: config.guards.handoffMaxChars,
-        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
-        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
-        allowInvoke: config.guards.multiAgentAllowInvoke,
-      },
-      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
-    });
+      hooks,
+      logger: runtimeLogger,
+      settings,
+    }));
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");
   } else {
