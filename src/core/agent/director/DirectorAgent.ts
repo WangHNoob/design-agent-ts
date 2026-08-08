@@ -1560,8 +1560,10 @@ export class DirectorAgent {
       messages.push(ChatMessage.text("user", "user", requirement));
 
       let finalOutput = "";
+      let streamError: string | null = null;
       const streamingEnabled = this.deps.streamingEnabled !== false;
       let streamed = "";
+      const done = { value: false };
       const processOptions = {
         ...(signal ? { signal } : {}),
         streamingEnabled,
@@ -1570,46 +1572,55 @@ export class DirectorAgent {
           eventBus.emit({ type: "chunk", data: { text: delta } });
         },
       };
-      if (agent.processStream) {
-        for await (const response of agent.processStream(
-          sessionId,
-          messages,
-          processOptions,
-        )) {
-          for (const event of eventBus.drain()) {
-            yield event;
-          }
-          if (!response.success) {
-            yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
-            return;
-          }
-          const text = response.message ? ChatMessage.textContent(response.message) : "";
-          if (text) {
-            finalOutput = text;
-            if (!streamingEnabled || !streamed) {
-              yield { type: "chunk", data: { text } };
-            } else if (text.length > streamed.length && text.startsWith(streamed)) {
-              yield { type: "chunk", data: { text: text.slice(streamed.length) } };
+
+      // Run process* in background so concurrentDrain can push onTextDelta
+      // chunks to SSE before the full LLM turn finishes (true TTFT).
+      const runPromise = (async () => {
+        try {
+          if (agent.processStream) {
+            for await (const response of agent.processStream(
+              sessionId,
+              messages,
+              processOptions,
+            )) {
+              if (!response.success) {
+                streamError = response.errorMessage ?? "Agent execution failed";
+                return;
+              }
+              const text = response.message ? ChatMessage.textContent(response.message) : "";
+              if (text) {
+                finalOutput = text;
+                if (!streamingEnabled || !streamed) {
+                  eventBus.emit({ type: "chunk", data: { text } });
+                } else if (text.length > streamed.length && text.startsWith(streamed)) {
+                  eventBus.emit({ type: "chunk", data: { text: text.slice(streamed.length) } });
+                }
+              }
+            }
+          } else {
+            const response = await agent.process(sessionId, messages, processOptions);
+            if (!response.success) {
+              streamError = response.errorMessage ?? "Agent execution failed";
+              return;
+            }
+            finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
+            if (finalOutput) {
+              eventBus.emit({ type: "chunk", data: { text: finalOutput } });
             }
           }
+        } finally {
+          done.value = true;
         }
-      } else {
-        const response = await agent.process(sessionId, messages, processOptions);
-        for (const event of eventBus.drain()) {
-          yield event;
-        }
-        if (!response.success) {
-          yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
-          return;
-        }
-        finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
-        if (finalOutput) {
-          yield { type: "chunk", data: { text: finalOutput } };
-        }
-      }
+      })();
 
-      for (const event of eventBus.drain()) {
+      for await (const event of this.concurrentDrain(eventBus, done)) {
         yield event;
+      }
+      await runPromise;
+
+      if (streamError) {
+        yield { type: "error", data: { error: streamError } };
+        return;
       }
 
       if (signal?.aborted) {

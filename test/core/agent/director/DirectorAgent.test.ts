@@ -210,6 +210,53 @@ describe("DirectorAgent", () => {
     expect(events.at(-1)?.data.output).toBe("Hello World");
   });
 
+  it("query stream 应在 processStream 完成前发出 onTextDelta chunk（真 TTFT）", async () => {
+    const seen: Array<{ type: string; data: Record<string, unknown> }> = [];
+    let midStreamSawChunk = false;
+    const processStream = vi.fn(async function* (
+      _sessionId: string,
+      _messages: unknown,
+      opts?: { onTextDelta?: (delta: string) => void; streamingEnabled?: boolean },
+    ) {
+      opts?.onTextDelta?.("首");
+      // concurrentDrain polls every 200ms — wait past one tick while still inside processStream
+      await new Promise((r) => setTimeout(r, 250));
+      midStreamSawChunk = seen.some((e) => e.type === "chunk" && e.data.text === "首");
+      yield {
+        agentName: "QueryAgent",
+        message: ChatMessage.text("assistant", "QueryAgent", "首尾"),
+        metadata: {},
+        success: true,
+        errorMessage: null,
+      };
+    });
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: {
+        createAgent: vi.fn(() => ({
+          getDescriptor: vi.fn(),
+          getName: vi.fn(() => "QueryAgent"),
+          process: vi.fn(),
+          processStream,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+      streamingEnabled: true,
+    });
+
+    for await (const event of director.executeStream("Hello", "sid-ttft", "query", "chief_designer")) {
+      seen.push(event as { type: string; data: Record<string, unknown> });
+    }
+
+    expect(midStreamSawChunk).toBe(true);
+    // delta "首" mid-generation; after processStream yields, suffix "尾" is deduped remainder
+    expect(seen.filter((e) => e.type === "chunk").map((e) => e.data.text)).toEqual(["首", "尾"]);
+    expect(seen.at(-1)?.data.output).toBe("首尾");
+  });
+
   it("streamingEnabled=false 时不调用 onTextDelta 且仅在最终 yield 完整 chunk", async () => {
     const processStream = vi.fn(async function* (
       _sessionId: string,
