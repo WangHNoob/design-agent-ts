@@ -703,7 +703,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         traceContextStorage,
         exporters,
       );
-      hooks.unshift(new TracingHook(tracer));
+      hooks.unshift(new TracingHook(tracer, { maxAttrChars: config.tracing.maxAttrChars }));
       setTraceStore(traceStore);
       console.log("[Bootstrap] Agent tracing enabled (Session/Trace/Span → Postgres)");
     } else {

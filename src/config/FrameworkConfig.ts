@@ -257,6 +257,11 @@ export interface FrameworkConfig {
     enabled: boolean;
     /** When true, also log completed spans to stdout (dev aid). */
     consoleExporter: boolean;
+    /**
+     * 单个 span 属性值的最大字符数（工具入参/出参、LLM 思考/输出预览等
+     * 长文本截断阈值），防止 attributes jsonb 膨胀。
+     */
+    maxAttrChars: number;
   };
   /**
    * Hard runtime guards (token budget, tool-loop detection, tool resilience).
