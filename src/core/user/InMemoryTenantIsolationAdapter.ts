@@ -202,6 +202,10 @@ export class InMemoryTenantIsolationAdapter implements TenantIsolationPort {
     return true;
   }
 
+  async close(): Promise<void> {
+    // In-memory impl: nothing to release.
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────
 
   private purgeExpiredLock(key: string): void {
