@@ -20,6 +20,7 @@
     "dev:all": "concurrently -n server,web -c cyan,magenta \"pnpm dev\" \"pnpm dev:web\"",
     "dev:local": "node scripts/start-local.mjs",
     "eval:offline": "tsx --env-file=.env scripts/run-offline-eval.ts --exact-only",
+    "eval:online": "tsx --env-file=.env scripts/run-online-eval.ts",
     "loadtest:scenario": "node loadtest/k6/run-scenario.mjs",
     "loadtest:all": "node loadtest/k6/run-all.mjs",
     "loadtest:llm": "node loadtest/k6/run-scenario.mjs 07-query-llm"

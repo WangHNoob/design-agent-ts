@@ -247,6 +247,9 @@ export class LangGraphAgentAdapter implements AgentPort {
 
   private buildGraph(tools: ToolPort[]) {
     const lgTools = this.toolAdapter.toLangGraphTools(tools);
+    if (process.env.EVAL_DEBUG === "1") {
+      console.log("[lgTools]", JSON.stringify(lgTools.map((t) => ({ name: t.name, schema: t.schema ?? null }))).slice(0, 400));
+    }
     const descriptor = this.descriptor;
     const runHooks = this.runHooks.bind(this);
     const modelAdapter = this.modelAdapter;
@@ -265,7 +268,19 @@ export class LangGraphAgentAdapter implements AgentPort {
         };
       }).bindTools(lgTools);
       const stream = await bound.stream(msgs, streamOptions);
-      return aggregateStream(stream, this.resolveOnTextDelta());
+      const aggregated = await aggregateStream(stream, this.resolveOnTextDelta());
+      // An empty completion is a failure (retriable), never a silent success:
+      // reasoning models can exhaust the output budget on reasoning_content
+      // and return finish_reason=length with zero visible content.
+      const hasText =
+        typeof aggregated.content === "string"
+          ? aggregated.content.length > 0
+          : JSON.stringify(aggregated.content).length > 2;
+      const hasToolCalls = (aggregated.tool_calls?.length ?? 0) > 0;
+      if (!hasText && !hasToolCalls) {
+        throw new Error("LLM returned an empty response");
+      }
+      return aggregated;
     };
 
     const llmCall = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {

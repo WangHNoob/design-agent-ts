@@ -32,6 +32,10 @@ export function classifyModelError(error: unknown): ModelErrorClass {
     || lower.includes("503")
     || lower.includes("502")
     || lower.includes("500")
+    // Empty completions (e.g. reasoning models that exhaust the output budget
+    // on reasoning_content) are retriable — never a silent success.
+    || lower.includes("empty response")
+    || lower.includes("empty llm")
   ) {
     // User abort should not trigger model fallback.
     if (lower.includes("aborted by user") || lower.includes("aborted before")) {
