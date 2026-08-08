@@ -825,7 +825,7 @@ export class DirectorAgent {
               allowedTools: task.allowedTools,
             };
         assignmentsById.set(task.id, assignment);
-        return this.executeSingleTask(assignment, sessionId, traceId, taskSignal, options);
+        return this.executeSingleTask(assignment, sessionId, traceId, undefined, taskSignal, options);
       },
       pipelineOptions: {
         signal,
@@ -943,126 +943,6 @@ export class DirectorAgent {
   }
 
   private async executeSingleTask(
-    task: TaskAssignment,
-    sessionId: string,
-    _traceId?: string,
-    signal?: AbortSignal,
-    options?: DirectorStreamOptions,
-  ): Promise<TaskResult> {
-    if (signal?.aborted) {
-      return {
-        taskId: task.taskId,
-        domain: task.domain,
-        status: "cancelled",
-        output: "",
-        errorMessage: "Task cancelled by user",
-      };
-    }
-
-    const multi = this.multiAgentConfig();
-    const prevCallParent = this.activeCallParent;
-    try {
-      const memoryPort = await this.createMemoryPort();
-
-      const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
-
-      const parent = options?.callParent ?? this.callRoot;
-      if (multi.enabled) {
-        this.activeCallParent = this.callGuard.enter(descriptor.name, parent);
-      } else {
-        this.activeCallParent = parent;
-      }
-
-      const agent = this.deps.agentFactory.createAgent(
-        descriptor,
-        toolRegistry,
-        memoryPort,
-        this.deps.hooks
-      );
-
-      const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
-      const input = ChatMessage.text("user", "director", enhancedAssignment);
-      const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
-
-      if (signal?.aborted || response.metadata?.aborted) {
-        return {
-          taskId: task.taskId,
-          domain: task.domain,
-          status: "cancelled",
-          output: AR.getTextContent(response) ?? "",
-          errorMessage: response.errorMessage ?? "Task cancelled by user",
-          errorClass: "cancelled",
-        };
-      }
-
-      let output = AR.getTextContent(response) ?? "";
-      if (!output.trim()) {
-        output = "(子 Agent 返回空内容)";
-      }
-      if (this.deps.workspace && output) {
-        await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
-      }
-
-      let handoff: HandoffPayload | undefined;
-      if (response.success) {
-        try {
-          handoff = this.buildTaskHandoff(task, output);
-        } catch (err) {
-          if (isHandoffViolationError(err)) {
-            await this.safeRecordPlanSpan("guard.handoff_violation", {
-              taskId: task.taskId,
-              reason: err.reason,
-              field: err.field,
-            });
-            return {
-              taskId: task.taskId,
-              domain: task.domain,
-              status: "error",
-              output,
-              errorMessage: err.message,
-              errorClass: "permanent",
-            };
-          }
-          throw err;
-        }
-      }
-
-      return {
-        taskId: task.taskId,
-        domain: task.domain,
-        status: response.success ? "success" : "error",
-        output,
-        errorMessage: response.errorMessage,
-        errorClass: response.success
-          ? undefined
-          : ErrorClassifier.classify(response.errorMessage ?? "Agent execution failed"),
-        handoff,
-      };
-    } catch (err) {
-      if (isMultiAgentGuardError(err)) {
-        await this.safeRecordPlanSpan(`guard.${err.code}`, {
-          agentName: err.agentName,
-          path: err.path,
-          depth: err.depth,
-          maxDepth: err.maxDepth,
-          reason: err.reason,
-        });
-        return {
-          taskId: task.taskId,
-          domain: task.domain,
-          status: "error",
-          output: "",
-          errorMessage: err.message,
-          errorClass: "permanent",
-        };
-      }
-      throw err;
-    } finally {
-      this.activeCallParent = prevCallParent;
-    }
-  }
-
-  private async executeSingleTaskWithHooks(
     task: TaskAssignment,
     sessionId: string,
     _traceId?: string,
@@ -1881,7 +1761,7 @@ export class DirectorAgent {
                 allowedTools: task.allowedTools,
               };
           assignmentsById.set(task.id, assignment);
-          return this.executeSingleTaskWithHooks(
+          return this.executeSingleTask(
             assignment,
             sessionId,
             undefined,
@@ -2068,6 +1948,7 @@ export class DirectorAgent {
       },
       sessionId,
       traceId,
+      undefined,
       signal,
       options,
     );
@@ -2143,7 +2024,7 @@ export class DirectorAgent {
       };
 
       const done = { value: false };
-      const taskPromise = this.executeSingleTaskWithHooks(
+      const taskPromise = this.executeSingleTask(
         {
           taskId: "single",
           domain: singleDomain,
