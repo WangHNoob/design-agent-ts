@@ -177,6 +177,10 @@ export interface DirectorDeps {
     subAgentMaxIterations?: number;
     grepSearchResultLimit?: number;
     webSourceResultLimit?: number;
+    /** SSE progress-event drain poll interval (ms). Default 200. */
+    eventDrainIntervalMs?: number;
+    /** Grace period to collect partial output from an aborted in-flight task (ms). Default 2000. */
+    inFlightPartialOutputTimeoutMs?: number;
   };
   /** Short-term sliding-window memory (query path required). */
   memory?: {
@@ -829,6 +833,7 @@ export class DirectorAgent {
         planHardEnabled: planHard.enabled,
         maxFanOut: this.multiAgentConfig().enabled ? this.multiAgentConfig().maxFanOut : 0,
         onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
+        inFlightPartialOutputTimeoutMs: this.deps.limits?.inFlightPartialOutputTimeoutMs,
       },
     });
 
@@ -1495,8 +1500,9 @@ export class DirectorAgent {
    * receives real-time progress events instead of a post-execution dump.
    */
   private async *concurrentDrain(eventBus: EventBus, done: { value: boolean }): AsyncGenerator<StreamEvent> {
+    const drainIntervalMs = this.deps.limits?.eventDrainIntervalMs ?? 200;
     while (!done.value) {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, drainIntervalMs));
       for (const event of eventBus.drain()) {
         yield event;
       }
@@ -1890,6 +1896,7 @@ export class DirectorAgent {
           planHardEnabled: planHard.enabled,
           maxFanOut: this.multiAgentConfig().enabled ? this.multiAgentConfig().maxFanOut : 0,
           onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
+          inFlightPartialOutputTimeoutMs: this.deps.limits?.inFlightPartialOutputTimeoutMs,
           onTaskStart: (task) => eventBus.emit({
             type: "task_start",
             data: {
