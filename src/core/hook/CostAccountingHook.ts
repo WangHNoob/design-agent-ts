@@ -5,11 +5,9 @@ import type { CostStorePort } from "../../port/cost/CostStorePort.js";
 import type { TracerPort } from "../../port/tracing/TracerPort.js";
 import type { LoggerPort } from "../../port/infra/LoggerPort.js";
 import { ConsoleLogger } from "../observability/ConsoleLogger.js";
-import { estimateCostMicros, type CostPricing } from "../cost/estimateCost.js";
 
 export interface CostAccountingHookOptions {
   enabled: boolean;
-  pricing: CostPricing;
   costStore: CostStorePort;
   defaultModelName: string;
   tracer?: TracerPort;
@@ -18,7 +16,8 @@ export interface CostAccountingHookOptions {
 }
 
 /**
- * Records per-LLM-call token usage and estimated cost for attribution dashboards.
+ * Records per-LLM-call token usage for attribution dashboards.
+ * No dollar billing — users bring their own LLM; estimatedCostMicros is always 0.
  */
 export class CostAccountingHook implements AgentHook {
   priority = 12;
@@ -69,12 +68,7 @@ export class CostAccountingHook implements AgentHook {
         modelName,
         inputTokens,
         outputTokens,
-        estimatedCostMicros: estimateCostMicros(
-          inputTokens,
-          outputTokens,
-          modelName,
-          this.options.pricing,
-        ),
+        estimatedCostMicros: 0,
       });
     } catch (err) {
       this.logger.warn("[CostAccountingHook] Failed to record cost usage:", { err });

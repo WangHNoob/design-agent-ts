@@ -74,7 +74,7 @@ export class PostgresCostStoreAdapter implements CostStorePort {
        FROM cost_usage
        ${where}
        GROUP BY ${column}
-       ORDER BY estimated_cost_micros DESC`,
+       ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC`,
       params,
     );
 
@@ -110,7 +110,7 @@ export class PostgresCostStoreAdapter implements CostStorePort {
        FROM cost_usage
        ${where}
        GROUP BY user_id
-       ORDER BY estimated_cost_micros DESC
+       ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC
        LIMIT $${index}`,
       params,
     );

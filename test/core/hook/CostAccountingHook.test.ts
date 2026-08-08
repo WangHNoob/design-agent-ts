@@ -43,7 +43,6 @@ describe("CostAccountingHook", () => {
     const tracer = new DefaultTracer(traceStore, new FakeIds(), context);
     const hook = new CostAccountingHook({
       enabled: true,
-      pricing: { inputPricePer1M: 2.5, outputPricePer1M: 10 },
       costStore: store,
       defaultModelName: "gpt-4o",
       tracer,
@@ -76,13 +75,14 @@ describe("CostAccountingHook", () => {
     expect(row.agentName).toBe("CombatDesigner");
     expect(row.workflowId).toBe("combat-design");
     expect(row.executionId).toBe("exec-1");
-    expect(row.estimatedCostMicros).toBeGreaterThan(0);
+    expect(row.inputTokens).toBe(1000);
+    expect(row.outputTokens).toBe(500);
+    expect(row.estimatedCostMicros).toBe(0);
   });
 
   test("does not throw when cost store fails (fail-open)", async () => {
     const hook = new CostAccountingHook({
       enabled: true,
-      pricing: { inputPricePer1M: 2.5, outputPricePer1M: 10 },
       costStore: {
         recordUsage: async () => {
           throw new Error("DB unavailable");
