@@ -205,6 +205,7 @@ export function loadConfig(): FrameworkConfig {
       visibilityTimeoutMs: Number(process.env.MQ_VISIBILITY_TIMEOUT_MS ?? 30000),
       blockMs: Number(process.env.MQ_BLOCK_MS ?? 1000),
       maxRetries: Number(process.env.MQ_MAX_RETRIES ?? 3),
+      dlqRetentionDays: Number(process.env.DLQ_RETENTION_DAYS ?? 7),
     },
     execution: {
       taskTimeoutMs: Number(process.env.EXECUTION_TASK_TIMEOUT_MS ?? 300000),

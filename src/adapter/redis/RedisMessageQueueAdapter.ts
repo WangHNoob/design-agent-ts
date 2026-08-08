@@ -25,6 +25,7 @@ export interface RedisMessageQueueClient {
   xdel(key: string, ...ids: string[]): Promise<number>;
   xpending(...args: RedisArgument[]): Promise<unknown>;
   xlen(key: string): Promise<number>;
+  xrange(key: string, start: string, end: string): Promise<Array<[id: string, fields: Readonly<Record<string, string>>]>>;
   del(...keys: string[]): Promise<number>;
   ping(): Promise<string>;
   quit(): Promise<unknown>;
@@ -39,6 +40,8 @@ export interface RedisMessageQueueOptions {
   readonly maxRetries?: number;
   /** Max concurrent in-flight handlers; default 1 preserves serial processing. */
   readonly maxInflight?: number;
+  /** DLQ entries older than this many days are trimmed by the retention sweeper (0 disables). */
+  readonly dlqRetentionDays?: number;
   readonly keyPrefix?: string;
   readonly client?: RedisMessageQueueClient;
   readonly clientFactory?: RedisMessageQueueClientFactory;
@@ -64,6 +67,8 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
   private readonly visibilityTimeoutMs: number;
   private readonly defaultMaxRetries: number;
   private readonly maxInflight: number;
+  private readonly dlqRetentionDays: number;
+  private retentionTimer: ReturnType<typeof setInterval> | null = null;
   private readonly inFlight = new Set<string>();
   private readonly runningHandlers = new Set<Promise<void>>();
   private running = false;
@@ -80,6 +85,7 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
     this.visibilityTimeoutMs = Math.max(1, Math.trunc(opts.visibilityTimeoutMs ?? 30_000));
     this.defaultMaxRetries = Math.max(0, Math.trunc(opts.maxRetries ?? 3));
     this.maxInflight = Math.max(1, Math.trunc(opts.maxInflight ?? 1));
+    this.dlqRetentionDays = Math.max(0, Math.trunc(opts.dlqRetentionDays ?? 7));
     this.consumerName = `${hostname()}-${process.pid}-${this.idGen.randomUUID()}`;
     this.redis =
       opts.client ??
@@ -164,10 +170,15 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
     this.loopPromise = this.consumeLoop().finally(() => {
       this.loopPromise = null;
     });
+    this.startDlqRetentionSweeper();
   }
 
   async stop(): Promise<void> {
     this.running = false;
+    if (this.retentionTimer) {
+      clearInterval(this.retentionTimer);
+      this.retentionTimer = null;
+    }
     await this.loopPromise;
     if (this.runningHandlers.size > 0) {
       await Promise.all([...this.runningHandlers]);
@@ -448,6 +459,47 @@ export class RedisMessageQueueAdapter implements MessageQueuePort {
       }),
     );
     await this.ackAndDelete(streamKey, entryId);
+  }
+
+  // ─── DLQ retention ───────────────────────────────────────────
+
+  private startDlqRetentionSweeper(): void {
+    if (this.dlqRetentionDays <= 0 || this.retentionTimer) return;
+    // Hourly sweep; unref'd so it never blocks process exit.
+    this.retentionTimer = setInterval(() => {
+      void this.sweepDlq();
+    }, 60 * 60 * 1000);
+    this.retentionTimer.unref?.();
+  }
+
+  /** Trim DLQ entries older than the retention window for every subscribed queue. */
+  private async sweepDlq(): Promise<void> {
+    const cutoffMs = Date.now() - this.dlqRetentionDays * 86_400_000;
+    for (const queue of this.handlers.keys()) {
+      const dlqKey = this.buildDlqKey(this.buildStreamKey(queue));
+      try {
+        const entries = await this.redis.xrange(dlqKey, "-", "+");
+        const staleIds = entries
+          .filter(([, fields]) => {
+            try {
+              const data = JSON.parse(String(fields.data ?? "{}")) as { failedAt?: string };
+              const failedAt = Date.parse(data.failedAt ?? "");
+              return Number.isFinite(failedAt) && failedAt < cutoffMs;
+            } catch {
+              return false;
+            }
+          })
+          .map(([id]) => id);
+        if (staleIds.length > 0) {
+          await this.redis.xdel(dlqKey, ...staleIds);
+          console.warn(
+            `[MQ] DLQ retention: trimmed ${staleIds.length} stale entries (>${this.dlqRetentionDays}d) from ${dlqKey}`,
+          );
+        }
+      } catch (err) {
+        console.warn(`[MQ] DLQ retention sweep failed for ${dlqKey}:`, err);
+      }
+    }
   }
 
   private async ackAndDelete(streamKey: string, entryId: string): Promise<void> {

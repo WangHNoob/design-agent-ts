@@ -148,6 +148,15 @@ class FakeRedisClient implements RedisMessageQueueClient {
     return [this.pending.get(streamKey)?.size ?? 0, null, null, []];
   }
 
+  async xrange(key: string, _start: string, _end: string): Promise<Array<[string, Record<string, string>]>> {
+    const entries = this.streams.get(key) ?? [];
+    return entries.map(([id, fields]) => {
+      const record: Record<string, string> = {};
+      for (let i = 0; i + 1 < fields.length; i += 2) record[fields[i]] = fields[i + 1];
+      return [id, record];
+    });
+  }
+
   async xlen(key: string): Promise<number> {
     return this.streams.get(key)?.length ?? 0;
   }
@@ -198,6 +207,7 @@ function createAdapter(
     visibilityTimeoutMs?: number;
     maxRetries?: number;
     maxInflight?: number;
+    dlqRetentionDays?: number;
   } = {},
 ): RedisMessageQueueAdapter {
   return new RedisMessageQueueAdapter(
@@ -209,6 +219,7 @@ function createAdapter(
       visibilityTimeoutMs: options.visibilityTimeoutMs ?? 10,
       maxRetries: options.maxRetries ?? 2,
       maxInflight: options.maxInflight,
+      dlqRetentionDays: options.dlqRetentionDays,
     },
   );
 }
@@ -523,5 +534,18 @@ describe("RedisMessageQueueAdapter", () => {
     expect(hits).toBeGreaterThanOrEqual(2);
     expect(retryCounts[0]).toBe(0);
     expect(retryCounts[1]).toBe(0);
+  });
+
+  test("DLQ retention sweep trims only entries older than the retention window", async () => {
+    const client = new FakeRedisClient();
+    const adapter = createAdapter(client, { dlqRetentionDays: 7 });
+    const staleFailedAt = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    const freshFailedAt = new Date().toISOString();
+    await client.xadd("mq:ret-q:dlq", "*", "data", JSON.stringify({ message: {}, error: "boom", failedAt: staleFailedAt }));
+    await client.xadd("mq:ret-q:dlq", "*", "data", JSON.stringify({ message: {}, error: "boom", failedAt: freshFailedAt }));
+    await adapter.subscribe("ret-q", async () => ({ success: true }));
+    // sweepDlq is private; exercise it directly to keep the test timer-free.
+    await (adapter as unknown as { sweepDlq(): Promise<void> }).sweepDlq();
+    expect(await client.xlen("mq:ret-q:dlq")).toBe(1);
   });
 });
