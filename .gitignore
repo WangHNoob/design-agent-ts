@@ -48,6 +48,15 @@ _distill_query.py
 # Session data
 sessions/
 
+# Local runtime data (user workspaces)
+data/
+
+# Local-only docker compose override (port remaps etc.)
+docker-compose.override.yml
+
+# Mimosa security-scan tool state
+.mimosa/
+
 # Cache
 .eslintcache
 *.tsbuildinfo
