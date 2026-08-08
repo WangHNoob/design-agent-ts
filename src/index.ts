@@ -84,10 +84,6 @@ export type { HookContext } from "./port/hook/HookContext.js";
 export { HookContext as HookContextUtils } from "./port/hook/HookContext.js";
 export type { AgentHook } from "./port/hook/AgentHook.js";
 
-// Port 接口层 — 会话
-export type { SessionKey } from "./port/session/SessionKey.js";
-export type { SessionPort } from "./port/session/SessionPort.js";
-
 // Port 接口层 — 技能
 export type { SkillWorkflow, SkillPort } from "./port/skill/SkillPort.js";
 export type { SkillRegistry } from "./port/skill/SkillRegistry.js";
