@@ -1,6 +1,6 @@
 // Re-export skill-domain types from the port layer (single source of truth).
 // Ports must not import core; core may import ports.
-import type { Domain, OutputType, WorkflowTask } from "../../port/skill/SkillTypes.js";
+import type { Domain } from "../../port/skill/SkillTypes.js";
 export type { Domain, OutputType, WorkflowTask } from "../../port/skill/SkillTypes.js";
 
 export interface SubTask {

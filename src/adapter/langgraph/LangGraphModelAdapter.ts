@@ -1,6 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
-import { AIMessage, AIMessageChunk } from "@langchain/core/messages";
+import { AIMessage } from "@langchain/core/messages";
 import type { ChatModelPort } from "../../port/model/ChatModelPort.js";
 import type { ModelOptions } from "../../port/model/ModelOptions.js";
 import type { ModelResponse } from "../../port/model/ModelResponse.js";

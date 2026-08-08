@@ -115,7 +115,7 @@ async function createExecution(
   const requestedSessionId = body.sessionId ?? crypto.randomUUID();
   const role = body.role ?? "chief_designer";
   const sessionRepository = dependencies.sessionRepositoryFactory(tenant.userId);
-  let existingSession = await sessionRepository.get(requestedSessionId);
+  const existingSession = await sessionRepository.get(requestedSessionId);
   if (!existingSession) {
     let versionSnapshotId: string | undefined;
     if (dependencies.config?.versioning?.enabled) {
@@ -126,7 +126,6 @@ async function createExecution(
       versionSnapshotId = snapshot.id;
     }
     await sessionRepository.create(queuedSession(requestedSessionId, body, role, versionSnapshotId));
-    existingSession = await sessionRepository.get(requestedSessionId);
   } else if (dependencies.config?.versioning?.enabled) {
     await ensureSessionVersionSnapshot({
       sessionRepository,

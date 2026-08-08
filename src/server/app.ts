@@ -127,7 +127,6 @@ export function createApp() {
   // Prometheus metrics endpoint
   app.get("/metrics", async (c) => {
     const metrics: string[] = [];
-    const now = Date.now();
 
     // Basic process metrics
     const memUsage = process.memoryUsage();

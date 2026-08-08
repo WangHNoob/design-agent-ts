@@ -161,7 +161,6 @@ export function loadConfig(): FrameworkConfig {
             "hitl-3-final": true,
           }
         : {},
-      maxRevisionRounds: Number(process.env.HITL_MAX_REVISIONS ?? 3),
       timeout: Number(process.env.HITL_TIMEOUT ?? 300000),
       autoContinueOnTimeout: process.env.HITL_AUTO_CONTINUE === "true",
       timeoutPolicy: resolveHitlTimeoutPolicy(),
@@ -357,7 +356,6 @@ export function loadConfig(): FrameworkConfig {
     versioning: {
       enabled: process.env.VERSIONING_ENABLED === "true",
       defaultCanaryPercent: Number(process.env.VERSIONING_DEFAULT_CANARY_PERCENT ?? 0),
-      snapshotTtlMs: Number(process.env.VERSIONING_SNAPSHOT_TTL_MS ?? 0),
     },
   };
   validateConfig(config, { port: Number(process.env.PORT ?? 3000) });

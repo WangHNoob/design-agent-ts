@@ -233,6 +233,7 @@ describe.skip("legacy synchronous console tenant slot lifecycle", () => {
       2,
     );
     setDirector({
+      // eslint-disable-next-line require-yield -- fake that always throws
       async *executeStream() {
         throw new Error("stream failed");
       },

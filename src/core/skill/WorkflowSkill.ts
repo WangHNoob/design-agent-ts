@@ -2,14 +2,6 @@ import type { SkillPort } from "../../port/skill/SkillPort.js";
 import type { SkillWorkflow } from "../../port/skill/SkillPort.js";
 import type { WorkflowTask } from "../../core/schema/TaskPlan.js";
 
-class EmptySkillWorkflow implements SkillWorkflow {
-  readonly steps: string[] = [];
-  readonly dependencies: Record<string, string[]> = {};
-
-  getExecutionOrder(): string[][] {
-    return [];
-  }
-}
 
 /**
  * Workflow skill loaded from contrib/workflows/{name}/SKILL.md.

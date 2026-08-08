@@ -68,7 +68,7 @@ function parseTaskBlock(block: string): WorkflowTask | null {
   const domain = domainRaw.toLowerCase() as Domain;
 
   // ---- requirement (multi-line, after `requirement: |`) ----
-  let requirementTemplate = "";
+  let requirementTemplate: string;
   const reqMatch = block.match(/requirement:\s*\|\s*\n([\s\S]*?)(?=\n\s{4}\w)/);
   if (reqMatch) {
     requirementTemplate = reqMatch[1]!

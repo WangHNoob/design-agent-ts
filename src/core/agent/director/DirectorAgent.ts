@@ -2,7 +2,6 @@ import type { AgentResponse } from "../../../port/agent/AgentResponse.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
 import { AgentResponse as AR } from "../../../port/agent/AgentResponse.js";
 import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
-import type { ModelResponse } from "../../../port/model/ModelResponse.js";
 import type { AgentFactory } from "../../../port/agent/AgentFactory.js";
 import type { LoggerPort } from "../../../port/infra/LoggerPort.js";
 import { ConsoleLogger } from "../../observability/ConsoleLogger.js";
@@ -62,13 +61,6 @@ import { SubAgentDescriptors } from "../subagents/SubAgentFactory.js";
 import { decideFaqHit } from "../../faq/decideFaqHit.js";
 import type { FaqMatchRaw } from "../../faq/types.js";
 
-function fallbackUUID(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
 /** Map agent descriptor names to role strings for skill matching. */
 const AGENT_NAME_TO_ROLE: Record<string, string> = {
@@ -573,9 +565,8 @@ export class DirectorAgent {
     options?: DirectorStreamOptions
   ): Promise<AgentResponse> {
     return this.withRootTrace(sessionId, mode, options, async (traceId) => {
-      try {
-        let result: AgentResponse;
-        switch (mode) {
+      let result: AgentResponse;
+      switch (mode) {
           case "design":
             result = await this.executeDesignFlow(requirement, sessionId, role, traceId, options);
             break;
@@ -590,9 +581,6 @@ export class DirectorAgent {
           ...result,
           metadata: { ...result.metadata, traceId },
         };
-      } catch (err) {
-        throw err;
-      }
     });
   }
 
@@ -1435,7 +1423,12 @@ export class DirectorAgent {
         const raw = await fp.match(requirement);
         const decision = decideFaqHit(raw, fp.threshold);
         if (decision.ok) {
-          console.log(`[DirectorAgent] faq.hit score=${decision.score} faqId=${decision.faqId ?? ""}`);
+          this.logger.info(`[DirectorAgent] faq.hit score=${decision.score} faqId=${decision.faqId ?? ""}`);
+          void this.safeRecordPlanSpan("faq.hit", {
+            score: decision.score,
+            faqId: decision.faqId ?? "",
+            question: decision.question ?? "",
+          });
           yield {
             type: "faq_hit",
             data: { score: decision.score, faqId: decision.faqId, question: decision.question },
@@ -1444,9 +1437,15 @@ export class DirectorAgent {
           yield { type: "complete", data: { success: true, output: decision.answer, source: "faq" } };
           return;
         }
-        console.log(`[DirectorAgent] faq.miss reason=${decision.reason}`);
+        this.logger.info(`[DirectorAgent] faq.miss reason=${decision.reason}`);
+        void this.safeRecordPlanSpan("faq.miss", { reason: decision.reason });
       } catch (err) {
-        console.warn(`[DirectorAgent] faq.error`, err);
+        this.logger.warn("[DirectorAgent] faq.error", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        void this.safeRecordPlanSpan("faq.error", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
