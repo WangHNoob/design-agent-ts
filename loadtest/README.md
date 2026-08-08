@@ -93,6 +93,19 @@ k6 summary → `loadtest/reports/`（gitignore）。
 
 见 `docs/superpowers/reports/2026-08-07-loadtest-baseline-report.md`。
 
+## LLM 07 运行记录与已知现象（2026-08-07 ~ 08-08）
+
+- `loadtest/reports/` 下 08-07 下午及 08-08 凌晨的多次 `07-query-llm-*summary.json`
+  显示 check 通过率恒为 **2/3（如 10/15、320/480）**，与书面 "100% checks" 基线报告
+  不一致：每次迭代恰好有一个检查失败。
+- 原因核查（2026-08-08）：合并 summary 的 `checks` 指标**不区分检查名**，无法直接
+  定位失败项；经 07 场景逐迭代日志与在线复现确认，失败项为 `execution completed`，
+  根因是 **LLM 端点返回空/失败响应**（08-08 期间 `deepseek-v4-flash` 端点间歇返回
+  `finish_reason=length` + 空内容，此前 loadtest 还遇到过 403），执行落为 failed 而非
+  代码回归。后端已加"空响应视为可重试失败"（`classifyModelError` / invokeLlm），
+  下次 LLM 压测应在端点健康时段重跑并对比。
+- 自 2026-08-08 起 07 场景输出 `per_check` 逐检查计数，新报告可直接定位失败检查。
+
 设计文档：
 
 - Mock：`docs/superpowers/specs/2026-08-07-loadtest-design.md`
