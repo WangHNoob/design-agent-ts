@@ -17,7 +17,12 @@ export async function appendAudit(input: AppendAuditInput): Promise<void> {
   }
 }
 
-const loggedSessions = new Set<string>();
+// Bounded in-process login-dedup state: sessionId -> first-seen timestamp.
+// Sessions older than the TTL are treated as expired, and the map is capped so
+// heavy session churn cannot grow it without bound.
+const LOGIN_DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
+const LOGIN_DEDUP_MAX_ENTRIES = 10_000;
+const loggedSessions = new Map<string, number>();
 
 /** Log auth.login once per Better Auth session id (approximate, in-process dedup). */
 export async function auditLoginOnce(
@@ -25,8 +30,23 @@ export async function auditLoginOnce(
   sessionId: string,
   detail?: Record<string, unknown>,
 ): Promise<void> {
+  const now = Date.now();
+
+  // Lazy eviction: drop expired entries first, then oldest entries if still over cap.
+  if (loggedSessions.size >= LOGIN_DEDUP_MAX_ENTRIES) {
+    for (const [sid, ts] of loggedSessions) {
+      if (now - ts > LOGIN_DEDUP_TTL_MS) loggedSessions.delete(sid);
+    }
+  }
+  if (loggedSessions.size >= LOGIN_DEDUP_MAX_ENTRIES) {
+    const oldest = [...loggedSessions.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, Math.ceil(loggedSessions.size / 2));
+    for (const [sid] of oldest) loggedSessions.delete(sid);
+  }
+
   if (loggedSessions.has(sessionId)) return;
-  loggedSessions.add(sessionId);
+  loggedSessions.set(sessionId, now);
   await appendAudit({
     userId,
     action: "auth.login",

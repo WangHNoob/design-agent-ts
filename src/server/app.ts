@@ -24,6 +24,7 @@ let betterAuthAdapter: BetterAuthAdapter | null = null;
 let tenantPort: TenantIsolationPort | null = null;
 let tenantContextStorage: ContextStoragePort<TenantContext> | null = null;
 let databasePort: DatabasePort | null = null;
+let corsTrustedOrigins: string[] = [];
 
 export function setAuthAdapter(adapter: BetterAuthAdapter) {
   betterAuthAdapter = adapter;
@@ -41,18 +42,25 @@ export function setDatabasePort(db: DatabasePort) {
   databasePort = db;
 }
 
+/** Wire TRUSTED_ORIGINS into the CORS origin check (comma-separated list). */
+export function setCorsTrustedOrigins(origins: string[]) {
+  corsTrustedOrigins = origins;
+}
+
 export function createApp() {
   const app = new Hono();
 
   app.use(cors({
     origin: (origin) => {
-      // Allow localhost on common dev/Docker ports, plus the configured trusted origins
+      // Allow localhost on common dev/Docker ports, plus TRUSTED_ORIGINS.
       const allowed = [
         /^https?:\/\/localhost(:\d+)?$/,
         /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
       ];
       if (!origin || allowed.some((p) => p.test(origin))) return origin;
-      return "http://localhost:3001";
+      if (corsTrustedOrigins.includes(origin)) return origin;
+      // Unknown origin: emit no CORS headers so the browser blocks the response.
+      return null;
     },
     allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "Last-Event-ID"],
     allowMethods: ["POST", "GET", "OPTIONS", "PUT", "DELETE"],
@@ -119,7 +127,6 @@ export function createApp() {
   // Prometheus metrics endpoint
   app.get("/metrics", async (c) => {
     const metrics: string[] = [];
-    const now = Date.now();
 
     // Basic process metrics
     const memUsage = process.memoryUsage();

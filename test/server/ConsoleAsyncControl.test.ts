@@ -91,6 +91,7 @@ class RouteEventStore implements ExecutionEventStore {
   async replay(userId: string, executionId: string, after = "0-0") {
     return this.list(userId, executionId, after);
   }
+  // eslint-disable-next-line require-yield -- abort-driven fake: yields nothing by design
   async *subscribe(
     _userId: string,
     _executionId: string,

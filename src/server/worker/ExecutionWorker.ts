@@ -57,6 +57,8 @@ export interface ExecutionWorkerDependencies {
   maxConcurrentPerUser: number;
   pollIntervalMs: number;
   taskTimeoutMs: number;
+  /** Short sleep before defer return to avoid claim/requeue/xadd spin when a lane is full (ms). Default 75. */
+  deferBackoffMs?: number;
   now?: () => Date;
   /** Build MVCC execution overrides from session metadata. */
   executionOverridesFactory?: (
@@ -66,9 +68,6 @@ export interface ExecutionWorkerDependencies {
 }
 
 export class ExecutionWorker {
-  /** Short sleep before defer return to avoid claim/requeue/xadd spin when a lane is full. */
-  private static readonly DEFER_BACKOFF_MS = 75;
-
   private director: DirectorAgent | null = null;
   private subscribed = false;
   private started = false;
@@ -444,7 +443,7 @@ export class ExecutionWorker {
 
   private sleepDeferBackoff(): Promise<void> {
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ExecutionWorker.DEFER_BACKOFF_MS);
+      const timer = setTimeout(resolve, this.deps.deferBackoffMs ?? 75);
       timer.unref?.();
     });
   }

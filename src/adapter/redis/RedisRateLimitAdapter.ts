@@ -3,7 +3,7 @@ import type {
   RateLimitPort,
   RateLimitResult,
 } from "../../port/cost/RateLimitPort.js";
-import type { RateLimitCode, RateLimitRemaining } from "../../port/cost/types.js";
+import type { RateLimitRemaining } from "../../port/cost/types.js";
 import Redis from "ioredis";
 import type { Redis as RedisType } from "ioredis";
 

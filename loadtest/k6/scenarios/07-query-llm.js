@@ -1,4 +1,4 @@
-import { check, sleep } from "k6";
+import { check, sleep, Counter } from "k6";
 import exec from "k6/execution";
 import { thresholds, llmDefaults } from "../lib/config.js";
 import { authGet, authPost } from "../lib/auth.js";
@@ -8,6 +8,42 @@ const USERS = llmDefaults.users;
 const ITERS = llmDefaults.itersPerUser;
 const TIMEOUT_SEC = llmDefaults.execTimeoutSec;
 const TOTAL = USERS * ITERS;
+
+/**
+ * Per-check counters so the merged JSON summary breaks down WHICH check
+ * failed — the built-in `checks` metric only aggregates across all checks,
+ * which made earlier failures (e.g. "execution completed" under a degraded
+ * LLM) indistinguishable from auth/parse failures.
+ */
+const CHECK_NAMES = ["pool user bound", "execute 202", "parse executionId", "execution completed"];
+const checkCounters = Object.fromEntries(
+  CHECK_NAMES.map((name) => [name, new Counter(`check_${name.replace(/\s+/g, "_")}`)]),
+);
+
+function namedCheck(name, cond, value) {
+  const ok = check(value, { [name]: cond });
+  checkCounters[name].add(ok ? 1 : 0);
+  return ok;
+}
+
+export function handleSummary(data) {
+  const perCheck = {};
+  for (const name of CHECK_NAMES) {
+    const metric = data.metrics[`check_${name.replace(/\s+/g, "_")}`];
+    perCheck[name] = metric ? { count: metric.values.count ?? 0 } : { count: 0 };
+  }
+  const merged = data.metrics.checks;
+  const summary = {
+    ...data,
+    per_check: perCheck,
+    checks_aggregate: merged
+      ? { passes: merged.values.passes, fails: merged.values.fails, rate: merged.values.rate }
+      : null,
+  };
+  // Print the breakdown to stdout as well (k6 console is captured in logs).
+  console.log(`[per-check] ${JSON.stringify(perCheck)}`);
+  return { "stdout": JSON.stringify(summary, null, 2) };
+}
 
 export const options = {
   scenarios: {
@@ -53,7 +89,7 @@ function pollUntilTerminal(cookie, executionId, maxWaitSec) {
 export default function (data) {
   const vu = exec.vu.idInTest;
   const user = getUserForVu(data.users, vu);
-  check(null, { "pool user bound": () => Boolean(user?.cookie) });
+  namedCheck("pool user bound", (u) => Boolean(u?.cookie), user);
   if (!user?.cookie) {
     sleep(1);
     return;
@@ -74,9 +110,7 @@ export default function (data) {
     { "Idempotency-Key": idem },
   );
 
-  const accepted = check(create, {
-    "execute 202": (r) => r.status === 202,
-  });
+  const accepted = namedCheck("execute 202", (r) => r.status === 202, create);
   if (!accepted) {
     sleep(1);
     return;
@@ -86,14 +120,12 @@ export default function (data) {
   try {
     executionId = JSON.parse(String(create.body)).executionId;
   } catch (_) {
-    check(null, { "parse executionId": () => false });
+    namedCheck("parse executionId", () => false, null);
     return;
   }
 
   const terminal = pollUntilTerminal(user.cookie, executionId, TIMEOUT_SEC);
-  check(null, {
-    "execution completed": () => terminal.status === "completed",
-  });
+  namedCheck("execution completed", (t) => t.status === "completed", terminal);
   if (terminal.status !== "completed") {
     console.warn(`vu=${vu} iter=${iter} terminal=${terminal.status} executionId=${executionId}`);
   }

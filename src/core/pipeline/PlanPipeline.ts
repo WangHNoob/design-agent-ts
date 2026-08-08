@@ -28,6 +28,8 @@ export interface PlanPipelineOptions {
   maxFanOut?: number;
   /** Audit callback when a fan-out layer is split into batches. */
   onFanOutBatch?: (info: FanOutBatchInfo) => void | Promise<void>;
+  /** Grace period to collect partial output from an aborted in-flight task (ms). Default 2000. */
+  inFlightPartialOutputTimeoutMs?: number;
 }
 
 class TaskTimeoutError extends Error {
@@ -36,9 +38,6 @@ class TaskTimeoutError extends Error {
     this.name = "TimeoutError";
   }
 }
-
-/** Short grace period to collect partial output from an in-flight task after abort. */
-const IN_FLIGHT_PARTIAL_OUTPUT_TIMEOUT_MS = 2000;
 
 export class PlanPipeline {
   private layers: string[][];
@@ -292,10 +291,11 @@ export class PlanPipeline {
   private async tryRecoverInFlightResult(
     execution: Promise<TaskResult>,
   ): Promise<TaskResult | null> {
+    const graceMs = this.options.inFlightPartialOutputTimeoutMs ?? 2000;
     try {
       const resolved = await Promise.race([
         execution,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), IN_FLIGHT_PARTIAL_OUTPUT_TIMEOUT_MS)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), graceMs)),
       ]);
       if (!resolved) {
         return null;

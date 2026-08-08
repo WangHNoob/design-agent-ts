@@ -52,6 +52,12 @@ export class Container {
           failureQueue: runtimeDeps.compensateFailureQueue,
         });
         this.humanReviewGateway = new LangGraphHumanReviewGateway();
+        // Wire HITL knobs from config so the fallback gateway behaves like the
+        // durable gateway (no divergent hardcoded defaults).
+        (this.humanReviewGateway as LangGraphHumanReviewGateway).setTimeout(
+          config.hitl.timeout,
+          config.hitl.autoContinueOnTimeout,
+        );
         break;
       }
       case "mock":

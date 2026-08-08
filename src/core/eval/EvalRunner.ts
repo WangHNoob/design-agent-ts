@@ -68,6 +68,9 @@ export class EvalRunner {
           const baseline = input.dataset.baselines.find(
             (b) => b.caseId === evalCase.id && b.metricId === metric.id,
           );
+          // A metric only applies to a case when a baseline defines its
+          // expectation — otherwise unrelated metrics would produce noise.
+          if (!baseline) continue;
           const result = await scorer.score({
             case: evalCase,
             metric,

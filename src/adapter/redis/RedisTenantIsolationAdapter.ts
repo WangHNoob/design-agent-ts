@@ -10,6 +10,18 @@ import type { UserRole } from "../../port/user/UserPort.js";
 import Redis from "ioredis";
 import type { Redis as RedisType } from "ioredis";
 
+/** Composition-root knobs for Redis-backed infra (defaults match historical behavior). */
+export interface RedisTenantIsolationOptions {
+  readonly lockWaitTimeoutMs?: number;
+  readonly lockTtlMs?: number;
+  readonly lockRetries?: number;
+  readonly lockRetryDelayMs?: number;
+  /** Tenant context cache TTL in seconds. Default 300. */
+  readonly tenantContextCacheTtlSeconds?: number;
+  /** Concurrency slot TTL in seconds. Default 3600. */
+  readonly concurrencySlotTtlSeconds?: number;
+}
+
 const DEFAULT_LOCK_OPTIONS: LockOptions = {
   waitTimeoutMs: 5000,
   ttlMs: 30000,
@@ -28,13 +40,26 @@ const DEFAULT_LOCK_OPTIONS: LockOptions = {
  */
 export class RedisTenantIsolationAdapter implements TenantIsolationPort {
   private redis: RedisType;
+  private readonly lockDefaults: LockOptions;
+  private readonly tenantCacheTtlSeconds: number;
+  private readonly concurrencySlotTtlSeconds: number;
 
   constructor(
     redisUrl: string,
     private readonly userPort: UserPort,
     private readonly keyPrefix: string = "gd:",
+    options: RedisTenantIsolationOptions = {},
   ) {
     this.redis = new Redis.default(redisUrl, { lazyConnect: true });
+    this.lockDefaults = {
+      ...DEFAULT_LOCK_OPTIONS,
+      ...(options.lockWaitTimeoutMs !== undefined ? { waitTimeoutMs: options.lockWaitTimeoutMs } : {}),
+      ...(options.lockTtlMs !== undefined ? { ttlMs: options.lockTtlMs } : {}),
+      ...(options.lockRetries !== undefined ? { retries: options.lockRetries } : {}),
+      ...(options.lockRetryDelayMs !== undefined ? { retryDelayMs: options.lockRetryDelayMs } : {}),
+    };
+    this.tenantCacheTtlSeconds = options.tenantContextCacheTtlSeconds ?? 300;
+    this.concurrencySlotTtlSeconds = options.concurrencySlotTtlSeconds ?? 3600;
   }
 
   async connect(): Promise<void> {
@@ -74,10 +99,10 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
       sessionId: session.sessionId,
     };
 
-    // Cache for 5 minutes (keyed by session token)
+    // Cache tenant context for tenantCacheTtlSeconds (keyed by session token)
     if (sessionToken) {
       const cacheKey = this.buildKey("tenant_ctx", sessionToken);
-      await this.redis.set(cacheKey, JSON.stringify(ctx), "EX", 300);
+      await this.redis.set(cacheKey, JSON.stringify(ctx), "EX", this.tenantCacheTtlSeconds);
     }
 
     return ctx;
@@ -91,7 +116,7 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
   // ─── Distributed Locking ─────────────────────────────────────
 
   async acquireLock(key: string, options?: Partial<LockOptions>): Promise<DistributedLock | null> {
-    const opts = { ...DEFAULT_LOCK_OPTIONS, ...options };
+    const opts = { ...this.lockDefaults, ...options };
     const lockKey = this.buildKey("lock", key);
     const holderId = `holder_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const ttlSeconds = Math.ceil(opts.ttlMs / 1000);
@@ -199,7 +224,7 @@ export class RedisTenantIsolationAdapter implements TenantIsolationPort {
       end
       return {1, next}
     `;
-    const result = await this.redis.eval(script, 1, key, maxConcurrent.toString(), "3600");
+    const result = await this.redis.eval(script, 1, key, maxConcurrent.toString(), String(this.concurrencySlotTtlSeconds));
     if (!Array.isArray(result) || result.length < 2) {
       throw new Error("Redis returned an invalid concurrency acquisition result");
     }

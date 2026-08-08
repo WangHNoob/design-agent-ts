@@ -202,10 +202,18 @@ describe("design-golden.v1 dataset", () => {
     const path = resolve(process.cwd(), "eval/datasets/design-golden.v1.json");
     const dataset = parseEvalDataset(JSON.parse(readFileSync(path, "utf8")));
     const exactMetrics = dataset.metrics.filter((m) => m.kind === "exact_match");
+    // Only fixture cases carry recordedOutput — offline replay is not
+    // applicable to the online-only cases.
+    const fixtureCases = dataset.cases.filter((c) => c.tags?.includes("offline-fixture"));
     const filtered = {
       ...dataset,
+      cases: fixtureCases,
       metrics: exactMetrics,
-      baselines: dataset.baselines.filter((b) => exactMetrics.some((m) => m.id === b.metricId)),
+      baselines: dataset.baselines.filter(
+        (b) =>
+          exactMetrics.some((m) => m.id === b.metricId) &&
+          fixtureCases.some((c) => c.id === b.caseId),
+      ),
     };
 
     const report = await new EvalRunner({

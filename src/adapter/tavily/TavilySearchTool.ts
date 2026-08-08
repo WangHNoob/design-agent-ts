@@ -4,7 +4,6 @@ import { ToolResult } from "../../port/tool/ToolResult.js";
 
 const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 const TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";
-const NO_KEY_MSG = "⚠️ 未配置 Tavily API Key，请在设置页面配置后重试。获取免费 Key: https://tavily.com";
 
 export class TavilySearchTool implements ToolPort {
   private apiKey: string | null = null;
@@ -65,7 +64,10 @@ export class TavilySearchTool implements ToolPort {
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
     const action = String(args.action ?? "");
     if (!this.apiKey) {
-      return ToolResult.success(NO_KEY_MSG);
+      // Failure, not success: a missing key is a misconfiguration and must be
+      // visible (error surfaces to the agent + audit paths), never a silent
+      // no-op that looks like a successful search.
+      return ToolResult.error("Tavily API key is not configured");
     }
     try {
       switch (action) {

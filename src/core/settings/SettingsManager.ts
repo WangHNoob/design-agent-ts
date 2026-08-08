@@ -37,7 +37,7 @@ export class SettingsManager {
 
   constructor(
     private fs: FileSystemPort,
-    private baseDir = process.env.SETTINGS_DIR || "."
+    private baseDir = ".",
   ) {
     this.settingsFile = this.fs.join(baseDir, "settings.json");
   }

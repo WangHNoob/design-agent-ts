@@ -46,6 +46,10 @@ export interface BetterAuthAdapterConfig {
    * Include your frontend URL(s) here.
    */
   trustedOrigins?: string;
+  /** Session expiry in seconds. Default 7 days. */
+  sessionTtlSeconds?: number;
+  /** Session refresh window in seconds. Default 1 day. */
+  refreshTtlSeconds?: number;
 }
 
 /**
@@ -81,8 +85,6 @@ export class BetterAuthAdapter implements UserPort {
         if (trimmed) this.adminDomains.add(trimmed);
       });
     }
-
-    const adapter = this;
 
     // Build plugins list
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,8 +187,8 @@ export class BetterAuthAdapter implements UserPort {
         },
       },
       session: {
-        expiresIn: 60 * 60 * 24 * 7, // 7 days
-        updateAge: 60 * 60 * 24,      // Refresh every 1 day
+        expiresIn: config.sessionTtlSeconds ?? 60 * 60 * 24 * 7, // 7 days
+        updateAge: config.refreshTtlSeconds ?? 60 * 60 * 24,      // Refresh every 1 day
       },
       plugins,
       hooks: {
@@ -201,11 +203,11 @@ export class BetterAuthAdapter implements UserPort {
 
           // Auto-assign admin role based on email domain
           const email = context.body?.email || context.context.returned?.user?.email;
-          if (email && adapter.isAdminEmail(email)) {
+          if (email && this.isAdminEmail(email)) {
             const userId = context.context.returned?.user?.id;
             if (userId) {
               try {
-                await adapter.pool.query(
+                await this.pool.query(
                   `UPDATE "user" SET role = 'admin' WHERE id = $1`,
                   [userId],
                 );
@@ -221,7 +223,7 @@ export class BetterAuthAdapter implements UserPort {
             const userId = context.context.returned?.user?.id;
             if (userId) {
               try {
-                await adapter.pool.query(
+                await this.pool.query(
                   `UPDATE "user" SET "emailVerified" = true WHERE id = $1 AND "emailVerified" = false`,
                   [userId],
                 );

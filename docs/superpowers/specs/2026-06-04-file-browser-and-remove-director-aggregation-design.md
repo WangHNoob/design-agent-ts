@@ -2,7 +2,7 @@
 
 **日期**: 2026-06-04  
 **分支**: `dev`  
-**状态**: 已确认，待实施
+**状态**: ⚠️ **部分否决（2026-08-08）**：文件浏览器/下载部分已实施（`src/server/routes/sessions.ts` + 前端 FileBrowserPanel）；**"移除主策划聚合层"部分已否决，不实施**——Director 保留 Integrator 聚合输出与 HITL-2/3，以 `README.md` 描述的现状为准。
 
 ---
 

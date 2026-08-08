@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import fs from "fs";
 import path from "path";
-import { loadPrompt, clearPromptCache } from "../PromptLoader.js";
+import { clearPromptCache } from "../PromptLoader.js";
 import { reloadDirector } from "../bootstrap.js";
 import { hasActiveExecutions } from "./console.js";
 import { requireAdmin } from "../middleware/auth.js";

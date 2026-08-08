@@ -1,6 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
-import { AIMessage, AIMessageChunk } from "@langchain/core/messages";
+import { AIMessage } from "@langchain/core/messages";
 import type { ChatModelPort } from "../../port/model/ChatModelPort.js";
 import type { ModelOptions } from "../../port/model/ModelOptions.js";
 import type { ModelResponse } from "../../port/model/ModelResponse.js";
@@ -302,6 +302,12 @@ export class LangGraphModelAdapter implements ChatModelPort {
     const finalContent = hasArrayContent
       ? (Array.from(contentBlocks.values()) as unknown as string)
       : textContent;
+
+    // Empty completion = retriable failure, never silent success (reasoning
+    // models can burn the whole output budget on reasoning_content).
+    if (!hasArrayContent && textContent.length === 0) {
+      throw new Error("LLM returned an empty response");
+    }
 
     const response = new AIMessage({
       content: finalContent,
