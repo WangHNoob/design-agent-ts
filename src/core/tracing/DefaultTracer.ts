@@ -33,6 +33,14 @@ export class DefaultTracer implements TracerPort {
     private readonly exporters: readonly TraceExporter[] = [],
   ) {}
 
+  /**
+   * traceId → runtime registry. Streaming consumers interleave their own
+   * awaits between generator yields, which drops the ALS context from the
+   * generator's continuation; endTrace then cannot see the runtime. The
+   * registry keeps a fallback copy so trace completion always persists.
+   */
+  private readonly runtimes = new Map<string, MutableRuntime>();
+
   async startTrace(input: StartTraceInput): Promise<TraceHandle> {
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
@@ -70,6 +78,30 @@ export class DefaultTracer implements TracerPort {
     };
 
     return { traceId, rootSpan };
+  }
+
+  async *wrapTraceStream<T>(
+    handle: TraceHandle,
+    generator: AsyncGenerator<T>,
+  ): AsyncGenerator<T> {
+    const runtime = this.runtimes.get(handle.traceId) ?? this.runtimeFromHandle(handle);
+    this.runtimes.set(handle.traceId, runtime);
+    const run = <R>(fn: () => R): R => this.context.run(runtime as TraceRuntimeState, fn);
+    const bound: AsyncGenerator<T> = {
+      async next(...args: [] | [unknown]) {
+        return run(() => generator.next(...(args as [unknown])));
+      },
+      async return(value?: unknown) {
+        return run(() => generator.return(value as T));
+      },
+      async throw(err?: unknown) {
+        return run(() => generator.throw(err));
+      },
+      [Symbol.asyncIterator]() {
+        return bound;
+      },
+    };
+    yield* bound;
   }
 
   async startSpan(name: string, options: StartSpanOptions = {}): Promise<SpanContext> {
@@ -137,8 +169,14 @@ export class DefaultTracer implements TracerPort {
     status: SpanStatus = "ok",
     attributes?: Readonly<Record<string, unknown>>,
   ): Promise<void> {
-    const runtime = this.getMutableRuntime();
-    if (!runtime || runtime.traceId !== traceId) return;
+    // Prefer the ALS runtime (keeps in-flight stack), fall back to the
+    // registry copy when the streaming caller dropped the context.
+    const alsRuntime = this.getMutableRuntime();
+    const runtime =
+      alsRuntime && alsRuntime.traceId === traceId
+        ? alsRuntime
+        : this.runtimes.get(traceId);
+    if (!runtime) return;
 
     for (const open of [...runtime.stack].reverse()) {
       if (!open.endTime) {
@@ -157,6 +195,7 @@ export class DefaultTracer implements TracerPort {
       attributes,
       endedAt: new Date().toISOString(),
     });
+    this.runtimes.delete(traceId);
     if (ended) {
       for (const exporter of this.exporters) {
         await exporter.exportTrace?.(ended);
@@ -330,5 +369,8 @@ export class NoOpTracer implements TracerPort {
   }
   async withTrace<R>(_handle: TraceHandle, callback: () => R | Promise<R>): Promise<R> {
     return callback();
+  }
+  async *wrapTraceStream<T>(_handle: TraceHandle, generator: AsyncGenerator<T>): AsyncGenerator<T> {
+    yield* generator;
   }
 }

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, test } from "vitest";
 import { InMemoryTraceStore } from "../../../src/core/tracing/InMemoryTraceStore.js";
 import { DefaultTracer } from "../../../src/core/tracing/DefaultTracer.js";
@@ -40,6 +41,20 @@ class MemoryContext<T> implements ContextStoragePort<T> {
   }
   enterWith(next: T): void {
     this.store = next;
+  }
+}
+
+/** Real AsyncLocalStorage-backed context — reproduces production propagation. */
+class AlsContext<T> implements ContextStoragePort<T> {
+  private readonly als = new AsyncLocalStorage<T>();
+  run<R>(next: T, callback: () => R): R {
+    return this.als.run(next, callback);
+  }
+  getStore(): T | undefined {
+    return this.als.getStore();
+  }
+  enterWith(next: T): void {
+    this.als.enterWith(next);
   }
 }
 
@@ -161,5 +176,55 @@ describe("DefaultTracer + TracingHook", () => {
       expect(handle.rootSpan.attributes["trace.executionId"]).toBe("exec-123");
       await tracer.endTrace(handle.traceId, "ok");
     });
+  });
+
+  test("streaming: wrapTraceStream survives consumer-side awaits and endTrace persists via registry", async () => {
+    const store = new InMemoryTraceStore();
+    const context = new AlsContext<TraceRuntimeState>();
+    const tracer = new DefaultTracer(store, new FakeIds(), context);
+    const hook = new TracingHook(tracer);
+
+    async function* stream(): AsyncGenerator<{ type: string }> {
+      // Phase hooks fire inside the generator's own async chain (LangGraph
+      // boundaries in production). With a bare enterWith/bindTrace the ALS
+      // store is dropped once the consumer interleaves its own awaits.
+      await Promise.resolve();
+      await hook.onEvent(
+        "pre_reasoning",
+        HookContext.create({ agentName: "QueryAgent", sessionId: "sess-1", iteration: 0 }),
+      );
+      yield { type: "chunk" };
+      await Promise.resolve();
+      yield { type: "complete" };
+    }
+
+    const handle = await tracer.startTrace({
+      sessionId: "sess-1",
+      userId: "user-1",
+      name: "director.query",
+      attributes: { mode: "query" },
+    });
+    const unbind = tracer.bindTrace(handle);
+    const traced = tracer.wrapTraceStream(handle, stream());
+
+    // Consumer with interleaved awaits between yields (ExecutionWorker
+    // appends events to Redis in the loop body).
+    for await (const event of traced) {
+      await Promise.resolve();
+      expect(event.type).toBeTruthy();
+    }
+    unbind();
+
+    // endTrace runs in the consumer context, outside the trace context —
+    // the registry fallback must still persist status/ended_at + root span.
+    await tracer.endTrace(handle.traceId, "ok");
+
+    const detail = await store.getTrace("user-1", handle.traceId);
+    expect(detail).not.toBeNull();
+    expect(detail!.trace.status).toBe("ok");
+    expect(detail!.trace.endedAt).toBeTruthy();
+    const names = detail!.spans.map((s) => s.name);
+    expect(names).toContain("QueryAgent.pre_reasoning");
+    expect(names).toContain("director.query"); // root span flushed at endTrace
   });
 });
