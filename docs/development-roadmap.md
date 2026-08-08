@@ -21,25 +21,27 @@
 
 ### 1.2 参考项目 (design-agent) 的核心优势
 
-| 能力 | 说明 | 当前缺失 |
+> 状态更新于 2026-08-08：下表"当前状态"已对照代码核实（`src/core/hitl/`、`src/adapter/langgraph/LangGraphAgentAdapter.ts`、`src/server/routes/hitl.ts`、`src/server/bootstrap.ts` 等）。
+
+| 能力 | 说明 | 当前状态 |
 |------|------|---------|
-| **HITL 人工审阅** | 3 个中断点（TaskPlan / 子 Agent 产出 / 最终整合），支持挂起→人工确认/修改/驳回→恢复 | ❌ 完全缺失 |
-| **需求澄清 (Clarify)** | Director 的多轮对话循环，自动追问模糊需求 | ❌ 完全缺失 |
-| **流式输出 (Stream)** | LLM 响应实时流式返回，前端逐字显示 | ❌ 完全缺失 |
-| **会话状态持久化** | Session 状态保存到文件系统，支持断点恢复 | ❌ 仅内存状态 |
-| **上下文自治管理** | Token 估算 → 70% 阈值压缩 / 90% 阈值销毁 | ⚠️ Hook 占位，未实现 |
-| **技能/工作流系统** | 可热插拔的 Skill 模块，YAML frontmatter + Markdown 指令体 | ⚠️ 基础框架，未启用 |
-| **输出模板系统** | 每个子 Agent 有标准化的 Markdown 输出模板 | ❌ 未实现 |
-| **Prompt 加载器** | 从文件系统加载 `.md` 提示词，支持变量替换 | ⚠️ 部分实现 |
-| **工作区管理** | Workspace 隔离、文件读写工具 | ⚠️ 框架存在 |
-| **可观测性 (O11y)** | 链路追踪，Agent/LLM/Tool 调用上报 | ❌ 未实现 |
+| **HITL 人工审阅** | 3 个中断点（TaskPlan / 子 Agent 产出 / 最终整合），支持挂起→人工确认/修改/驳回→恢复 | ✅ 已实现（DurableHumanReviewGateway + Postgres 持久化 + 超时升级） |
+| **需求澄清 (Clarify)** | Director 的多轮对话循环，自动追问模糊需求 | ❌ 未实现（仅残留 `clarify_*` 提示词与 `clarifying` 状态） |
+| **流式输出 (Stream)** | LLM 响应实时流式返回，前端逐字显示 | ✅ 已实现（onTextDelta → 200ms 并发 drain → SSE chunk） |
+| **会话状态持久化** | Session 状态保存，支持断点恢复 | ✅ 已实现（Postgres SessionRepository；文件型 SessionManager 已废弃） |
+| **上下文自治管理** | Token 估算 → 阈值压缩 | ✅ 已实现（ContextManagementHook maybeCompress） |
+| **技能/工作流系统** | 可热插拔的 Skill 模块，YAML frontmatter + Markdown 指令体 | ✅ 已启用（SkillManager/SkillLoader/WorkflowLoader + MVCC 快照） |
+| **输出模板系统** | 每个子 Agent 有标准化的 Markdown 输出模板 | ✅ 提示词内模板（`system_design_output.md` 等）+ 工作区持久化 |
+| **Prompt 加载器** | 从文件系统加载 `.md` 提示词，支持热重载 | ✅ 已实现（PromptLoader + /api/prompts 热重载） |
+| **工作区管理** | Workspace 隔离、文件读写工具 | ✅ 已实现（租户级 `data/users/<userId>/workspace` + 文件浏览/下载） |
+| **可观测性 (O11y)** | 链路追踪，Agent/LLM/Tool 调用上报 | ✅ 已实现（九态 Session/Trace/Span 落库 + /api/traces） |
 | **配置表工具** | ConfigTableTool（确定性，0 幻觉） | ❌ 计划中 |
 | **公式引擎** | FormulaEngine（确定性计算，可审计） | ❌ 计划中 |
-| **前端 HITL 界面** | 审阅面板、状态指示器、操作按钮 | ❌ 完全缺失 |
-| **前端设置页面** | 模型配置、参数调整、环境变量管理 | ❌ 完全缺失 |
-| **前端会话历史** | 历史会话列表、重新加载、对比 | ❌ 完全缺失 |
-| **前端流式展示** | SSE 实时接收、打字机效果、Token 计数 | ❌ 完全缺失 |
-| **前端需求澄清** | 对话式追问、逐条确认、一键修改 | ❌ 完全缺失 |
+| **前端 HITL 界面** | 审阅面板、状态指示器、操作按钮 | ✅ 已实现（review 页 + 挂起看板） |
+| **前端设置页面** | 模型配置、参数调整、环境变量管理 | ✅ 已实现（settings 页，写回 .env） |
+| **前端会话历史** | 历史会话列表、重新加载、对比 | ✅ 已实现（会话侧栏 + 恢复历史消息） |
+| **前端流式展示** | SSE 实时接收、打字机效果 | ✅ 已实现（streamHandler + 步骤时间线） |
+| **前端需求澄清** | 对话式追问、逐条确认、一键修改 | ❌ 未实现（随 Clarify 后端） |
 
 ---
 

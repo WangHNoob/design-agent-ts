@@ -159,12 +159,14 @@ executeQueryStream(requirement, ...)
 
 ## 7. 配置项（须三处同步）
 
-| 变量 | 建议默认 | 含义 |
+> ⚠️ 2026-08-08 更新：以下变量名/默认值已按实际实现修正（`src/config/loadConfig.ts:195-198`、`FrameworkConfig.ts:127-133`、`.env.example`）。工具契约以 `docs/integrations/kb-faq-match-contract.md` 为准。
+
+| 变量 | 实际默认 | 含义 |
 |------|----------|------|
-| `FAQ_FASTPATH_ENABLED` | `true` | 总开关 |
-| `FAQ_HIT_THRESHOLD` | `0.85` | 本仓命中阈值 |
-| `FAQ_MATCH_TOOL` | `kb_faq_match` | MCP 工具名 |
-| `FAQ_MATCH_TIMEOUT_MS` | `2000` | 单次匹配超时 |
+| `FAQ_ENABLED` | `false` | 总开关 |
+| `FAQ_THRESHOLD` | `0.82` | 本仓命中阈值 |
+| `FAQ_TOOL_NAME` | `kb_faq_match` | MCP 工具名 |
+| `FAQ_TIMEOUT_MS` | `800` | 单次匹配超时 |
 
 流式相关：复用或明确 `streamingEnabled`（settings）与文档说明。
 
