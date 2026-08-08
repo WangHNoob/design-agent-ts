@@ -108,6 +108,8 @@ export interface FrameworkConfig {
     visibilityTimeoutMs: number;
     blockMs: number;
     maxRetries: number;
+    /** DLQ entries older than this many days are trimmed by the retention sweeper. */
+    dlqRetentionDays: number;
   };
   execution: {
     taskTimeoutMs: number;
