@@ -290,6 +290,7 @@ export function loadConfig(): FrameworkConfig {
     tracing: {
       enabled: process.env.TRACING_ENABLED !== "false",
       consoleExporter: process.env.TRACING_CONSOLE_EXPORTER === "true",
+      maxAttrChars: Number(process.env.TRACING_ATTR_MAX_CHARS ?? 1500),
     },
     guards: {
       traceTokenBudget: Number(process.env.TRACE_TOKEN_BUDGET ?? 500000),
