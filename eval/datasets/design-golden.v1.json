@@ -1,8 +1,8 @@
 {
   "id": "design-golden-v1",
   "name": "Design Golden V1",
-  "version": "1.0.0",
-  "description": "设计类 Offline golden：文档结构关键字段 + 计划合理性（LLM Judge 可选）",
+  "version": "1.1.0",
+  "description": "跨模式 golden：文档结构关键字段（exact_match）+ 计划合理性/回答质量（LLM Judge）。3 个 fixture 回放用例 + 8 个在线真跑用例。",
   "metrics": [
     {
       "id": "doc_structure",
@@ -16,29 +16,76 @@
       "kind": "llm_judge",
       "criteria": "评估输出是否构成合理的游戏设计方案：目标清晰、系统拆分合理、有可落地的数值或机制要点。分数 0-1。",
       "passThreshold": 0.6
+    },
+    {
+      "id": "answer_quality",
+      "name": "回答质量",
+      "kind": "llm_judge",
+      "criteria": "评估回答是否准确、完整、切题：正面回答用户问题，给出关键信息；与问题无关或明显错误应给低分。分数 0-1。",
+      "passThreshold": 0.6
     }
   ],
   "cases": [
     {
       "id": "combat-basic",
       "input": "设计一套回合制战斗系统，包含伤害公式与技能冷却。",
-      "tags": ["design", "combat"],
+      "tags": ["design", "combat", "offline-fixture"],
       "recordedOutput": "# 回合制战斗系统设计\n\n## 目标\n提供可扩展的回合制战斗框架。\n\n## 核心机制\n- 行动顺序：速度值决定\n- 伤害公式：ATK * SkillMul - DEF * 0.5\n- 技能冷却：按回合计数\n\n## 数值要点\n基础攻击 100，防御 40，技能倍率 1.2~2.0\n",
       "sourceTraceId": "trace-fixture-combat-basic"
     },
     {
       "id": "economy-loop",
       "input": "设计休闲放置玩法的资源循环：产出、消耗、成长。",
-      "tags": ["design", "economy"],
+      "tags": ["design", "economy", "offline-fixture"],
       "recordedOutput": "# 放置玩法资源循环\n\n## 目标\n形成可持续的产出-消耗闭环。\n\n## 核心机制\n- 挂机产出金币与材料\n- 升级建筑提高产出\n- 商店消耗资源换成长\n\n## 数值要点\n小时产出曲线与升级成本保持边际递减\n",
       "sourceTraceId": "trace-fixture-economy-loop"
     },
     {
       "id": "incomplete-doc",
       "input": "设计一个公会系统。",
-      "tags": ["design", "negative"],
+      "tags": ["design", "negative", "offline-fixture"],
       "recordedOutput": "公会可以加人。",
       "sourceTraceId": "trace-fixture-incomplete"
+    },
+    {
+      "id": "skill-tree",
+      "input": "为动作 RPG 设计一个职业天赋树系统：包含天赋节点层级、解锁条件与重置机制，并给出 3 个职业的天赋倾向建议。",
+      "tags": ["design", "combat"]
+    },
+    {
+      "id": "quest-system",
+      "input": "设计一个开放世界的任务追踪系统：任务类型、追踪 UI、奖励结算与断线恢复方案。",
+      "tags": ["design", "system"]
+    },
+    {
+      "id": "weapon-balance",
+      "input": "为 5 种武器类型（单手剑、双手剑、匕首、弓、法杖）设计平衡数值框架：DPS 计算方式、攻速/暴击/穿透的换算系数，以及至少一条平衡约束。",
+      "tags": ["design", "combat", "numerical"]
+    },
+    {
+      "id": "query-damage-formula",
+      "input": "RPG 战斗里常见的伤害公式有哪些形式？各自的优缺点是什么？",
+      "tags": ["query", "combat"]
+    },
+    {
+      "id": "query-soft-launch",
+      "input": "手游软启动（soft launch）阶段的运营要点有哪些？",
+      "tags": ["query", "operation"]
+    },
+    {
+      "id": "query-irrelevant",
+      "input": "帮我写一段 Python 代码实现快速排序。",
+      "tags": ["query", "negative"]
+    },
+    {
+      "id": "table-skill-config",
+      "input": "设计一张技能配置表：至少包含技能名、等级、伤害倍率、冷却、消耗、解锁条件 6 列，并给出 3 行示例数据。",
+      "tags": ["table", "combat"]
+    },
+    {
+      "id": "design-vague",
+      "input": "做个游戏。",
+      "tags": ["design", "negative"]
     }
   ],
   "baselines": [
@@ -71,6 +118,61 @@
       "caseId": "incomplete-doc",
       "metricId": "plan_reasonableness",
       "judgeRubric": "内容过短且缺少系统设计时应给低分。"
+    },
+    {
+      "caseId": "skill-tree",
+      "metricId": "doc_structure",
+      "expectedContains": ["## 目标", "## 核心机制"]
+    },
+    {
+      "caseId": "skill-tree",
+      "metricId": "plan_reasonableness",
+      "judgeRubric": "应覆盖天赋节点层级、解锁条件、重置机制，并给出至少一个职业的天赋倾向。"
+    },
+    {
+      "caseId": "quest-system",
+      "metricId": "doc_structure",
+      "expectedContains": ["## 目标", "## 核心机制"]
+    },
+    {
+      "caseId": "quest-system",
+      "metricId": "plan_reasonableness",
+      "judgeRubric": "应覆盖任务类型、追踪方式、奖励结算与断线恢复。"
+    },
+    {
+      "caseId": "weapon-balance",
+      "metricId": "doc_structure",
+      "expectedContains": ["## 目标", "## 核心机制"]
+    },
+    {
+      "caseId": "weapon-balance",
+      "metricId": "plan_reasonableness",
+      "judgeRubric": "应给出可计算的 DPS 公式或换算系数，并覆盖至少 3 种武器。"
+    },
+    {
+      "caseId": "query-damage-formula",
+      "metricId": "answer_quality",
+      "judgeRubric": "应列出至少两种伤害公式形式（如减法、乘法）并说明优缺点。"
+    },
+    {
+      "caseId": "query-soft-launch",
+      "metricId": "answer_quality",
+      "judgeRubric": "应给出至少 3 条与软启动阶段相关的具体运营要点。"
+    },
+    {
+      "caseId": "query-irrelevant",
+      "metricId": "answer_quality",
+      "judgeRubric": "该问题超出游戏策划知识库范围；回答若偏离游戏领域且未提供规划答案，可给中等以下分数，但不应胡编。"
+    },
+    {
+      "caseId": "table-skill-config",
+      "metricId": "answer_quality",
+      "judgeRubric": "应产出表格/列定义：技能名、等级、伤害倍率、冷却、消耗、解锁条件 6 列齐全，并有示例行。"
+    },
+    {
+      "caseId": "design-vague",
+      "metricId": "plan_reasonableness",
+      "judgeRubric": "需求过于空泛时，合理输出应澄清方向或给出最小可行设计框架；仅输出一两句话应给低分。"
     }
   ]
 }

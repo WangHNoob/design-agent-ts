@@ -6,7 +6,12 @@ import { ToolManager } from "../core/tool/ToolManager.js";
 import { SkillManager } from "../core/skill/SkillManager.js";
 import { loadSkills } from "./SkillLoader.js";
 import { loadWorkflows } from "./WorkflowLoader.js";
-import { DirectorAgent } from "../core/agent/director/DirectorAgent.js";
+import { DirectorAgent, type DirectorDeps } from "../core/agent/director/DirectorAgent.js";
+import type { AgentHook } from "../port/hook/AgentHook.js";
+import type { LoggerPort } from "../port/infra/LoggerPort.js";
+import type { AgentFactory } from "../port/agent/AgentFactory.js";
+import type { HumanReviewGateway } from "../core/agent/director/HumanReviewGateway.js";
+import type { ToolPort } from "../port/tool/ToolPort.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
 import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
@@ -29,7 +34,6 @@ import type { CompensateFailureQueuePort } from "../port/saga/CompensateFailureQ
 import { CostAccountingHook } from "../core/hook/CostAccountingHook.js";
 import { RateLimitHook } from "../core/hook/RateLimitHook.js";
 import { RateLimitGuard } from "../core/cost/RateLimitGuard.js";
-import { MeteredChatModel } from "../core/cost/MeteredChatModel.js";
 import type { ChatModelPort } from "../port/model/ChatModelPort.js";
 import type { CostStorePort } from "../port/cost/CostStorePort.js";
 import type { RateLimitPort } from "../port/cost/RateLimitPort.js";
@@ -77,9 +81,9 @@ import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdap
 import { RedisExecutionEventStoreAdapter } from "../adapter/redis/RedisExecutionEventStoreAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
 import { ExecutionWorker, EXECUTION_QUEUE } from "./worker/ExecutionWorker.js";
-import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort } from "./app.js";
-import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
-import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
+import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort, setCorsTrustedOrigins } from "./app.js";
+import { setUserContextManager } from "./routes/users.js";
+import { McpSdkClient } from "../adapter/mcp/McpSdkClient.js";
 import { createDirectorModel } from "./compose/directorModel.js";
 import { ConsoleLogger } from "../core/observability/ConsoleLogger.js";
 import { toMcpTransportConfig } from "./compose/mcpTransport.js";
@@ -165,6 +169,98 @@ function buildDirectorStreamingAndFaqDeps(
   };
 }
 
+/**
+ * Single source of truth for DirectorAgent deps. All three construction sites
+ * (bootstrap main path / lateBootstrapDirector / reloadDirector) go through
+ * this — edit here, not at the call sites.
+ */
+function buildDirectorDeps(params: {
+  config: FrameworkConfig;
+  container: Container;
+  model: ChatModelPort;
+  prompts: Record<string, string | undefined>;
+  hooks: AgentHook[];
+  logger: LoggerPort;
+  settings: AppSettings;
+  agentFactory?: AgentFactory;
+  humanReviewGateway?: HumanReviewGateway;
+  wrapTool?: (tool: ToolPort) => ToolPort;
+}): DirectorDeps {
+  if (!bootstrapState) throw new Error("Bootstrap not yet called");
+  const {
+    toolRegistry,
+    skillRegistry,
+    workspaceManager,
+    mcpToolNames,
+    blackboardStore,
+    tracer,
+    contextStorage,
+  } = bootstrapState;
+  const resolveUserId = () => contextStorage.getStore()?.userId;
+  return {
+    model: params.model,
+    agentFactory: params.agentFactory ?? params.container.agentFactory,
+    toolRegistry,
+    skillRegistry,
+    humanReviewGateway:
+      params.humanReviewGateway ?? bootstrapState.durableHitlGateway ?? params.container.humanReviewGateway,
+    logger: params.logger,
+    hooks: params.hooks,
+    prompts: params.prompts,
+    idGenerator: new NodeIdGeneratorAdapter(),
+    workspace: workspaceManager,
+    limits: {
+      queryAgentMaxIterations: params.config.limits.queryAgentMaxIterations,
+      queryMaxTokens: params.config.limits.queryMaxTokens,
+      subAgentMaxIterations: params.config.limits.subAgentMaxIterations,
+      grepSearchResultLimit: params.config.limits.grepSearchResultLimit,
+      webSourceResultLimit: params.config.limits.webSourceResultLimit,
+      eventDrainIntervalMs: params.config.execution.eventDrainIntervalMs,
+      inFlightPartialOutputTimeoutMs: params.config.execution.inFlightPartialOutputTimeoutMs,
+    },
+    memory: {
+      archiveEnabled: params.config.memory.archiveEnabled,
+      protectRecentTurns: params.config.memory.protectRecentTurns,
+      maxActiveMessages: params.config.memory.maxActiveMessages,
+      maxTokens: params.config.limits.contextMaxTokens,
+      compressionThreshold: params.config.limits.contextCompressionThreshold,
+    },
+    extraToolNames: resolveExposedMcpTools({
+      allMcpToolNames: mcpToolNames,
+      exposeMode: params.config.mcp.exposeMode,
+      defaultExposePrefixes: params.config.mcp.defaultExposePrefixes,
+    }),
+    mcp: {
+      exposeMode: params.config.mcp.exposeMode,
+      defaultExposePrefixes: params.config.mcp.defaultExposePrefixes,
+      skillToolAllowlist: params.config.mcp.skillToolAllowlist,
+      toolNames: mcpToolNames,
+    },
+    blackboardStore,
+    blackboardConfig: params.config.blackboard,
+    tracer,
+    resolveUserId,
+    wrapTool: params.wrapTool ?? bootstrapState.wrapTool,
+    planHard: {
+      enabled: params.config.guards.planHardEnabled,
+      maxReplans: params.config.guards.planMaxReplans,
+      rejectUnauthorizedTools: params.config.guards.planRejectUnauthorizedTools,
+      domainToolDefaults: params.config.guards.planDomainToolDefaults,
+    },
+    multiAgent: {
+      enabled: params.config.guards.multiAgentEnabled,
+      maxFanOut: params.config.guards.multiAgentMaxFanOut,
+      maxDepth: params.config.guards.multiAgentMaxDepth,
+      detectCycles: params.config.guards.multiAgentDetectCycles,
+      handoffMaxChars: params.config.guards.handoffMaxChars,
+      handoffMaxKeyPoints: params.config.guards.handoffMaxKeyPoints,
+      handoffMaxTotalChars: params.config.guards.handoffMaxTotalChars,
+      allowInvoke: params.config.guards.multiAgentAllowInvoke,
+    },
+    ...buildDirectorStreamingAndFaqDeps(params.config, toolRegistry, params.settings),
+  };
+}
+
 export function getBootstrapState() {
   return bootstrapState;
 }
@@ -180,10 +276,8 @@ export async function lateBootstrapDirector(): Promise<void> {
     toolRegistry,
     skillRegistry,
     settingsManager,
-    tavilyTool,
     directorPrompts,
     hooks,
-    workspaceManager,
     contextStorage,
     tracer,
     costStore,
@@ -221,63 +315,15 @@ export async function lateBootstrapDirector(): Promise<void> {
     resolveUserId,
   });
 
-  const director = new DirectorAgent({
+  const director = new DirectorAgent(buildDirectorDeps({
+    config,
+    container,
     model: directorModel,
-    agentFactory: container.agentFactory,
-    toolRegistry,
-    skillRegistry,
-    humanReviewGateway: bootstrapState.durableHitlGateway ?? container.humanReviewGateway,
-    logger: runtimeLogger,
-    hooks,
     prompts: directorPrompts,
-    idGenerator: new NodeIdGeneratorAdapter(),
-    workspace: workspaceManager,
-    limits: {
-      queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
-      queryMaxTokens: config.limits.queryMaxTokens,
-      subAgentMaxIterations: config.limits.subAgentMaxIterations,
-    },
-    memory: {
-      archiveEnabled: config.memory.archiveEnabled,
-      protectRecentTurns: config.memory.protectRecentTurns,
-      maxActiveMessages: config.memory.maxActiveMessages,
-      maxTokens: config.limits.contextMaxTokens,
-      compressionThreshold: config.limits.contextCompressionThreshold,
-    },
-    extraToolNames: resolveExposedMcpTools({
-      allMcpToolNames: bootstrapState.mcpToolNames,
-      exposeMode: config.mcp.exposeMode,
-      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-    }),
-    mcp: {
-      exposeMode: config.mcp.exposeMode,
-      defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-      skillToolAllowlist: config.mcp.skillToolAllowlist,
-      toolNames: bootstrapState.mcpToolNames,
-    },
-    blackboardStore: bootstrapState.blackboardStore,
-    blackboardConfig: bootstrapState.config.blackboard,
-    tracer,
-    resolveUserId,
-    wrapTool: bootstrapState.wrapTool,
-      planHard: {
-        enabled: config.guards.planHardEnabled,
-        maxReplans: config.guards.planMaxReplans,
-        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
-        domainToolDefaults: config.guards.planDomainToolDefaults,
-      },
-      multiAgent: {
-        enabled: config.guards.multiAgentEnabled,
-        maxFanOut: config.guards.multiAgentMaxFanOut,
-        maxDepth: config.guards.multiAgentMaxDepth,
-        detectCycles: config.guards.multiAgentDetectCycles,
-        handoffMaxChars: config.guards.handoffMaxChars,
-        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
-        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
-        allowInvoke: config.guards.multiAgentAllowInvoke,
-      },
-      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
-    });
+    hooks,
+    logger: runtimeLogger,
+    settings,
+  }));
 
     setDirector(director);
     await bootstrapState.executionWorker?.start();
@@ -289,7 +335,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   const fileSystem = new NodeFileSystemAdapter();
   const contextStorage = new NodeContextStorageAdapter<TenantContext>();
 
-  const settingsManager = new SettingsManager(fileSystem);
+  const settingsManager = new SettingsManager(fileSystem, process.env.SETTINGS_DIR || ".");
   await settingsManager.initialize();
 
   // If settings.json has no API key yet, seed from env (.env / compose) and persist
@@ -320,7 +366,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   }
 
   const settings = settingsManager.getSettings();
-  let apiKey = settings.modelApiKey || config.model.apiKey;
+  const apiKey = settings.modelApiKey || config.model.apiKey;
 
   // Load prompts from filesystem (composition root responsibility)
   const subAgentPrompts = {
@@ -492,8 +538,11 @@ export async function lateBootstrapDirector(): Promise<void> {
     console.log(`[Bootstrap] Tool group "knowledge" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
 
-  // Register web search tools (group: "web") — external, circuit-breaker wrapped
-  if (shouldRegisterGroup("web")) {
+  // Register web search tools (group: "web") — external, circuit-breaker wrapped.
+  // Without a Tavily API key the tools are NOT registered: a registered-but-
+  // unconfigured tool would silently "succeed" with a no-op message instead of
+  // erroring, hiding misconfiguration from the agent.
+  if (shouldRegisterGroup("web") && tavilyTool.isConfigured()) {
     toolRegistry.registerToGroup(
       wrapExternalTool(
         new DelegatingTool(
@@ -517,6 +566,8 @@ export async function lateBootstrapDirector(): Promise<void> {
       "web",
     );
     console.log(`[Bootstrap] Tool group "web" enabled: ${toolRegistry.getGroupToolNames("web").length} tools (resilient)`);
+  } else if (shouldRegisterGroup("web")) {
+    console.log('[Bootstrap] Tool group "web" skipped: no Tavily API key configured (TAVILY_API_KEY / settings)');
   } else {
     console.log(`[Bootstrap] Tool group "web" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
@@ -552,7 +603,7 @@ export async function lateBootstrapDirector(): Promise<void> {
 
   // Shared blackboard: session-scoped tool-result cache for multi-agent collaboration.
   const blackboardStore = new BlackboardStore();
-  setInterval(() => blackboardStore.evictAll(), 60_000).unref?.();
+  setInterval(() => blackboardStore.evictAll(), config.execution.blackboardEvictIntervalMs).unref?.();
 
   // MCP exposure: on_demand only injects defaultExposePrefixes into base descriptors;
   // skill/task-specific MCP tools are merged in DirectorAgent.prepareTaskAgent.
@@ -593,7 +644,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   const toolApprovalStore = new InMemoryToolApprovalStore();
   let toolSecurityOptions: ToolSecurityOptions | null = null;
   let auditStoreAdapter: PostgresAuditStoreAdapter | null = null;
-  let compensateFailureQueue: CompensateFailureQueuePort = new InMemoryCompensateFailureQueue();
+  let compensateFailureQueue: CompensateFailureQueuePort;
   let traceStore: TraceStorePort | null = null;
   let tracer: TracerPort = new NoOpTracer();
 
@@ -603,13 +654,12 @@ export async function lateBootstrapDirector(): Promise<void> {
   const workspaceManager = new WorkspaceManager("workspace", fileSystem, contextStorage);
 
   // ─── User System (Multi-Tenant) ──────────────────────────────────
-  let userContextManager: UserContextManager | null = null;
+  let userContextManager: UserContextManager | null;
   let dbAdapter: PostgresDatabaseAdapter | null = null;
-  let betterAuthAdapter: BetterAuthAdapter | null = null;
-  let redisAdapter: TenantIsolationPort | null = null;
+  let betterAuthAdapter: BetterAuthAdapter | null;
+  let redisAdapter: TenantIsolationPort | null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
-  let eventStore: RedisExecutionEventStoreAdapter | null = null;
-  let executionWorker: ExecutionWorker | null = null;
+  let eventStore: RedisExecutionEventStoreAdapter | null;
   let costStoreAdapter: PostgresCostStoreAdapter | null = null;
   let rateLimitAdapter: RedisRateLimitAdapter | null = null;
 
@@ -703,6 +753,8 @@ export async function lateBootstrapDirector(): Promise<void> {
         dingtalk: dingtalkConfig,
         allowEmailPassword: config.userSystem.allowEmailPassword,
         trustedOrigins: config.userSystem.trustedOrigins,
+        sessionTtlSeconds: config.userSystem.sessionTtlSeconds,
+        refreshTtlSeconds: config.userSystem.refreshTtlSeconds,
       },
       dbAdapter,
     );
@@ -721,6 +773,15 @@ export async function lateBootstrapDirector(): Promise<void> {
     redisAdapter = new RedisTenantIsolationAdapter(
       config.userSystem.redisUrl,
       betterAuthAdapter,
+      "gd:",
+      {
+        lockWaitTimeoutMs: config.redis.lockWaitTimeoutMs,
+        lockTtlMs: config.redis.lockTtlMs,
+        lockRetries: config.redis.lockRetries,
+        lockRetryDelayMs: config.redis.lockRetryDelayMs,
+        tenantContextCacheTtlSeconds: config.redis.tenantContextCacheTtlSeconds,
+        concurrencySlotTtlSeconds: config.redis.concurrencySlotTtlSeconds,
+      },
     );
     await (redisAdapter as RedisTenantIsolationAdapter).connect();
     console.log("[Bootstrap] Redis connected (tenant isolation)");
@@ -808,6 +869,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         blockMs: config.messageQueue.blockMs,
         maxRetries: config.messageQueue.maxRetries,
         maxInflight: config.execution.queryMaxInflight + config.execution.designMaxInflight,
+        dlqRetentionDays: config.messageQueue.dlqRetentionDays,
       },
     );
     await mqAdapter.connect();
@@ -842,7 +904,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     console.warn("[Bootstrap] VERSIONING_ENABLED=true but Postgres is unavailable; versioning disabled");
   }
 
-  executionWorker = new ExecutionWorker({
+  const executionWorker = new ExecutionWorker({
     queue: mqAdapter!,
     eventStore: eventStore!,
     executionRepositoryFactory,
@@ -857,6 +919,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     maxConcurrentPerUser: config.userSystem.maxConcurrentPerUser,
     pollIntervalMs: config.execution.pollIntervalMs,
     taskTimeoutMs: config.execution.taskTimeoutMs,
+    deferBackoffMs: config.messageQueue.deferBackoffMs,
     executionOverridesFactory: async (session, userId) => {
       if (!config.versioning.enabled || !versionStoreAdapter) {
         return undefined;
@@ -945,6 +1008,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     idGenerator,
     maxRetries: config.messageQueue.maxRetries,
     timeoutMs: config.hitl.timeout,
+    reviewLockTtlMs: config.hitl.reviewLockTtlMs,
     freshness: new AlwaysFreshHITLCheck(),
     auditStore: auditStoreAdapter,
     toolApprovalStore,
@@ -958,7 +1022,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         scan: hitlScan,
         timeoutMs: config.hitl.timeout,
         policy: config.hitl.timeoutPolicy,
-        batchSize: 50,
+        batchSize: config.hitl.sweepBatchSize,
         applyDeps: {
           repositoryFactory: hitlRepositoryFactory,
           onAutoDecision: async ({ checkpoint, action }) => {
@@ -1078,7 +1142,6 @@ export async function lateBootstrapDirector(): Promise<void> {
     setUserContextManager(userContextManager);
   }
   if (betterAuthAdapter) {
-    setBetterAuthAdapter(betterAuthAdapter);
     setAuthAdapter(betterAuthAdapter);
   }
   if (redisAdapter) {
@@ -1118,65 +1181,17 @@ export async function lateBootstrapDirector(): Promise<void> {
       resolveUserId,
     });
 
-    const director = new DirectorAgent({
+    const director = new DirectorAgent(buildDirectorDeps({
+      config,
+      container,
       model: directorModel,
-      agentFactory: container.agentFactory,
-      toolRegistry,
-      skillRegistry,
-      humanReviewGateway: durableHitlGateway,
-      logger: runtimeLogger,
-      hooks,
       prompts: directorPrompts,
-      idGenerator: new NodeIdGeneratorAdapter(),
-      workspace: workspaceManager,
-      limits: {
-        queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
-        queryMaxTokens: config.limits.queryMaxTokens,
-        subAgentMaxIterations: config.limits.subAgentMaxIterations,
-        grepSearchResultLimit: config.limits.grepSearchResultLimit,
-        webSourceResultLimit: config.limits.webSourceResultLimit,
-      },
-      memory: {
-        archiveEnabled: config.memory.archiveEnabled,
-        protectRecentTurns: config.memory.protectRecentTurns,
-        maxActiveMessages: config.memory.maxActiveMessages,
-        maxTokens: config.limits.contextMaxTokens,
-        compressionThreshold: config.limits.contextCompressionThreshold,
-      },
-      extraToolNames: resolveExposedMcpTools({
-        allMcpToolNames: bootstrapState.mcpToolNames,
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-      }),
-      mcp: {
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-        skillToolAllowlist: config.mcp.skillToolAllowlist,
-        toolNames: bootstrapState.mcpToolNames,
-      },
-      blackboardStore: bootstrapState.blackboardStore,
-      blackboardConfig: bootstrapState.config.blackboard,
-      tracer,
-      resolveUserId,
+      hooks,
+      logger: runtimeLogger,
+      settings,
+      humanReviewGateway: durableHitlGateway,
       wrapTool,
-      planHard: {
-        enabled: config.guards.planHardEnabled,
-        maxReplans: config.guards.planMaxReplans,
-        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
-        domainToolDefaults: config.guards.planDomainToolDefaults,
-      },
-      multiAgent: {
-        enabled: config.guards.multiAgentEnabled,
-        maxFanOut: config.guards.multiAgentMaxFanOut,
-        maxDepth: config.guards.multiAgentMaxDepth,
-        detectCycles: config.guards.multiAgentDetectCycles,
-        handoffMaxChars: config.guards.handoffMaxChars,
-        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
-        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
-        allowInvoke: config.guards.multiAgentAllowInvoke,
-      },
-      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
-    });
+    }));
 
     setDirector(director);
     await executionWorker.start();
@@ -1185,6 +1200,12 @@ export async function lateBootstrapDirector(): Promise<void> {
     console.warn("[Bootstrap] No API key configured. Director not initialized. Configure via /api/settings.");
   }
 
+  setCorsTrustedOrigins(
+    config.userSystem.trustedOrigins
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
   const app = createApp();
   return { app, config, container: bootstrapState.container, director: null, settingsManager };
 }
@@ -1200,7 +1221,7 @@ export async function reloadDirector(): Promise<void> {
     throw new Error("无法在任务执行中重载，请等待当前任务完成后再试");
   }
 
-  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer, costStore, rateLimit, settingsManager } = bootstrapState;
+  const { config, skillRegistry, directorPrompts, hooks, contextStorage, tracer, costStore, rateLimit, settingsManager } = bootstrapState;
   const settings = settingsManager.getSettings();
 
   // 1. Reload prompts
@@ -1240,64 +1261,15 @@ export async function reloadDirector(): Promise<void> {
       tracer,
       resolveUserId,
     });
-    const director = new DirectorAgent({
+    const director = new DirectorAgent(buildDirectorDeps({
+      config,
+      container: bootstrapState.container,
       model: directorModel,
-      agentFactory: bootstrapState.container.agentFactory,
-      toolRegistry,
-      skillRegistry,
-      humanReviewGateway: bootstrapState.durableHitlGateway
-        ?? bootstrapState.container.humanReviewGateway,
-      logger: runtimeLogger,
-      hooks,
       prompts: directorPrompts,
-      idGenerator: new NodeIdGeneratorAdapter(),
-      workspace: workspaceManager,
-      limits: {
-        queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
-        queryMaxTokens: config.limits.queryMaxTokens,
-        subAgentMaxIterations: config.limits.subAgentMaxIterations,
-      },
-      memory: {
-        archiveEnabled: config.memory.archiveEnabled,
-        protectRecentTurns: config.memory.protectRecentTurns,
-        maxActiveMessages: config.memory.maxActiveMessages,
-        maxTokens: config.limits.contextMaxTokens,
-        compressionThreshold: config.limits.contextCompressionThreshold,
-      },
-      extraToolNames: resolveExposedMcpTools({
-        allMcpToolNames: bootstrapState.mcpToolNames,
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-      }),
-      mcp: {
-        exposeMode: config.mcp.exposeMode,
-        defaultExposePrefixes: config.mcp.defaultExposePrefixes,
-        skillToolAllowlist: config.mcp.skillToolAllowlist,
-        toolNames: bootstrapState.mcpToolNames,
-      },
-      blackboardStore: bootstrapState.blackboardStore,
-      blackboardConfig: bootstrapState.config.blackboard,
-      tracer,
-      resolveUserId,
-      wrapTool: bootstrapState.wrapTool,
-      planHard: {
-        enabled: config.guards.planHardEnabled,
-        maxReplans: config.guards.planMaxReplans,
-        rejectUnauthorizedTools: config.guards.planRejectUnauthorizedTools,
-        domainToolDefaults: config.guards.planDomainToolDefaults,
-      },
-      multiAgent: {
-        enabled: config.guards.multiAgentEnabled,
-        maxFanOut: config.guards.multiAgentMaxFanOut,
-        maxDepth: config.guards.multiAgentMaxDepth,
-        detectCycles: config.guards.multiAgentDetectCycles,
-        handoffMaxChars: config.guards.handoffMaxChars,
-        handoffMaxKeyPoints: config.guards.handoffMaxKeyPoints,
-        handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
-        allowInvoke: config.guards.multiAgentAllowInvoke,
-      },
-      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
-    });
+      hooks,
+      logger: runtimeLogger,
+      settings,
+    }));
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");
   } else {

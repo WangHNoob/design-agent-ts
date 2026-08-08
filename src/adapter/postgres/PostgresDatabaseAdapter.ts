@@ -265,7 +265,7 @@ class PostgresTransactionAdapter implements DatabasePort {
     };
   }
 
-  async transaction<T>(fn: (tx: DatabasePort) => Promise<T>, options?: TransactionOptions): Promise<T> {
+  async transaction<T>(fn: (tx: DatabasePort) => Promise<T>, _options?: TransactionOptions): Promise<T> {
     // Nested transaction via SAVEPOINT
     const savepointName = `sp_${Date.now()}`;
     try {

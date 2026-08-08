@@ -59,7 +59,6 @@ export class PostgresCostStoreAdapter implements CostStorePort {
     if (options.to) {
       conditions.push(`created_at <= $${index}`);
       params[index.toString()] = options.to;
-      index++;
     }
 
     conditions.push(`${column} IS NOT NULL`);

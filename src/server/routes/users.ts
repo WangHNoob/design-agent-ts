@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
 import type { UserContextManager } from "../../core/user/UserContextManager.js";
-import type { BetterAuthAdapter } from "../../adapter/betterauth/BetterAuthAdapter.js";
 import { requireAuth, requireAdmin } from "../middleware/auth.js";
 
 // Extend Hono's context to include tenant
@@ -12,14 +11,9 @@ declare module "hono" {
 }
 
 let userContextManager: UserContextManager | null = null;
-let betterAuthAdapter: BetterAuthAdapter | null = null;
 
 export function setUserContextManager(ucm: UserContextManager) {
   userContextManager = ucm;
-}
-
-export function setBetterAuthAdapter(adapter: BetterAuthAdapter) {
-  betterAuthAdapter = adapter;
 }
 
 export const usersRoute = new Hono();

@@ -47,7 +47,6 @@ export interface FrameworkConfig {
   hitl: {
     enabled: boolean;
     reviewPoints: Record<string, boolean>;
-    maxRevisionRounds: number;
     timeout: number;
     /**
      * @deprecated Prefer timeoutPolicy. Kept for backward compat —
@@ -61,6 +60,10 @@ export interface FrameworkConfig {
     timeoutPolicy: HITLTimeoutPolicy;
     /** Interval for the durable HITL timeout sweeper (ms). 0 disables. */
     timeoutSweepIntervalMs: number;
+    /** Distributed review lock TTL (ms). Default 30000. */
+    reviewLockTtlMs: number;
+    /** Timeout sweeper batch size per run. Default 50. */
+    sweepBatchSize: number;
   };
   knowledge: {
     wikiPath: string;
@@ -101,6 +104,25 @@ export interface FrameworkConfig {
      * e.g. "http://localhost:3001,https://app.example.com"
      */
     trustedOrigins: string;
+    /** Better Auth session expiry (s). Default 7 days. */
+    sessionTtlSeconds: number;
+    /** Better Auth session refresh window (s). Default 1 day. */
+    refreshTtlSeconds: number;
+  };
+  /** Redis-backed infra knobs (locking / cache / concurrency slots). */
+  redis: {
+    /** Distributed lock wait timeout (ms). Default 5000. */
+    lockWaitTimeoutMs: number;
+    /** Distributed lock TTL (ms). Default 30000. */
+    lockTtlMs: number;
+    /** Lock acquisition retries while waiting. Default 10. */
+    lockRetries: number;
+    /** Delay between lock retries (ms). Default 500. */
+    lockRetryDelayMs: number;
+    /** Tenant context cache TTL (s). Default 300. */
+    tenantContextCacheTtlSeconds: number;
+    /** Concurrency slot TTL (s). Default 3600. */
+    concurrencySlotTtlSeconds: number;
   };
   messageQueue: {
     enabled: boolean;
@@ -108,6 +130,10 @@ export interface FrameworkConfig {
     visibilityTimeoutMs: number;
     blockMs: number;
     maxRetries: number;
+    /** DLQ entries older than this many days are trimmed by the retention sweeper. */
+    dlqRetentionDays: number;
+    /** Short sleep before defer return to avoid claim/requeue spin when a lane is full (ms). Default 75. */
+    deferBackoffMs: number;
   };
   execution: {
     taskTimeoutMs: number;
@@ -119,6 +145,16 @@ export interface FrameworkConfig {
     queryMaxInflight: number;
     /** Max concurrent design-mode executions per process. Default 1. */
     designMaxInflight: number;
+    /** EventBus drain poll interval for SSE progress events (ms). Default 200. */
+    eventDrainIntervalMs: number;
+    /** Grace period to collect partial output from an aborted in-flight task (ms). Default 2000. */
+    inFlightPartialOutputTimeoutMs: number;
+    /** Blackboard eviction sweep interval (ms). Default 60000. */
+    blackboardEvictIntervalMs: number;
+    /** Max requirement length for /api/console/execute (chars). Default 50000. */
+    maxRequirementChars: number;
+    /** SSE event replay limit per resume. Default 1000. */
+    sseReplayLimit: number;
   };
   /**
    * Query-mode FAQ fast-path: match high-confidence FAQ before invoking the LLM.
@@ -351,6 +387,5 @@ export interface FrameworkConfig {
     /** Default canary percent for newly published versions (0 = full rollout requires explicit release). */
     defaultCanaryPercent: number;
     /** TTL for in-flight snapshot references (ms). 0 = no automatic cleanup. */
-    snapshotTtlMs: number;
   };
 }

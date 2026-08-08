@@ -30,7 +30,7 @@ export class MemoryExtractor {
   private static readonly PROCEDURAL_PATTERNS = [
     /(?:流程|步骤|顺序)[是为：:]+(.+)/g,
     /(?:先[做写执行].+?)[，,]?(?:然后|接着|再)(.+)/g,
-    /(?:第一步|第二步|第三步|1[\.、]|2[\.、])(.+)/g,
+    /(?:第一步|第二步|第三步|1[.、]|2[.、])(.+)/g,
   ];
 
   /** Patterns that indicate a user profile / preference. */

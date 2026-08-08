@@ -2,7 +2,6 @@ import type { AgentResponse } from "../../../port/agent/AgentResponse.js";
 import { ChatMessage } from "../../../port/message/ChatMessage.js";
 import { AgentResponse as AR } from "../../../port/agent/AgentResponse.js";
 import type { ChatModelPort } from "../../../port/model/ChatModelPort.js";
-import type { ModelResponse } from "../../../port/model/ModelResponse.js";
 import type { AgentFactory } from "../../../port/agent/AgentFactory.js";
 import type { LoggerPort } from "../../../port/infra/LoggerPort.js";
 import { ConsoleLogger } from "../../observability/ConsoleLogger.js";
@@ -62,13 +61,6 @@ import { SubAgentDescriptors } from "../subagents/SubAgentFactory.js";
 import { decideFaqHit } from "../../faq/decideFaqHit.js";
 import type { FaqMatchRaw } from "../../faq/types.js";
 
-function fallbackUUID(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
 /** Map agent descriptor names to role strings for skill matching. */
 const AGENT_NAME_TO_ROLE: Record<string, string> = {
@@ -177,6 +169,10 @@ export interface DirectorDeps {
     subAgentMaxIterations?: number;
     grepSearchResultLimit?: number;
     webSourceResultLimit?: number;
+    /** SSE progress-event drain poll interval (ms). Default 200. */
+    eventDrainIntervalMs?: number;
+    /** Grace period to collect partial output from an aborted in-flight task (ms). Default 2000. */
+    inFlightPartialOutputTimeoutMs?: number;
   };
   /** Short-term sliding-window memory (query path required). */
   memory?: {
@@ -569,9 +565,8 @@ export class DirectorAgent {
     options?: DirectorStreamOptions
   ): Promise<AgentResponse> {
     return this.withRootTrace(sessionId, mode, options, async (traceId) => {
-      try {
-        let result: AgentResponse;
-        switch (mode) {
+      let result: AgentResponse;
+      switch (mode) {
           case "design":
             result = await this.executeDesignFlow(requirement, sessionId, role, traceId, options);
             break;
@@ -586,9 +581,6 @@ export class DirectorAgent {
           ...result,
           metadata: { ...result.metadata, traceId },
         };
-      } catch (err) {
-        throw err;
-      }
     });
   }
 
@@ -821,7 +813,7 @@ export class DirectorAgent {
               allowedTools: task.allowedTools,
             };
         assignmentsById.set(task.id, assignment);
-        return this.executeSingleTask(assignment, sessionId, traceId, taskSignal, options);
+        return this.executeSingleTask(assignment, sessionId, traceId, undefined, taskSignal, options);
       },
       pipelineOptions: {
         signal,
@@ -829,6 +821,7 @@ export class DirectorAgent {
         planHardEnabled: planHard.enabled,
         maxFanOut: this.multiAgentConfig().enabled ? this.multiAgentConfig().maxFanOut : 0,
         onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
+        inFlightPartialOutputTimeoutMs: this.deps.limits?.inFlightPartialOutputTimeoutMs,
       },
     });
 
@@ -938,126 +931,6 @@ export class DirectorAgent {
   }
 
   private async executeSingleTask(
-    task: TaskAssignment,
-    sessionId: string,
-    _traceId?: string,
-    signal?: AbortSignal,
-    options?: DirectorStreamOptions,
-  ): Promise<TaskResult> {
-    if (signal?.aborted) {
-      return {
-        taskId: task.taskId,
-        domain: task.domain,
-        status: "cancelled",
-        output: "",
-        errorMessage: "Task cancelled by user",
-      };
-    }
-
-    const multi = this.multiAgentConfig();
-    const prevCallParent = this.activeCallParent;
-    try {
-      const memoryPort = await this.createMemoryPort();
-
-      const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
-
-      const parent = options?.callParent ?? this.callRoot;
-      if (multi.enabled) {
-        this.activeCallParent = this.callGuard.enter(descriptor.name, parent);
-      } else {
-        this.activeCallParent = parent;
-      }
-
-      const agent = this.deps.agentFactory.createAgent(
-        descriptor,
-        toolRegistry,
-        memoryPort,
-        this.deps.hooks
-      );
-
-      const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
-      const input = ChatMessage.text("user", "director", enhancedAssignment);
-      const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
-
-      if (signal?.aborted || response.metadata?.aborted) {
-        return {
-          taskId: task.taskId,
-          domain: task.domain,
-          status: "cancelled",
-          output: AR.getTextContent(response) ?? "",
-          errorMessage: response.errorMessage ?? "Task cancelled by user",
-          errorClass: "cancelled",
-        };
-      }
-
-      let output = AR.getTextContent(response) ?? "";
-      if (!output.trim()) {
-        output = "(子 Agent 返回空内容)";
-      }
-      if (this.deps.workspace && output) {
-        await this.deps.workspace.writeTaskOutput(sessionId, task.taskId, "output.md", output);
-      }
-
-      let handoff: HandoffPayload | undefined;
-      if (response.success) {
-        try {
-          handoff = this.buildTaskHandoff(task, output);
-        } catch (err) {
-          if (isHandoffViolationError(err)) {
-            await this.safeRecordPlanSpan("guard.handoff_violation", {
-              taskId: task.taskId,
-              reason: err.reason,
-              field: err.field,
-            });
-            return {
-              taskId: task.taskId,
-              domain: task.domain,
-              status: "error",
-              output,
-              errorMessage: err.message,
-              errorClass: "permanent",
-            };
-          }
-          throw err;
-        }
-      }
-
-      return {
-        taskId: task.taskId,
-        domain: task.domain,
-        status: response.success ? "success" : "error",
-        output,
-        errorMessage: response.errorMessage,
-        errorClass: response.success
-          ? undefined
-          : ErrorClassifier.classify(response.errorMessage ?? "Agent execution failed"),
-        handoff,
-      };
-    } catch (err) {
-      if (isMultiAgentGuardError(err)) {
-        await this.safeRecordPlanSpan(`guard.${err.code}`, {
-          agentName: err.agentName,
-          path: err.path,
-          depth: err.depth,
-          maxDepth: err.maxDepth,
-          reason: err.reason,
-        });
-        return {
-          taskId: task.taskId,
-          domain: task.domain,
-          status: "error",
-          output: "",
-          errorMessage: err.message,
-          errorClass: "permanent",
-        };
-      }
-      throw err;
-    } finally {
-      this.activeCallParent = prevCallParent;
-    }
-  }
-
-  private async executeSingleTaskWithHooks(
     task: TaskAssignment,
     sessionId: string,
     _traceId?: string,
@@ -1495,8 +1368,9 @@ export class DirectorAgent {
    * receives real-time progress events instead of a post-execution dump.
    */
   private async *concurrentDrain(eventBus: EventBus, done: { value: boolean }): AsyncGenerator<StreamEvent> {
+    const drainIntervalMs = this.deps.limits?.eventDrainIntervalMs ?? 200;
     while (!done.value) {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, drainIntervalMs));
       for (const event of eventBus.drain()) {
         yield event;
       }
@@ -1549,7 +1423,12 @@ export class DirectorAgent {
         const raw = await fp.match(requirement);
         const decision = decideFaqHit(raw, fp.threshold);
         if (decision.ok) {
-          console.log(`[DirectorAgent] faq.hit score=${decision.score} faqId=${decision.faqId ?? ""}`);
+          this.logger.info(`[DirectorAgent] faq.hit score=${decision.score} faqId=${decision.faqId ?? ""}`);
+          void this.safeRecordPlanSpan("faq.hit", {
+            score: decision.score,
+            faqId: decision.faqId ?? "",
+            question: decision.question ?? "",
+          });
           yield {
             type: "faq_hit",
             data: { score: decision.score, faqId: decision.faqId, question: decision.question },
@@ -1558,9 +1437,15 @@ export class DirectorAgent {
           yield { type: "complete", data: { success: true, output: decision.answer, source: "faq" } };
           return;
         }
-        console.log(`[DirectorAgent] faq.miss reason=${decision.reason}`);
+        this.logger.info(`[DirectorAgent] faq.miss reason=${decision.reason}`);
+        void this.safeRecordPlanSpan("faq.miss", { reason: decision.reason });
       } catch (err) {
-        console.warn(`[DirectorAgent] faq.error`, err);
+        this.logger.warn("[DirectorAgent] faq.error", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        void this.safeRecordPlanSpan("faq.error", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -1875,7 +1760,7 @@ export class DirectorAgent {
                 allowedTools: task.allowedTools,
               };
           assignmentsById.set(task.id, assignment);
-          return this.executeSingleTaskWithHooks(
+          return this.executeSingleTask(
             assignment,
             sessionId,
             undefined,
@@ -1890,6 +1775,7 @@ export class DirectorAgent {
           planHardEnabled: planHard.enabled,
           maxFanOut: this.multiAgentConfig().enabled ? this.multiAgentConfig().maxFanOut : 0,
           onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
+          inFlightPartialOutputTimeoutMs: this.deps.limits?.inFlightPartialOutputTimeoutMs,
           onTaskStart: (task) => eventBus.emit({
             type: "task_start",
             data: {
@@ -2061,6 +1947,7 @@ export class DirectorAgent {
       },
       sessionId,
       traceId,
+      undefined,
       signal,
       options,
     );
@@ -2136,7 +2023,7 @@ export class DirectorAgent {
       };
 
       const done = { value: false };
-      const taskPromise = this.executeSingleTaskWithHooks(
+      const taskPromise = this.executeSingleTask(
         {
           taskId: "single",
           domain: singleDomain,

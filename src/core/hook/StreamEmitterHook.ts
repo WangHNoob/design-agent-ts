@@ -216,7 +216,7 @@ export class StreamEmitterHook implements AgentHook {
       }
     } else if (toolName.startsWith("tavily_")) {
       // Web search: extract URLs from result
-      const urlMatches = result.match(/https?:\/\/[^\s\)]+/g);
+      const urlMatches = result.match(/https?:\/\/[^\s)]+/g);
       if (urlMatches) {
         for (const url of urlMatches.slice(0, this.limits.webSourceLimit ?? 3)) {
           sources.push({

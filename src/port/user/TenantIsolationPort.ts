@@ -106,4 +106,7 @@ export interface TenantIsolationPort {
   // ─── Health ──────────────────────────────────────────────────
 
   healthCheck(): Promise<boolean>;
+
+  /** Release underlying connections/resources (no-op allowed for in-memory impls). */
+  close(): Promise<void>;
 }
