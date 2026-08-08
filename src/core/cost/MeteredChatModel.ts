@@ -6,7 +6,6 @@ import type { ChatMessage } from "../../port/message/ChatMessage.js";
 import type { CostStorePort } from "../../port/cost/CostStorePort.js";
 import type { RateLimitPort } from "../../port/cost/RateLimitPort.js";
 import type { TracerPort } from "../../port/tracing/TracerPort.js";
-import { estimateCostMicros, type CostPricing } from "./estimateCost.js";
 import { RateLimitError } from "./RateLimitError.js";
 import type { LoggerPort } from "../../port/infra/LoggerPort.js";
 import { ConsoleLogger } from "../observability/ConsoleLogger.js";
@@ -19,7 +18,6 @@ export interface MeteredChatModelOptions {
   tpmEstimatePerCall: number;
   rateLimit: RateLimitPort;
   costStore: CostStorePort;
-  pricing: CostPricing;
   tracer?: TracerPort;
   resolveUserId?: () => string | undefined;
   resolveWorkflowId?: () => string | undefined;
@@ -178,12 +176,7 @@ export class MeteredChatModel implements ChatModelPort {
         modelName,
         inputTokens,
         outputTokens,
-        estimatedCostMicros: estimateCostMicros(
-          inputTokens,
-          outputTokens,
-          modelName,
-          this.options.pricing,
-        ),
+        estimatedCostMicros: 0,
       });
     } catch (err) {
       this.logger.warn("[MeteredChatModel] Failed to record cost usage:", { err });

@@ -12,7 +12,7 @@ describe("InMemoryCostStore", () => {
       modelName: "gpt-4o",
       inputTokens: 100,
       outputTokens: 50,
-      estimatedCostMicros: 1000,
+      estimatedCostMicros: 0,
     });
     await store.recordUsage({
       userId: "user-a",
@@ -20,15 +20,15 @@ describe("InMemoryCostStore", () => {
       modelName: "gpt-4o",
       inputTokens: 200,
       outputTokens: 100,
-      estimatedCostMicros: 2000,
+      estimatedCostMicros: 0,
     });
     await store.recordUsage({
       userId: "user-b",
       agentName: "CombatDesigner",
       modelName: "gpt-4o",
-      inputTokens: 300,
-      outputTokens: 150,
-      estimatedCostMicros: 5000,
+      inputTokens: 800,
+      outputTokens: 400,
+      estimatedCostMicros: 0,
     });
 
     const byAgent = await store.aggregate({
@@ -40,6 +40,6 @@ describe("InMemoryCostStore", () => {
 
     const top = await store.listTopSpenders({ limit: 2 });
     expect(top[0]?.key).toBe("user-b");
-    expect(top[0]?.estimatedCostMicros).toBe(5000);
+    expect(top[0]?.inputTokens + top[0]!.outputTokens).toBe(1200);
   });
 });

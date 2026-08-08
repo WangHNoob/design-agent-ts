@@ -12,6 +12,7 @@ export interface CostUsageRecord {
   readonly modelName?: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** Legacy column; always 0 — platform does not bill BYOK usage. */
   readonly estimatedCostMicros: number;
 }
 
@@ -20,6 +21,7 @@ export interface CostAggregate {
   readonly dimension: CostGroupDimension;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** Legacy field; always 0 for new records. Rankings use token totals. */
   readonly estimatedCostMicros: number;
   readonly recordCount: number;
 }
