@@ -52,6 +52,8 @@ import { ToolCircuitRegistry } from "../core/resilience/ToolCircuitRegistry.js";
 import { BlackboardStore } from "../core/blackboard/BlackboardStore.js";
 import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
+import type { AppSettings } from "../core/settings/SettingsManager.js";
+import { parseFaqMatchResult } from "../core/faq/parseFaqMatchResult.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool, setMCPStatus } from "./routes/settings.js";
 import { NodeFileSystemAdapter } from "../adapter/fs/NodeFileSystemAdapter.js";
 import { NodeIdGeneratorAdapter } from "../adapter/infra/NodeIdGeneratorAdapter.js";
@@ -133,6 +135,35 @@ let bootstrapState: {
 
 /** Shared runtime logger for the composition root (swap here to re-route core logs). */
 const runtimeLogger = new ConsoleLogger();
+
+function buildDirectorStreamingAndFaqDeps(
+  config: FrameworkConfig,
+  toolRegistry: ToolManager,
+  settings: AppSettings,
+) {
+  return {
+    streamingEnabled: settings.streamingEnabled !== false,
+    faqFastPath: {
+      enabled: config.faq.faqEnabled,
+      threshold: config.faq.faqThreshold,
+      match: async (query: string) => {
+        const tool = toolRegistry.getTool(config.faq.faqToolName);
+        if (!tool) {
+          console.log("[Bootstrap/Director] faq.unavailable tool missing");
+          return null;
+        }
+        const result = await Promise.race([
+          tool.execute({ query, top_k: 1 }),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), config.faq.faqTimeoutMs),
+          ),
+        ]);
+        if (!result) return null;
+        return parseFaqMatchResult(result);
+      },
+    },
+  };
+}
 
 export function getBootstrapState() {
   return bootstrapState;
@@ -245,6 +276,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
         allowInvoke: config.guards.multiAgentAllowInvoke,
       },
+      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
     });
 
     setDirector(director);
@@ -1143,6 +1175,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
         allowInvoke: config.guards.multiAgentAllowInvoke,
       },
+      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
     });
 
     setDirector(director);
@@ -1167,7 +1200,8 @@ export async function reloadDirector(): Promise<void> {
     throw new Error("无法在任务执行中重载，请等待当前任务完成后再试");
   }
 
-  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer, costStore, rateLimit } = bootstrapState;
+  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer, costStore, rateLimit, settingsManager } = bootstrapState;
+  const settings = settingsManager.getSettings();
 
   // 1. Reload prompts
   clearPromptCache();
@@ -1262,6 +1296,7 @@ export async function reloadDirector(): Promise<void> {
         handoffMaxTotalChars: config.guards.handoffMaxTotalChars,
         allowInvoke: config.guards.multiAgentAllowInvoke,
       },
+      ...buildDirectorStreamingAndFaqDeps(config, toolRegistry, settings),
     });
     setDirector(director);
     console.log("[Bootstrap] Director hot-reloaded (prompts, skills, workflows)");

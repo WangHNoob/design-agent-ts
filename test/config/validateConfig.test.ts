@@ -69,6 +69,12 @@ function config(
       queryMaxInflight: 4,
       designMaxInflight: 1,
     },
+    faq: {
+      faqEnabled: false,
+      faqThreshold: 0.82,
+      faqTimeoutMs: 800,
+      faqToolName: "kb_faq_match",
+    },
     memory: {
       archiveEnabled: true,
       protectRecentTurns: 10,

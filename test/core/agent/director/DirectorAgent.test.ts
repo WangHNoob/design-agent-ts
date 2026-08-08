@@ -119,7 +119,7 @@ describe("DirectorAgent", () => {
     expect(response.agentName).toBe("Director");
   });
 
-  it("query stream 应直接转发 processStream 的真实 chunk", async () => {
+  it("query stream 在无 onTextDelta 时仍按 processStream 响应转发 chunk", async () => {
     const process = vi.fn();
     const processStream = vi.fn(async function* () {
       for (const text of ["真实", "分块"]) {
@@ -155,8 +155,158 @@ describe("DirectorAgent", () => {
 
     expect(events.filter((event) => event.type === "chunk").map((event) => event.data.text))
       .toEqual(["真实", "分块"]);
-    expect(events.at(-1)?.data.output).toBe("真实分块");
+    expect(events.at(-1)?.data.output).toBe("分块");
     expect(process).not.toHaveBeenCalled();
+  });
+
+  it("query stream 应通过 onTextDelta 转发 token 级 chunk", async () => {
+    const processStream = vi.fn(async function* (
+      _sessionId: string,
+      _messages: unknown,
+      opts?: { onTextDelta?: (delta: string) => void; streamingEnabled?: boolean },
+    ) {
+      opts?.onTextDelta?.("Hello");
+      opts?.onTextDelta?.(" World");
+      yield {
+        agentName: "QueryAgent",
+        message: ChatMessage.text("assistant", "QueryAgent", "Hello World"),
+        metadata: {},
+        success: true,
+        errorMessage: null,
+      };
+    });
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: {
+        createAgent: vi.fn(() => ({
+          getDescriptor: vi.fn(),
+          getName: vi.fn(() => "QueryAgent"),
+          process: vi.fn(),
+          processStream,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+      streamingEnabled: true,
+    });
+
+    const events = [];
+    for await (const event of director.executeStream("Hello", "sid-delta", "query", "chief_designer")) {
+      events.push(event);
+    }
+
+    expect(processStream).toHaveBeenCalledWith(
+      "sid-delta",
+      expect.any(Array),
+      expect.objectContaining({
+        streamingEnabled: true,
+        onTextDelta: expect.any(Function),
+      }),
+    );
+    expect(events.filter((event) => event.type === "chunk").map((event) => event.data.text))
+      .toEqual(["Hello", " World"]);
+    expect(events.at(-1)?.data.output).toBe("Hello World");
+  });
+
+  it("query stream 应在 processStream 完成前发出 onTextDelta chunk（真 TTFT）", async () => {
+    const seen: Array<{ type: string; data: Record<string, unknown> }> = [];
+    let midStreamSawChunk = false;
+    const processStream = vi.fn(async function* (
+      _sessionId: string,
+      _messages: unknown,
+      opts?: { onTextDelta?: (delta: string) => void; streamingEnabled?: boolean },
+    ) {
+      opts?.onTextDelta?.("首");
+      // concurrentDrain polls every 200ms — wait past one tick while still inside processStream
+      await new Promise((r) => setTimeout(r, 250));
+      midStreamSawChunk = seen.some((e) => e.type === "chunk" && e.data.text === "首");
+      yield {
+        agentName: "QueryAgent",
+        message: ChatMessage.text("assistant", "QueryAgent", "首尾"),
+        metadata: {},
+        success: true,
+        errorMessage: null,
+      };
+    });
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: {
+        createAgent: vi.fn(() => ({
+          getDescriptor: vi.fn(),
+          getName: vi.fn(() => "QueryAgent"),
+          process: vi.fn(),
+          processStream,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+      streamingEnabled: true,
+    });
+
+    for await (const event of director.executeStream("Hello", "sid-ttft", "query", "chief_designer")) {
+      seen.push(event as { type: string; data: Record<string, unknown> });
+    }
+
+    expect(midStreamSawChunk).toBe(true);
+    // delta "首" mid-generation; after processStream yields, suffix "尾" is deduped remainder
+    expect(seen.filter((e) => e.type === "chunk").map((e) => e.data.text)).toEqual(["首", "尾"]);
+    expect(seen.at(-1)?.data.output).toBe("首尾");
+  });
+
+  it("streamingEnabled=false 时不调用 onTextDelta 且仅在最终 yield 完整 chunk", async () => {
+    const processStream = vi.fn(async function* (
+      _sessionId: string,
+      _messages: unknown,
+      opts?: { onTextDelta?: (delta: string) => void; streamingEnabled?: boolean },
+    ) {
+      expect(opts?.streamingEnabled).toBe(false);
+      expect(opts?.onTextDelta).toBeTypeOf("function");
+      // 模拟 adapter：streamingEnabled=false 时不触发 delta
+      yield {
+        agentName: "QueryAgent",
+        message: ChatMessage.text("assistant", "QueryAgent", "完整答案"),
+        metadata: {},
+        success: true,
+        errorMessage: null,
+      };
+    });
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: {
+        createAgent: vi.fn(() => ({
+          getDescriptor: vi.fn(),
+          getName: vi.fn(() => "QueryAgent"),
+          process: vi.fn(),
+          processStream,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+      streamingEnabled: false,
+    });
+
+    const events = [];
+    for await (const event of director.executeStream("Hello", "sid-no-stream", "query", "chief_designer")) {
+      events.push(event);
+    }
+
+    expect(processStream).toHaveBeenCalledWith(
+      "sid-no-stream",
+      expect.any(Array),
+      expect.objectContaining({
+        streamingEnabled: false,
+        onTextDelta: expect.any(Function),
+      }),
+    );
+    expect(events.filter((event) => event.type === "chunk").map((event) => event.data.text))
+      .toEqual(["完整答案"]);
+    expect(events.at(-1)?.data.output).toBe("完整答案");
   });
 
   it("design stream 应按 DAG 并发同层并将失败后继标记 skipped", async () => {
