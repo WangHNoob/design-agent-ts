@@ -60,6 +60,10 @@ promptsRoute.get("/", (c) => {
  */
 promptsRoute.get("/:name", (c) => {
   const name = c.req.param("name")!;
+  // Sanitize name: only allow alphanumeric, underscore, hyphen (same as PUT/DELETE)
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    return c.json({ error: "Invalid prompt name" }, 400);
+  }
   const filePath = path.join(PROMPTS_DIR, `${name}.md`);
 
   if (!fs.existsSync(filePath)) {
