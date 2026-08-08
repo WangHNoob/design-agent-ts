@@ -303,6 +303,12 @@ export class LangGraphModelAdapter implements ChatModelPort {
       ? (Array.from(contentBlocks.values()) as unknown as string)
       : textContent;
 
+    // Empty completion = retriable failure, never silent success (reasoning
+    // models can burn the whole output budget on reasoning_content).
+    if (!hasArrayContent && textContent.length === 0) {
+      throw new Error("LLM returned an empty response");
+    }
+
     const response = new AIMessage({
       content: finalContent,
       response_metadata: lastMetadata,

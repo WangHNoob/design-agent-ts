@@ -14,6 +14,10 @@ describe("classifyModelError", () => {
     expect(classifyModelError(Object.assign(new Error("bad request"), { status: 400 }))).toBe("terminal");
     expect(classifyModelError(new Error("Aborted by user"))).toBe("terminal");
   });
+
+  test("treats empty completions as retriable (never silent success)", () => {
+    expect(classifyModelError(new Error("LLM returned an empty response"))).toBe("retriable");
+  });
 });
 
 describe("ModelCircuitBreaker", () => {
