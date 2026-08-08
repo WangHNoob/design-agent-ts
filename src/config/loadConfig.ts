@@ -214,6 +214,12 @@ export function loadConfig(): FrameworkConfig {
       queryMaxInflight: Number(process.env.QUERY_MAX_INFLIGHT ?? 4),
       designMaxInflight: Number(process.env.DESIGN_MAX_INFLIGHT ?? 1),
     },
+    faq: {
+      faqEnabled: process.env.FAQ_ENABLED === "true",
+      faqThreshold: Number(process.env.FAQ_THRESHOLD ?? 0.82),
+      faqTimeoutMs: Number(process.env.FAQ_TIMEOUT_MS ?? 800),
+      faqToolName: process.env.FAQ_TOOL_NAME ?? "kb_faq_match",
+    },
     memory: {
       archiveEnabled: process.env.MEMORY_ARCHIVE_ENABLED !== "false",
       protectRecentTurns: Number(process.env.MEMORY_PROTECT_RECENT_TURNS ?? 10),

@@ -121,6 +121,19 @@ export interface FrameworkConfig {
     designMaxInflight: number;
   };
   /**
+   * Query-mode FAQ fast-path: match high-confidence FAQ before invoking the LLM.
+   */
+  faq: {
+    /** FAQ_ENABLED — default false. */
+    faqEnabled: boolean;
+    /** FAQ_THRESHOLD — default 0.82. */
+    faqThreshold: number;
+    /** FAQ_TIMEOUT_MS — default 800. */
+    faqTimeoutMs: number;
+    /** FAQ_TOOL_NAME — default kb_faq_match. */
+    faqToolName: string;
+  };
+  /**
    * Short-term sliding-window memory: protect recent messages, archive summaries on eviction.
    */
   memory: {
