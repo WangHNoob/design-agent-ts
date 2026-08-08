@@ -14,32 +14,69 @@ export interface TracingHookOptions {
 }
 
 const DEFAULT_MAX_ATTR_CHARS = 1500;
+/** 提取核心后数组最多保留的条数（防止整表倾倒） */
+const MAX_CORE_ARRAY_ITEMS = 20;
 
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max)}…[+${value.length - max} chars]`;
 }
 
+/** 容忍前缀的 JSON 解析（黑板缓存等包装器会在 JSON 前加 `[来自黑板缓存]` 标记行）。 */
+function parseJsonWithPrefix(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    const brace = value.indexOf("{");
+    if (brace > 0) {
+      try {
+        return JSON.parse(value.slice(brace));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+/** 值级紧凑化：保持 JSON 结构完整可解析，仅截断长字符串与超量数组。 */
+function compactValue(value: unknown, maxValue: number): unknown {
+  if (typeof value === "string") return truncate(value, maxValue);
+  if (Array.isArray(value)) {
+    const sliced = value.slice(0, MAX_CORE_ARRAY_ITEMS);
+    const out = sliced.map((v) => compactValue(v, maxValue));
+    if (value.length > MAX_CORE_ARRAY_ITEMS) {
+      out.push(`…[+${value.length - MAX_CORE_ARRAY_ITEMS} rows]`);
+    }
+    return out;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = compactValue(v, maxValue);
+    }
+    return out;
+  }
+  return value;
+}
+
 /**
  * knowledge-hub 工具返回 knowledge-envelope/v1 协议包（contract/release/
  * result/qualityFlags/trust/trace）。观测只关心核心内容：提取 result，
  * 附带 trust（可信度）与 qualityFlags（质量标记），丢弃协议噪音，
- * 让截断预算全部用在核心内容上。
+ * 并对值做结构保持的紧凑化（截断后仍是合法 JSON，便于观测台渲染）。
  */
 function extractToolResult(value: string, max: number): string {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const env = parsed as Record<string, unknown>;
-      if (env.result !== undefined && typeof env.result === "object") {
-        const core: Record<string, unknown> = { result: env.result };
-        if (env.trust !== undefined) core.trust = env.trust;
-        if (env.qualityFlags !== undefined) core.qualityFlags = env.qualityFlags;
-        return truncate(JSON.stringify(core), max);
-      }
+  const parsed = parseJsonWithPrefix(value);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const env = parsed as Record<string, unknown>;
+    if (env.result !== undefined && typeof env.result === "object") {
+      const maxValue = Math.max(Math.floor(max / 10), 40);
+      const core: Record<string, unknown> = { result: compactValue(env.result, maxValue) };
+      if (env.trust !== undefined) core.trust = compactValue(env.trust, maxValue);
+      if (env.qualityFlags !== undefined) core.qualityFlags = env.qualityFlags;
+      return truncate(JSON.stringify(core), max);
     }
-  } catch {
-    // 非 JSON 结果，原样截断
   }
   return truncate(value, max);
 }
