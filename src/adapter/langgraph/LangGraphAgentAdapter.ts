@@ -115,6 +115,8 @@ export class LangGraphAgentAdapter implements AgentPort {
     let lastAdditionalKwargs: Record<string, unknown> = {};
     let usageInput = 0;
     let usageOutput = 0;
+    // reasoning_content 按分片流式到达，必须累积拼接（spread 只会保留最后一片）
+    let reasoningText = "";
 
     for await (const chunk of chunks) {
       const content = chunk.content;
@@ -175,10 +177,19 @@ export class LangGraphAgentAdapter implements AgentPort {
         lastMetadata = { ...lastMetadata, ...(chunk.response_metadata as Record<string, unknown>) };
       }
       if (chunk.additional_kwargs) {
+        const reasoning = (chunk.additional_kwargs as Record<string, unknown>).reasoning_content;
+        if (typeof reasoning === "string" && reasoning.length > 0) {
+          reasoningText += reasoning;
+        }
         lastAdditionalKwargs = { ...lastAdditionalKwargs, ...chunk.additional_kwargs };
       }
       if (chunk.usage_metadata?.input_tokens) usageInput = chunk.usage_metadata.input_tokens;
       if (chunk.usage_metadata?.output_tokens) usageOutput = chunk.usage_metadata.output_tokens;
+    }
+
+    // 用累积值覆盖（分片场景下 spread 合并后的最后一片不完整）
+    if (reasoningText) {
+      lastAdditionalKwargs = { ...lastAdditionalKwargs, reasoning_content: reasoningText };
     }
 
     // Build final tool_calls
@@ -363,6 +374,15 @@ export class LangGraphAgentAdapter implements AgentPort {
         const finishReason = (metadata?.finish_reason ?? metadata?.stop_reason) as string | undefined;
         console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM response finish_reason=${finishReason ?? "unknown"}, contentLength=${typeof response.content === "string" ? response.content.length : JSON.stringify(response.content).length}`);
 
+        // 观测：LLM 思考（reasoning_content 累积）与可见输出预览，随 post_reasoning span 落库
+        const rawAdditional = response.additional_kwargs as Record<string, unknown> | undefined;
+        const llmReasoning = typeof rawAdditional?.reasoning_content === "string"
+          ? (rawAdditional.reasoning_content as string)
+          : undefined;
+        const llmOutput = typeof response.content === "string"
+          ? response.content
+          : JSON.stringify(response.content);
+
         const postCtx = await runHooks("post_reasoning", HookContext.create({
           agentName: descriptor.name,
           sessionId: state.sessionId,
@@ -371,6 +391,8 @@ export class LangGraphAgentAdapter implements AgentPort {
           messages: [...(preCtx.messages ?? []), this.messageMapper.fromLangGraph(response)],
           inputTokenCount: response.usage_metadata?.input_tokens ?? 0,
           outputTokenCount: response.usage_metadata?.output_tokens ?? 0,
+          llmReasoning,
+          llmOutput,
         }));
         if (postCtx.abort) {
           const reason = postCtx.abortReason ?? "Aborted by post_reasoning hook";

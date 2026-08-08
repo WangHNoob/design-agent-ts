@@ -8,11 +8,26 @@ import { isSpanPhase, type SpanPhase } from "../../port/tracing/types.js";
  * Records the nine ReAct phases as immutable spans under the active trace.
  * pre_agent_call opens a nested parent span; post_agent_call / on_error closes it.
  */
+export interface TracingHookOptions {
+  /** 单个长文本属性（工具入参/出参、LLM 思考/输出）的最大字符数，超出截断。 */
+  maxAttrChars?: number;
+}
+
+const DEFAULT_MAX_ATTR_CHARS = 1500;
+
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}…[+${value.length - max} chars]`;
+}
+
 export class TracingHook implements AgentHook {
   /** Run early so later hooks see abort decisions after span recording. */
   priority = 5;
 
-  constructor(private readonly tracer: TracerPort) {}
+  constructor(
+    private readonly tracer: TracerPort,
+    private readonly options: TracingHookOptions = {},
+  ) {}
 
   async onEvent(point: HookPoint, context: HookContext): Promise<HookContext> {
     if (!this.tracer.getCurrentTrace()) {
@@ -80,11 +95,18 @@ export class TracingHook implements AgentHook {
   }
 
   private attrs(context: HookContext, point: HookPoint): Record<string, unknown> {
+    const max = this.options.maxAttrChars ?? DEFAULT_MAX_ATTR_CHARS;
     return {
       hookPoint: point,
       agentName: context.agentName,
       sessionId: context.sessionId,
       toolName: context.toolName,
+      toolArguments: context.toolArguments ? truncate(JSON.stringify(context.toolArguments), max) : undefined,
+      toolResult: context.toolResult ? truncate(context.toolResult, max) : undefined,
+      llmReasoning: context.llmReasoning ? truncate(context.llmReasoning, max) : undefined,
+      llmOutput: context.llmOutput ? truncate(context.llmOutput, max) : undefined,
+      inputTokens: context.inputTokenCount,
+      outputTokens: context.outputTokenCount,
       iteration: context.iteration,
       maxIterations: context.maxIterations,
       error: context.error?.message,

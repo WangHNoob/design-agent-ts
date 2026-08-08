@@ -227,4 +227,69 @@ describe("DefaultTracer + TracingHook", () => {
     expect(names).toContain("QueryAgent.pre_reasoning");
     expect(names).toContain("director.query"); // root span flushed at endTrace
   });
+
+  test("span attributes capture tool I/O and LLM reasoning/output with truncation", async () => {
+    const store = new InMemoryTraceStore();
+    const context = new MemoryContext<TraceRuntimeState>();
+    // 极小截断阈值验证 truncate 生效
+    const tracer = new DefaultTracer(store, new FakeIds(), context);
+    const hook = new TracingHook(tracer, { maxAttrChars: 40 });
+
+    const handle = await tracer.startTrace({
+      sessionId: "sess-1",
+      userId: "user-1",
+      name: "director.query",
+    });
+    await tracer.withTrace(handle, async () => {
+      await hook.onEvent(
+        "pre_tool_execution",
+        HookContext.create({
+          agentName: "QueryAgent",
+          sessionId: "sess-1",
+          toolName: "kb_query_table",
+          toolArguments: { table: "Hero.csv", where: "heroId = H001 with a very long description" },
+        }),
+      );
+      await hook.onEvent(
+        "post_tool_execution",
+        HookContext.create({
+          agentName: "QueryAgent",
+          sessionId: "sess-1",
+          toolName: "kb_query_table",
+          toolResult: "trust=0.938 trusted heroId=H001 baseAtk=110 (long result payload truncated here)",
+        }),
+      );
+      await hook.onEvent(
+        "post_reasoning",
+        HookContext.create({
+          agentName: "QueryAgent",
+          sessionId: "sess-1",
+          iteration: 1,
+          llmReasoning: "思考：先查 Hero.csv，再核对字段命名约定，最后给出 baseAtk 字段",
+          llmOutput: "H001 的基础攻击力为 110",
+          inputTokenCount: 100,
+          outputTokenCount: 20,
+        }),
+      );
+      await tracer.endTrace(handle.traceId, "ok");
+    });
+
+    const detail = await store.getTrace("user-1", handle.traceId);
+    const spans = new Map(detail!.spans.map((s) => [s.name, s.attributes]));
+
+    const preTool = spans.get("QueryAgent.pre_tool_execution");
+    expect(preTool?.["toolName"]).toBe("kb_query_table");
+    expect(String(preTool?.["toolArguments"])).toContain("…[+"); // 截断标记
+    expect(String(preTool?.["toolArguments"])).toContain("Hero.csv");
+
+    const postTool = spans.get("QueryAgent.post_tool_execution");
+    expect(String(postTool?.["toolResult"])).toContain("trust=0.938");
+    expect(String(postTool?.["toolResult"])).toContain("…[+");
+
+    const postReasoning = spans.get("QueryAgent.post_reasoning");
+    expect(postReasoning?.["llmReasoning"]).toBe("思考：先查 Hero.csv，再核对字段命名约定，最后给出 baseAtk 字段");
+    expect(postReasoning?.["llmOutput"]).toBe("H001 的基础攻击力为 110");
+    expect(postReasoning?.["inputTokens"]).toBe(100);
+    expect(postReasoning?.["outputTokens"]).toBe(20);
+  });
 });
