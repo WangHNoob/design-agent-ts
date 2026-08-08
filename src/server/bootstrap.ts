@@ -236,6 +236,8 @@ export async function lateBootstrapDirector(): Promise<void> {
       queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
       queryMaxTokens: config.limits.queryMaxTokens,
       subAgentMaxIterations: config.limits.subAgentMaxIterations,
+      eventDrainIntervalMs: config.execution.eventDrainIntervalMs,
+      inFlightPartialOutputTimeoutMs: config.execution.inFlightPartialOutputTimeoutMs,
     },
     memory: {
       archiveEnabled: config.memory.archiveEnabled,
@@ -289,7 +291,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   const fileSystem = new NodeFileSystemAdapter();
   const contextStorage = new NodeContextStorageAdapter<TenantContext>();
 
-  const settingsManager = new SettingsManager(fileSystem);
+  const settingsManager = new SettingsManager(fileSystem, process.env.SETTINGS_DIR || ".");
   await settingsManager.initialize();
 
   // If settings.json has no API key yet, seed from env (.env / compose) and persist
@@ -557,7 +559,7 @@ export async function lateBootstrapDirector(): Promise<void> {
 
   // Shared blackboard: session-scoped tool-result cache for multi-agent collaboration.
   const blackboardStore = new BlackboardStore();
-  setInterval(() => blackboardStore.evictAll(), 60_000).unref?.();
+  setInterval(() => blackboardStore.evictAll(), config.execution.blackboardEvictIntervalMs).unref?.();
 
   // MCP exposure: on_demand only injects defaultExposePrefixes into base descriptors;
   // skill/task-specific MCP tools are merged in DirectorAgent.prepareTaskAgent.
@@ -708,6 +710,8 @@ export async function lateBootstrapDirector(): Promise<void> {
         dingtalk: dingtalkConfig,
         allowEmailPassword: config.userSystem.allowEmailPassword,
         trustedOrigins: config.userSystem.trustedOrigins,
+        sessionTtlSeconds: config.userSystem.sessionTtlSeconds,
+        refreshTtlSeconds: config.userSystem.refreshTtlSeconds,
       },
       dbAdapter,
     );
@@ -726,6 +730,15 @@ export async function lateBootstrapDirector(): Promise<void> {
     redisAdapter = new RedisTenantIsolationAdapter(
       config.userSystem.redisUrl,
       betterAuthAdapter,
+      "gd:",
+      {
+        lockWaitTimeoutMs: config.redis.lockWaitTimeoutMs,
+        lockTtlMs: config.redis.lockTtlMs,
+        lockRetries: config.redis.lockRetries,
+        lockRetryDelayMs: config.redis.lockRetryDelayMs,
+        tenantContextCacheTtlSeconds: config.redis.tenantContextCacheTtlSeconds,
+        concurrencySlotTtlSeconds: config.redis.concurrencySlotTtlSeconds,
+      },
     );
     await (redisAdapter as RedisTenantIsolationAdapter).connect();
     console.log("[Bootstrap] Redis connected (tenant isolation)");
@@ -863,6 +876,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     maxConcurrentPerUser: config.userSystem.maxConcurrentPerUser,
     pollIntervalMs: config.execution.pollIntervalMs,
     taskTimeoutMs: config.execution.taskTimeoutMs,
+    deferBackoffMs: config.messageQueue.deferBackoffMs,
     executionOverridesFactory: async (session, userId) => {
       if (!config.versioning.enabled || !versionStoreAdapter) {
         return undefined;
@@ -951,6 +965,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     idGenerator,
     maxRetries: config.messageQueue.maxRetries,
     timeoutMs: config.hitl.timeout,
+    reviewLockTtlMs: config.hitl.reviewLockTtlMs,
     freshness: new AlwaysFreshHITLCheck(),
     auditStore: auditStoreAdapter,
     toolApprovalStore,
@@ -964,7 +979,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         scan: hitlScan,
         timeoutMs: config.hitl.timeout,
         policy: config.hitl.timeoutPolicy,
-        batchSize: 50,
+        batchSize: config.hitl.sweepBatchSize,
         applyDeps: {
           repositoryFactory: hitlRepositoryFactory,
           onAutoDecision: async ({ checkpoint, action }) => {
@@ -1141,6 +1156,8 @@ export async function lateBootstrapDirector(): Promise<void> {
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
         grepSearchResultLimit: config.limits.grepSearchResultLimit,
         webSourceResultLimit: config.limits.webSourceResultLimit,
+        eventDrainIntervalMs: config.execution.eventDrainIntervalMs,
+        inFlightPartialOutputTimeoutMs: config.execution.inFlightPartialOutputTimeoutMs,
       },
       memory: {
         archiveEnabled: config.memory.archiveEnabled,
@@ -1268,6 +1285,8 @@ export async function reloadDirector(): Promise<void> {
         queryAgentMaxIterations: config.limits.queryAgentMaxIterations,
         queryMaxTokens: config.limits.queryMaxTokens,
         subAgentMaxIterations: config.limits.subAgentMaxIterations,
+        eventDrainIntervalMs: config.execution.eventDrainIntervalMs,
+        inFlightPartialOutputTimeoutMs: config.execution.inFlightPartialOutputTimeoutMs,
       },
       memory: {
         archiveEnabled: config.memory.archiveEnabled,

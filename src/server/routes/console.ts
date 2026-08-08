@@ -63,12 +63,12 @@ export function hasActiveExecutions(): boolean {
 
 export const consoleRoute = new Hono();
 
-function validateExecuteRequest(body: ExecuteRequest): string | null {
+function validateExecuteRequest(body: ExecuteRequest, maxChars: number): string | null {
   if (!body.requirement || body.requirement.trim().length === 0) {
     return "Requirement cannot be empty";
   }
-  if (body.requirement.trim().length > 50_000) {
-    return "Requirement too long (max 50000 characters)";
+  if (body.requirement.trim().length > maxChars) {
+    return `Requirement too long (max ${maxChars} characters)`;
   }
   if (!["design", "query", "table"].includes(body.mode)) {
     return "Mode must be design, query or table";
@@ -169,7 +169,7 @@ async function createExecution(
 
 consoleRoute.post("/execute", async (c) => {
   const body = await c.req.json<ExecuteRequest>();
-  const validationError = validateExecuteRequest(body);
+  const validationError = validateExecuteRequest(body, dependencies?.config?.execution?.maxRequirementChars ?? 50000);
   if (validationError) {
     return c.json({ error: "validation_error", message: validationError }, 400);
   }
@@ -206,7 +206,7 @@ consoleRoute.post("/execute", async (c) => {
 
 consoleRoute.post("/execute/stream", async (c) => {
   const body = await c.req.json<ExecuteRequest>();
-  const validationError = validateExecuteRequest(body);
+  const validationError = validateExecuteRequest(body, dependencies?.config?.execution?.maxRequirementChars ?? 50000);
   if (validationError) {
     return c.json({ error: "validation_error", message: validationError }, 400);
   }
@@ -359,7 +359,7 @@ function openExecutionEventStream(
           opts.userId,
           opts.executionId,
           cursor,
-          1_000,
+          dependencies?.config?.execution?.sseReplayLimit ?? 1_000,
         );
         for (const event of replayed) send(event);
         const latest = await repository.get(opts.executionId);

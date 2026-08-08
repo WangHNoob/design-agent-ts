@@ -32,6 +32,8 @@ export interface HITLRouteDependencies {
   maxRetries: number;
   /** HITL timeout SLA used for overdue flags on the pending board. */
   timeoutMs: number;
+  /** Distributed review lock TTL (ms). Default 30000. */
+  reviewLockTtlMs?: number;
   freshness?: HITLFreshnessPort;
   auditStore?: AuditStorePort | null;
   toolApprovalStore?: ToolApprovalPort;
@@ -168,7 +170,7 @@ hitlRoute.post("/checkpoints/:id/review", async (c) => {
 
   const lockKey = dependencies.tenantPort.scopeKey(tenant.userId, "hitl-review", id);
   const lock = await dependencies.tenantPort.acquireLock(lockKey, {
-    ttlMs: 30_000,
+    ttlMs: dependencies.reviewLockTtlMs ?? 30_000,
     waitTimeoutMs: 0,
     retries: 0,
     retryDelayMs: 0,

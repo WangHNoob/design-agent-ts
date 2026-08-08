@@ -46,6 +46,10 @@ export interface BetterAuthAdapterConfig {
    * Include your frontend URL(s) here.
    */
   trustedOrigins?: string;
+  /** Session expiry in seconds. Default 7 days. */
+  sessionTtlSeconds?: number;
+  /** Session refresh window in seconds. Default 1 day. */
+  refreshTtlSeconds?: number;
 }
 
 /**
@@ -185,8 +189,8 @@ export class BetterAuthAdapter implements UserPort {
         },
       },
       session: {
-        expiresIn: 60 * 60 * 24 * 7, // 7 days
-        updateAge: 60 * 60 * 24,      // Refresh every 1 day
+        expiresIn: config.sessionTtlSeconds ?? 60 * 60 * 24 * 7, // 7 days
+        updateAge: config.refreshTtlSeconds ?? 60 * 60 * 24,      // Refresh every 1 day
       },
       plugins,
       hooks: {

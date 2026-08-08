@@ -166,6 +166,8 @@ export function loadConfig(): FrameworkConfig {
       autoContinueOnTimeout: process.env.HITL_AUTO_CONTINUE === "true",
       timeoutPolicy: resolveHitlTimeoutPolicy(),
       timeoutSweepIntervalMs: Number(process.env.HITL_TIMEOUT_SWEEP_INTERVAL_MS ?? 15000),
+      reviewLockTtlMs: Number(process.env.HITL_REVIEW_LOCK_TTL_MS ?? 30000),
+      sweepBatchSize: Number(process.env.HITL_SWEEP_BATCH_SIZE ?? 50),
     },
     knowledge: {
       wikiPath: process.env.KNOWLEDGE_WIKI_PATH ?? "./knowledge/wiki",
@@ -198,6 +200,16 @@ export function loadConfig(): FrameworkConfig {
       },
       allowEmailPassword: process.env.ALLOW_EMAIL_PASSWORD !== "false",
       trustedOrigins: process.env.TRUSTED_ORIGINS ?? "http://localhost:3001",
+      sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS ?? 604800),
+      refreshTtlSeconds: Number(process.env.AUTH_REFRESH_TTL_SECONDS ?? 86400),
+    },
+    redis: {
+      lockWaitTimeoutMs: Number(process.env.REDIS_LOCK_WAIT_TIMEOUT_MS ?? 5000),
+      lockTtlMs: Number(process.env.REDIS_LOCK_TTL_MS ?? 30000),
+      lockRetries: Number(process.env.REDIS_LOCK_RETRIES ?? 10),
+      lockRetryDelayMs: Number(process.env.REDIS_LOCK_RETRY_DELAY_MS ?? 500),
+      tenantContextCacheTtlSeconds: Number(process.env.REDIS_TENANT_CACHE_TTL_SECONDS ?? 300),
+      concurrencySlotTtlSeconds: Number(process.env.REDIS_CONCURRENCY_SLOT_TTL_SECONDS ?? 3600),
     },
     messageQueue: {
       enabled: process.env.MQ_ENABLED === "true",
@@ -206,6 +218,7 @@ export function loadConfig(): FrameworkConfig {
       blockMs: Number(process.env.MQ_BLOCK_MS ?? 1000),
       maxRetries: Number(process.env.MQ_MAX_RETRIES ?? 3),
       dlqRetentionDays: Number(process.env.DLQ_RETENTION_DAYS ?? 7),
+      deferBackoffMs: Number(process.env.QUEUE_DEFER_BACKOFF_MS ?? 75),
     },
     execution: {
       taskTimeoutMs: Number(process.env.EXECUTION_TASK_TIMEOUT_MS ?? 300000),
@@ -214,6 +227,11 @@ export function loadConfig(): FrameworkConfig {
       sseHeartbeatMs: Number(process.env.SSE_HEARTBEAT_MS ?? 15000),
       queryMaxInflight: Number(process.env.QUERY_MAX_INFLIGHT ?? 4),
       designMaxInflight: Number(process.env.DESIGN_MAX_INFLIGHT ?? 1),
+      eventDrainIntervalMs: Number(process.env.EXECUTION_EVENT_DRAIN_INTERVAL_MS ?? 200),
+      inFlightPartialOutputTimeoutMs: Number(process.env.EXECUTION_IN_FLIGHT_PARTIAL_TIMEOUT_MS ?? 2000),
+      blackboardEvictIntervalMs: Number(process.env.BLACKBOARD_EVICT_INTERVAL_MS ?? 60000),
+      maxRequirementChars: Number(process.env.CONSOLE_MAX_REQUIREMENT_CHARS ?? 50000),
+      sseReplayLimit: Number(process.env.SSE_REPLAY_LIMIT ?? 1000),
     },
     faq: {
       faqEnabled: process.env.FAQ_ENABLED === "true",
