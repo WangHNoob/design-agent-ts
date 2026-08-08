@@ -7,7 +7,7 @@ vi.mock("@langchain/openai", () => ({
       _getType: () => "ai",
       additional_kwargs: {},
       tool_calls: undefined,
-      concat(other: unknown) { return this; },
+      concat(_other: unknown) { return this; },
     };
     const mockStream = async function* () {
       yield mockResponse;

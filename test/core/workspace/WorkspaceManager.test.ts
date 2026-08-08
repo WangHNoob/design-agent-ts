@@ -13,7 +13,7 @@ class FakeFS {
   async writeFile(path: string, content: string): Promise<void> {
     this.files.set(path, content);
   }
-  async mkdir(path: string, options?: { recursive?: boolean }): Promise<void> {
+  async mkdir(path: string, _options?: { recursive?: boolean }): Promise<void> {
     this.dirs.add(path);
   }
   async readdir(path: string): Promise<{ name: string; isFile: boolean; isDirectory: boolean }[]> {

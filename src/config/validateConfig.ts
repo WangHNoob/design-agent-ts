@@ -33,7 +33,7 @@ function isPlaceholderSecret(value: string): boolean {
   );
 }
 
-export function validateConfig(config: FrameworkConfig, options: ConfigValidationOptions = {}): void {
+export function validateConfig(config: FrameworkConfig, _options: ConfigValidationOptions = {}): void {
   const issues: string[] = [];
 
   if (isBlank(config.userSystem.betterAuthSecret)) {

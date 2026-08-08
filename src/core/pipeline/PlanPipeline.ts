@@ -39,9 +39,6 @@ class TaskTimeoutError extends Error {
   }
 }
 
-/** Short grace period to collect partial output from an in-flight task after abort. */
-const IN_FLIGHT_PARTIAL_OUTPUT_TIMEOUT_MS = 2000;
-
 export class PlanPipeline {
   private layers: string[][];
   private signal?: AbortSignal;

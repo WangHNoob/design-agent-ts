@@ -34,7 +34,6 @@ import type { CompensateFailureQueuePort } from "../port/saga/CompensateFailureQ
 import { CostAccountingHook } from "../core/hook/CostAccountingHook.js";
 import { RateLimitHook } from "../core/hook/RateLimitHook.js";
 import { RateLimitGuard } from "../core/cost/RateLimitGuard.js";
-import { MeteredChatModel } from "../core/cost/MeteredChatModel.js";
 import type { ChatModelPort } from "../port/model/ChatModelPort.js";
 import type { CostStorePort } from "../port/cost/CostStorePort.js";
 import type { RateLimitPort } from "../port/cost/RateLimitPort.js";
@@ -83,8 +82,8 @@ import { RedisExecutionEventStoreAdapter } from "../adapter/redis/RedisExecution
 import { UserContextManager } from "../core/user/UserContextManager.js";
 import { ExecutionWorker, EXECUTION_QUEUE } from "./worker/ExecutionWorker.js";
 import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort, setCorsTrustedOrigins } from "./app.js";
-import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
-import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
+import { setUserContextManager } from "./routes/users.js";
+import { McpSdkClient } from "../adapter/mcp/McpSdkClient.js";
 import { createDirectorModel } from "./compose/directorModel.js";
 import { ConsoleLogger } from "../core/observability/ConsoleLogger.js";
 import { toMcpTransportConfig } from "./compose/mcpTransport.js";
@@ -277,10 +276,8 @@ export async function lateBootstrapDirector(): Promise<void> {
     toolRegistry,
     skillRegistry,
     settingsManager,
-    tavilyTool,
     directorPrompts,
     hooks,
-    workspaceManager,
     contextStorage,
     tracer,
     costStore,
@@ -369,7 +366,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   }
 
   const settings = settingsManager.getSettings();
-  let apiKey = settings.modelApiKey || config.model.apiKey;
+  const apiKey = settings.modelApiKey || config.model.apiKey;
 
   // Load prompts from filesystem (composition root responsibility)
   const subAgentPrompts = {
@@ -647,7 +644,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   const toolApprovalStore = new InMemoryToolApprovalStore();
   let toolSecurityOptions: ToolSecurityOptions | null = null;
   let auditStoreAdapter: PostgresAuditStoreAdapter | null = null;
-  let compensateFailureQueue: CompensateFailureQueuePort = new InMemoryCompensateFailureQueue();
+  let compensateFailureQueue: CompensateFailureQueuePort;
   let traceStore: TraceStorePort | null = null;
   let tracer: TracerPort = new NoOpTracer();
 
@@ -657,13 +654,12 @@ export async function lateBootstrapDirector(): Promise<void> {
   const workspaceManager = new WorkspaceManager("workspace", fileSystem, contextStorage);
 
   // ─── User System (Multi-Tenant) ──────────────────────────────────
-  let userContextManager: UserContextManager | null = null;
+  let userContextManager: UserContextManager | null;
   let dbAdapter: PostgresDatabaseAdapter | null = null;
-  let betterAuthAdapter: BetterAuthAdapter | null = null;
-  let redisAdapter: TenantIsolationPort | null = null;
+  let betterAuthAdapter: BetterAuthAdapter | null;
+  let redisAdapter: TenantIsolationPort | null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
-  let eventStore: RedisExecutionEventStoreAdapter | null = null;
-  let executionWorker: ExecutionWorker | null = null;
+  let eventStore: RedisExecutionEventStoreAdapter | null;
   let costStoreAdapter: PostgresCostStoreAdapter | null = null;
   let rateLimitAdapter: RedisRateLimitAdapter | null = null;
 
@@ -908,7 +904,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     console.warn("[Bootstrap] VERSIONING_ENABLED=true but Postgres is unavailable; versioning disabled");
   }
 
-  executionWorker = new ExecutionWorker({
+  const executionWorker = new ExecutionWorker({
     queue: mqAdapter!,
     eventStore: eventStore!,
     executionRepositoryFactory,
@@ -1146,7 +1142,6 @@ export async function lateBootstrapDirector(): Promise<void> {
     setUserContextManager(userContextManager);
   }
   if (betterAuthAdapter) {
-    setBetterAuthAdapter(betterAuthAdapter);
     setAuthAdapter(betterAuthAdapter);
   }
   if (redisAdapter) {
@@ -1226,7 +1221,7 @@ export async function reloadDirector(): Promise<void> {
     throw new Error("无法在任务执行中重载，请等待当前任务完成后再试");
   }
 
-  const { config, toolRegistry, skillRegistry, directorPrompts, hooks, workspaceManager, contextStorage, tracer, costStore, rateLimit, settingsManager } = bootstrapState;
+  const { config, skillRegistry, directorPrompts, hooks, contextStorage, tracer, costStore, rateLimit, settingsManager } = bootstrapState;
   const settings = settingsManager.getSettings();
 
   // 1. Reload prompts

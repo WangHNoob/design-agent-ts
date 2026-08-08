@@ -199,7 +199,6 @@ export class PostgresLongTermMemoryAdapter implements LongTermMemoryPort {
     if (params.minImportance !== undefined) {
       conditions.push(`importance < $${paramIdx}`);
       values[paramIdx.toString()] = params.minImportance;
-      paramIdx++;
     }
 
     // TTL expiration

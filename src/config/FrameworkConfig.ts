@@ -47,7 +47,6 @@ export interface FrameworkConfig {
   hitl: {
     enabled: boolean;
     reviewPoints: Record<string, boolean>;
-    maxRevisionRounds: number;
     timeout: number;
     /**
      * @deprecated Prefer timeoutPolicy. Kept for backward compat —
@@ -388,6 +387,5 @@ export interface FrameworkConfig {
     /** Default canary percent for newly published versions (0 = full rollout requires explicit release). */
     defaultCanaryPercent: number;
     /** TTL for in-flight snapshot references (ms). 0 = no automatic cleanup. */
-    snapshotTtlMs: number;
   };
 }

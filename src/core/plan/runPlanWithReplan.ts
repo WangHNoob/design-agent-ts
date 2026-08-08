@@ -65,7 +65,7 @@ export async function runPlanWithReplan(
   let accumulated: TaskResult[] = [...(options.initialResults ?? [])];
   let replanCount = 0;
 
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     const pipeline = new PlanPipeline(currentPlan, options.executor, {
       ...options.pipelineOptions,

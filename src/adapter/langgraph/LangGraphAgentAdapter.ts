@@ -248,7 +248,6 @@ export class LangGraphAgentAdapter implements AgentPort {
   private buildGraph(tools: ToolPort[]) {
     const lgTools = this.toolAdapter.toLangGraphTools(tools);
     const descriptor = this.descriptor;
-    const hooks = this.hooks;
     const runHooks = this.runHooks.bind(this);
     const modelAdapter = this.modelAdapter;
     const aggregateStream = this.aggregateStream.bind(this);

@@ -127,7 +127,6 @@ settingsRoute.post("/", requireAdmin(), async (c) => {
 
   // Reconfigure Tavily in real-time
   if (tavilyToolInstance && (body.tavilyEnabled !== undefined || body.tavilyApiKey !== undefined)) {
-    const settings = settingsManagerInstance.getSettings();
     const enabled = settingsManagerInstance.isTavilyEnabled();
     const apiKey = settingsManagerInstance.getTavilyApiKey();
     tavilyToolInstance.setApiKey(enabled ? apiKey ?? null : null);

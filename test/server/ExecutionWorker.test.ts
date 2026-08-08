@@ -255,7 +255,6 @@ describe("ExecutionWorker", () => {
 
   test("执行真实事件、持久 task/attempt，并在 ALS 中运行且 finally 释放并发槽", async () => {
     let observedTenant: string | undefined;
-    let storage: NodeContextStorageAdapter<TenantContext>;
     const director = {
       async *executeStream(): AsyncIterable<StreamEvent> {
         observedTenant = storage.getStore()?.userId;
@@ -273,7 +272,7 @@ describe("ExecutionWorker", () => {
       },
     } as unknown as DirectorAgent;
     const f = await fixture(director);
-    storage = f.storage;
+    const storage = f.storage;
 
     await expect(f.worker.handleMessage(queueMessage(f.execution.id))).resolves.toEqual({ success: true });
     expect(observedTenant).toBe("user-1");
@@ -342,6 +341,7 @@ describe("ExecutionWorker", () => {
   test("transient 在预算内 requeue，最后一次转 failed", async () => {
     const transient = { status: 503, message: "unavailable" };
     const director = {
+      // eslint-disable-next-line require-yield -- fake that always throws
       async *executeStream(): AsyncIterable<StreamEvent> { throw transient; },
     } as unknown as DirectorAgent;
     const first = await fixture(director);

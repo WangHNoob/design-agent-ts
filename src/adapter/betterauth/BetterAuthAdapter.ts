@@ -86,8 +86,6 @@ export class BetterAuthAdapter implements UserPort {
       });
     }
 
-    const adapter = this;
-
     // Build plugins list
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const plugins: any[] = [];
@@ -205,11 +203,11 @@ export class BetterAuthAdapter implements UserPort {
 
           // Auto-assign admin role based on email domain
           const email = context.body?.email || context.context.returned?.user?.email;
-          if (email && adapter.isAdminEmail(email)) {
+          if (email && this.isAdminEmail(email)) {
             const userId = context.context.returned?.user?.id;
             if (userId) {
               try {
-                await adapter.pool.query(
+                await this.pool.query(
                   `UPDATE "user" SET role = 'admin' WHERE id = $1`,
                   [userId],
                 );
@@ -225,7 +223,7 @@ export class BetterAuthAdapter implements UserPort {
             const userId = context.context.returned?.user?.id;
             if (userId) {
               try {
-                await adapter.pool.query(
+                await this.pool.query(
                   `UPDATE "user" SET "emailVerified" = true WHERE id = $1 AND "emailVerified" = false`,
                   [userId],
                 );
