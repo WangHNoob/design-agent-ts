@@ -77,4 +77,12 @@ export interface TracerPort {
   withTrace<R>(handle: TraceHandle, callback: () => R | Promise<R>): Promise<R>;
   /** Optional: bind ALS for streaming; returns unbind. */
   bindTrace?(handle: TraceHandle): () => void;
+  /**
+   * Optional: wrap an async generator so every next() runs inside the trace
+   * context. Streaming consumers (workers) interleave their own awaits between
+   * yields; AsyncLocalStorage does not reliably survive those caller-side
+   * suspensions across generator continuations, so the context must be
+   * re-entered per next().
+   */
+  wrapTraceStream?<T>(handle: TraceHandle, generator: AsyncGenerator<T>): AsyncGenerator<T>;
 }

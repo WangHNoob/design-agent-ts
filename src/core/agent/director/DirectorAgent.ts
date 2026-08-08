@@ -610,14 +610,12 @@ export class DirectorAgent {
     let status: "ok" | "error" = "ok";
     try {
       let startInjected = false;
-      for await (const event of this.executeStreamInner(
-        requirement,
-        sessionId,
-        mode,
-        role,
-        history,
-        options,
-      )) {
+      const inner = this.executeStreamInner(requirement, sessionId, mode, role, history, options);
+      // Re-enter the trace context per next(): workers interleave their own
+      // awaits between yields, which would otherwise drop the ALS store from
+      // the generator continuation (spans/endTrace silently lost).
+      const traced = tracer.wrapTraceStream ? tracer.wrapTraceStream(handle, inner) : inner;
+      for await (const event of traced) {
         if (!startInjected && event.type === "start") {
           startInjected = true;
           yield {
@@ -650,7 +648,7 @@ export class DirectorAgent {
     role: string,
     history: Array<{ role: "user" | "assistant"; content: string }> | undefined,
     options: DirectorStreamOptions | undefined,
-  ): AsyncIterable<StreamEvent> {
+  ): AsyncGenerator<StreamEvent> {
     const signal = options?.signal;
     switch (mode) {
       case "query":
