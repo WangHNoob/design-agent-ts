@@ -77,7 +77,7 @@ import { RedisMessageQueueAdapter } from "../adapter/redis/RedisMessageQueueAdap
 import { RedisExecutionEventStoreAdapter } from "../adapter/redis/RedisExecutionEventStoreAdapter.js";
 import { UserContextManager } from "../core/user/UserContextManager.js";
 import { ExecutionWorker, EXECUTION_QUEUE } from "./worker/ExecutionWorker.js";
-import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort } from "./app.js";
+import { setAuthAdapter, setTenantPort, setTenantContextStorage, setDatabasePort, setCorsTrustedOrigins } from "./app.js";
 import { usersRoute, setUserContextManager, setBetterAuthAdapter } from "./routes/users.js";
 import { McpSdkClient, type McpTransportConfig } from "../adapter/mcp/McpSdkClient.js";
 import { createDirectorModel } from "./compose/directorModel.js";
@@ -492,8 +492,11 @@ export async function lateBootstrapDirector(): Promise<void> {
     console.log(`[Bootstrap] Tool group "knowledge" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
 
-  // Register web search tools (group: "web") — external, circuit-breaker wrapped
-  if (shouldRegisterGroup("web")) {
+  // Register web search tools (group: "web") — external, circuit-breaker wrapped.
+  // Without a Tavily API key the tools are NOT registered: a registered-but-
+  // unconfigured tool would silently "succeed" with a no-op message instead of
+  // erroring, hiding misconfiguration from the agent.
+  if (shouldRegisterGroup("web") && tavilyTool.isConfigured()) {
     toolRegistry.registerToGroup(
       wrapExternalTool(
         new DelegatingTool(
@@ -517,6 +520,8 @@ export async function lateBootstrapDirector(): Promise<void> {
       "web",
     );
     console.log(`[Bootstrap] Tool group "web" enabled: ${toolRegistry.getGroupToolNames("web").length} tools (resilient)`);
+  } else if (shouldRegisterGroup("web")) {
+    console.log('[Bootstrap] Tool group "web" skipped: no Tavily API key configured (TAVILY_API_KEY / settings)');
   } else {
     console.log(`[Bootstrap] Tool group "web" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
@@ -808,6 +813,7 @@ export async function lateBootstrapDirector(): Promise<void> {
         blockMs: config.messageQueue.blockMs,
         maxRetries: config.messageQueue.maxRetries,
         maxInflight: config.execution.queryMaxInflight + config.execution.designMaxInflight,
+        dlqRetentionDays: config.messageQueue.dlqRetentionDays,
       },
     );
     await mqAdapter.connect();
@@ -1185,6 +1191,12 @@ export async function lateBootstrapDirector(): Promise<void> {
     console.warn("[Bootstrap] No API key configured. Director not initialized. Configure via /api/settings.");
   }
 
+  setCorsTrustedOrigins(
+    config.userSystem.trustedOrigins
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
   const app = createApp();
   return { app, config, container: bootstrapState.container, director: null, settingsManager };
 }
