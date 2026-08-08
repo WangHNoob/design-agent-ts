@@ -485,7 +485,7 @@ SMTP_FROM=no-reply@game2sky.com
 # ─── 消息队列（强制） ────────────────────────────────────────
 MQ_ENABLED=true
 MQ_CONSUMER_GROUP=gd-workers
-MQ_POLL_INTERVAL_MS=100
+EXECUTION_POLL_INTERVAL_MS=1000
 
 # ─── Docker 端口映射 ────────────────────────────────────────
 BACKEND_PORT=13000
