@@ -293,26 +293,36 @@ describe("DefaultTracer + TracingHook", () => {
     expect(postReasoning?.["outputTokens"]).toBe(20);
   });
 
-  test("toolResult strips knowledge-envelope noise (keeps result/trust/qualityFlags)", async () => {
+  test("toolResult strips envelope noise, tolerates cache prefix, keeps JSON parseable", async () => {
     const store = new InMemoryTraceStore();
     const context = new MemoryContext<TraceRuntimeState>();
     const tracer = new DefaultTracer(store, new FakeIds(), context);
-    const hook = new TracingHook(tracer, { maxAttrChars: 400 });
+    const hook = new TracingHook(tracer, { maxAttrChars: 1500 }); // 值级截断阈值 = 1500/10 = 150
 
     const envelope = JSON.stringify({
       contract: { schemaVersion: "knowledge-envelope/v1", toolName: "kb_get_page" },
       release: { releaseId: "rel_x", version: "2026.08.08.001" },
       trace: { componentId: "cmp_xxx" },
-      result: { page: "03-技能系统设计.md", found: true, title: "技能系统" },
+      result: {
+        page: "03-技能系统设计.md",
+        found: true,
+        title: "技能系统",
+        rows: [
+          { skillId: "SK001", name: "烈焰斩", note: "注".repeat(200) },
+          { skillId: "SK002", name: "炎龙突刺", note: "x" },
+        ],
+      },
       trust: { score: 0.938, status: "trusted" },
       qualityFlags: { stale: false },
     });
+    // 黑板缓存包装器会加前缀
+    const prefixed = `[来自黑板缓存]\n${envelope}`;
 
     const handle = await tracer.startTrace({ sessionId: "s", userId: "u", name: "director.query" });
     await tracer.withTrace(handle, async () => {
       await hook.onEvent(
         "post_tool_execution",
-        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "kb_get_page", toolResult: envelope }),
+        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "kb_get_page", toolResult: prefixed }),
       );
       await tracer.endTrace(handle.traceId, "ok");
     });
@@ -326,5 +336,11 @@ describe("DefaultTracer + TracingHook", () => {
     expect(raw).not.toContain("knowledge-envelope/v1");
     expect(raw).not.toContain("releaseId");
     expect(raw).not.toContain("componentId");
+    expect(raw).not.toContain("来自黑板缓存");
+    // 结构保持：截断后仍可 JSON.parse
+    expect(() => JSON.parse(raw)).not.toThrow();
+    expect(JSON.parse(raw).result.rows).toHaveLength(2);
+    // 值级截断生效
+    expect(JSON.parse(raw).result.rows[0].note).toContain("…[+");
   });
 });
