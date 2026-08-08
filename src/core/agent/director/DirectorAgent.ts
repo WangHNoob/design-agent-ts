@@ -59,6 +59,8 @@ import {
 } from "../../multiagent/index.js";
 import { TokenBudgetHook } from "../../hook/TokenBudgetHook.js";
 import { SubAgentDescriptors } from "../subagents/SubAgentFactory.js";
+import { decideFaqHit } from "../../faq/decideFaqHit.js";
+import type { FaqMatchRaw } from "../../faq/types.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -80,7 +82,7 @@ const AGENT_NAME_TO_ROLE: Record<string, string> = {
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error" | "cancelled"
-    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl" | "replan";
+    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl" | "replan" | "faq_hit";
   data: Record<string, unknown>;
 }
 
@@ -221,6 +223,11 @@ export interface DirectorDeps {
   multiAgent?: DirectorMultiAgentConfig;
   /** When false, query path suppresses token-level SSE chunks. Default true. */
   streamingEnabled?: boolean;
+  faqFastPath?: {
+    enabled: boolean;
+    threshold: number;
+    match: (query: string) => Promise<FaqMatchRaw | null>;
+  };
 }
 
 export class DirectorAgent {
@@ -1535,6 +1542,27 @@ export class DirectorAgent {
     options?: DirectorStreamOptions,
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
+
+    const fp = this.deps.faqFastPath;
+    if (fp?.enabled) {
+      try {
+        const raw = await fp.match(requirement);
+        const decision = decideFaqHit(raw, fp.threshold);
+        if (decision.ok) {
+          console.log(`[DirectorAgent] faq.hit score=${decision.score} faqId=${decision.faqId ?? ""}`);
+          yield {
+            type: "faq_hit",
+            data: { score: decision.score, faqId: decision.faqId, question: decision.question },
+          };
+          yield { type: "chunk", data: { text: decision.answer } };
+          yield { type: "complete", data: { success: true, output: decision.answer, source: "faq" } };
+          return;
+        }
+        console.log(`[DirectorAgent] faq.miss reason=${decision.reason}`);
+      } catch (err) {
+        console.warn(`[DirectorAgent] faq.error`, err);
+      }
+    }
 
     // Create EventBus and StreamEmitterHook for fine-grained events
     const eventBus = new EventBus();
