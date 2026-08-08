@@ -52,6 +52,7 @@ export class LangGraphAgentAdapter implements AgentPort {
   private sagaRef = { coordinator: null as SagaCoordinator | null };
   private toolAdapter: LangGraphToolAdapter;
   private memory: MemoryPort | undefined;
+  private currentProcessOptions: AgentProcessOptions | undefined;
 
   constructor(
     descriptor: AgentDescriptor,
@@ -95,7 +96,17 @@ export class LangGraphAgentAdapter implements AgentPort {
    * blocks by their `id`, concatenates partial tool_call_chunks into proper
    * tool_calls, and keeps response_metadata from the last chunk.
    */
-  private async aggregateStream(chunks: AsyncIterable<AIMessageChunk>): Promise<AIMessage> {
+  private resolveOnTextDelta(): ((delta: string) => void | Promise<void>) | undefined {
+    if (this.currentProcessOptions?.streamingEnabled === false) {
+      return undefined;
+    }
+    return this.currentProcessOptions?.onTextDelta;
+  }
+
+  private async aggregateStream(
+    chunks: AsyncIterable<AIMessageChunk>,
+    onTextDelta?: (delta: string) => void | Promise<void>,
+  ): Promise<AIMessage> {
     const contentBlocks = new Map<string, Record<string, unknown>>();
     let textContent = "";
     let hasArrayContent = false;
@@ -109,6 +120,9 @@ export class LangGraphAgentAdapter implements AgentPort {
       const content = chunk.content;
 
       if (typeof content === "string") {
+        if (content && onTextDelta) {
+          await onTextDelta(content);
+        }
         textContent += content;
       } else if (Array.isArray(content)) {
         hasArrayContent = true;
@@ -120,12 +134,18 @@ export class LangGraphAgentAdapter implements AgentPort {
           if (contentBlocks.has(id)) {
             const existing = contentBlocks.get(id)!;
             if (typeof existing.text === "string" && typeof b.text === "string") {
+              if (b.text && onTextDelta) {
+                await onTextDelta(b.text);
+              }
               existing.text += b.text;
             }
             if (typeof existing.partial_json === "string" && typeof b.partial_json === "string") {
               existing.partial_json += b.partial_json;
             }
           } else {
+            if (typeof b.text === "string" && b.text && onTextDelta) {
+              await onTextDelta(b.text);
+            }
             contentBlocks.set(id, { ...b });
           }
         }
@@ -246,7 +266,7 @@ export class LangGraphAgentAdapter implements AgentPort {
         };
       }).bindTools(lgTools);
       const stream = await bound.stream(msgs, streamOptions);
-      return aggregateStream(stream);
+      return aggregateStream(stream, this.resolveOnTextDelta());
     };
 
     const llmCall = async (state: typeof AgentState.State, config?: { signal?: AbortSignal }) => {
@@ -466,7 +486,8 @@ export class LangGraphAgentAdapter implements AgentPort {
         await rawModel.stream(
           [systemMsg, ...demoteNonLeadingSystemMessages(state.messages), finalInstruction],
           streamOptions,
-        )
+        ),
+        this.resolveOnTextDelta(),
       );
       return { messages: [response], iteration: state.iteration };
     };
@@ -504,6 +525,7 @@ export class LangGraphAgentAdapter implements AgentPort {
   }
 
   async process(sessionId: string, messages: ChatMessage[], options?: AgentProcessOptions): Promise<AgentResponse> {
+    this.currentProcessOptions = options;
     try {
       // Early abort check
       if (options?.signal?.aborted) {
@@ -675,10 +697,14 @@ export class LangGraphAgentAdapter implements AgentPort {
         success: false,
         errorMessage: err instanceof Error ? err.message : String(err),
       };
+    } finally {
+      this.currentProcessOptions = undefined;
     }
   }
 
   async *processStream(sessionId: string, messages: ChatMessage[], options?: AgentProcessOptions): AsyncIterable<AgentResponse> {
+    this.currentProcessOptions = options;
+    try {
     // Early abort check
     if (options?.signal?.aborted) {
       yield {
@@ -846,6 +872,9 @@ export class LangGraphAgentAdapter implements AgentPort {
         success: false,
         errorMessage: err instanceof Error ? err.message : String(err),
       };
+    }
+    } finally {
+      this.currentProcessOptions = undefined;
     }
   }
 

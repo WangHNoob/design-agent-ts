@@ -59,6 +59,8 @@ import {
 } from "../../multiagent/index.js";
 import { TokenBudgetHook } from "../../hook/TokenBudgetHook.js";
 import { SubAgentDescriptors } from "../subagents/SubAgentFactory.js";
+import { decideFaqHit } from "../../faq/decideFaqHit.js";
+import type { FaqMatchRaw } from "../../faq/types.js";
 
 function fallbackUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -80,7 +82,7 @@ const AGENT_NAME_TO_ROLE: Record<string, string> = {
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error" | "cancelled"
-    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl" | "replan";
+    | "thinking" | "tool_start" | "tool_complete" | "knowledge_used" | "skill_matched" | "hitl" | "replan" | "faq_hit";
   data: Record<string, unknown>;
 }
 
@@ -219,6 +221,13 @@ export interface DirectorDeps {
   planHard?: DirectorPlanHardConfig;
   /** Multi-agent runaway guards + handoff. Defaults: enabled. */
   multiAgent?: DirectorMultiAgentConfig;
+  /** When false, query path suppresses token-level SSE chunks. Default true. */
+  streamingEnabled?: boolean;
+  faqFastPath?: {
+    enabled: boolean;
+    threshold: number;
+    match: (query: string) => Promise<FaqMatchRaw | null>;
+  };
 }
 
 export class DirectorAgent {
@@ -1534,6 +1543,27 @@ export class DirectorAgent {
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode: "query" } };
 
+    const fp = this.deps.faqFastPath;
+    if (fp?.enabled) {
+      try {
+        const raw = await fp.match(requirement);
+        const decision = decideFaqHit(raw, fp.threshold);
+        if (decision.ok) {
+          console.log(`[DirectorAgent] faq.hit score=${decision.score} faqId=${decision.faqId ?? ""}`);
+          yield {
+            type: "faq_hit",
+            data: { score: decision.score, faqId: decision.faqId, question: decision.question },
+          };
+          yield { type: "chunk", data: { text: decision.answer } };
+          yield { type: "complete", data: { success: true, output: decision.answer, source: "faq" } };
+          return;
+        }
+        console.log(`[DirectorAgent] faq.miss reason=${decision.reason}`);
+      } catch (err) {
+        console.warn(`[DirectorAgent] faq.error`, err);
+      }
+    }
+
     // Create EventBus and StreamEmitterHook for fine-grained events
     const eventBus = new EventBus();
     const streamEmitterHook = new StreamEmitterHook(eventBus, {
@@ -1558,42 +1588,67 @@ export class DirectorAgent {
       messages.push(ChatMessage.text("user", "user", requirement));
 
       let finalOutput = "";
-      if (agent.processStream) {
-        for await (const response of agent.processStream(
-          sessionId,
-          messages,
-          signal ? { signal } : undefined,
-        )) {
-          for (const event of eventBus.drain()) {
-            yield event;
-          }
-          if (!response.success) {
-            yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
-            return;
-          }
-          const text = response.message ? ChatMessage.textContent(response.message) : "";
-          if (text) {
-            finalOutput += text;
-            yield { type: "chunk", data: { text } };
-          }
-        }
-      } else {
-        const response = await agent.process(sessionId, messages, signal ? { signal } : undefined);
-        for (const event of eventBus.drain()) {
-          yield event;
-        }
-        if (!response.success) {
-          yield { type: "error", data: { error: response.errorMessage ?? "Agent execution failed" } };
-          return;
-        }
-        finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
-        if (finalOutput) {
-          yield { type: "chunk", data: { text: finalOutput } };
-        }
-      }
+      let streamError: string | null = null;
+      const streamingEnabled = this.deps.streamingEnabled !== false;
+      let streamed = "";
+      const done = { value: false };
+      const processOptions = {
+        ...(signal ? { signal } : {}),
+        streamingEnabled,
+        onTextDelta: (delta: string) => {
+          streamed += delta;
+          eventBus.emit({ type: "chunk", data: { text: delta } });
+        },
+      };
 
-      for (const event of eventBus.drain()) {
+      // Run process* in background so concurrentDrain can push onTextDelta
+      // chunks to SSE before the full LLM turn finishes (true TTFT).
+      const runPromise = (async () => {
+        try {
+          if (agent.processStream) {
+            for await (const response of agent.processStream(
+              sessionId,
+              messages,
+              processOptions,
+            )) {
+              if (!response.success) {
+                streamError = response.errorMessage ?? "Agent execution failed";
+                return;
+              }
+              const text = response.message ? ChatMessage.textContent(response.message) : "";
+              if (text) {
+                finalOutput = text;
+                if (!streamingEnabled || !streamed) {
+                  eventBus.emit({ type: "chunk", data: { text } });
+                } else if (text.length > streamed.length && text.startsWith(streamed)) {
+                  eventBus.emit({ type: "chunk", data: { text: text.slice(streamed.length) } });
+                }
+              }
+            }
+          } else {
+            const response = await agent.process(sessionId, messages, processOptions);
+            if (!response.success) {
+              streamError = response.errorMessage ?? "Agent execution failed";
+              return;
+            }
+            finalOutput = response.message ? ChatMessage.textContent(response.message) : "";
+            if (finalOutput) {
+              eventBus.emit({ type: "chunk", data: { text: finalOutput } });
+            }
+          }
+        } finally {
+          done.value = true;
+        }
+      })();
+
+      for await (const event of this.concurrentDrain(eventBus, done)) {
         yield event;
+      }
+      await runPromise;
+
+      if (streamError) {
+        yield { type: "error", data: { error: streamError } };
+        return;
       }
 
       if (signal?.aborted) {
