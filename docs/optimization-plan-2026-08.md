@@ -60,12 +60,12 @@
 
 ## 阶段 4 — P2 工程化
 
-| # | 项 | 内容 |
-|---|----|------|
-| P2-1 | Eval 真实化 | `scripts/run-online-eval.ts`（真实 judge：loadConfig 模型 + LangGraphModelAdapter）；EvalRunner live 输出路径；数据集 3→10-20 用例（真实会话提炼）；rubric 分维度 + Unknown；`pnpm eval:online` |
-| P2-2 | 组装层测试 | bootstrap-smoke（mock 适配器完整组装 + design happy path HTTP）；SSE resume 重放测试；HITL approve→resume→completed 全流程 |
-| P2-3 | 时序测试修复 | `vi.useFakeTimers` 替换真实 sleep（约 8 处） |
-| P2-4 | loadtest 补丁 | 07-query-llm per-check 明细输出；README 记录 08-08 smoke 0.667 检查率与 LLM 403 背景；TTFT 测量（复用 `lib/sse.js`） |
+| # | 项 | 内容 | 状态 |
+|---|----|------|------|
+| P2-1 | Eval 真实化 | `scripts/run-online-eval.ts`（真实 judge + 真实 DirectorAgent）；数据集 3→11 用例；EvalRunner 跳过无 baseline 的 metric；`pnpm eval:online` | ✅ 已实施（`a7962d5`） |
+| P2-2 | 组装层测试 | HITL approve→resume→completed 全流程（真实 route+service+worker）；SSE resume/重放已有 Last-Event-ID 测试覆盖，bootstrap smoke 与现有集成测试重叠故未重复 | ✅ 已实施（`1d19d99`） |
+| P2-3 | 时序测试修复 | `vi.useFakeTimers` 替换真实 sleep（约 8 处） | ⏳ 延期：被测代码本身依赖 setTimeout 轮询，替换需逐个小心推进；已在评估报告中列为已知技术债（含 file:line） |
+| P2-4 | loadtest 补丁 | 07-query-llm per-check 计数 + handleSummary 明细；README 记录 08-08 smoke 0.667 检查率与 LLM 空响应根因；TTFT 由 `scripts/probe-query-sse-ttft.mjs` 承担（k6 http.get 缓冲整响应，无法精确测首 chunk 时间） | ✅ 已实施（下文提交） |
 
 ## 阶段 5 — 收尾
 
