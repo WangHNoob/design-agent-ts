@@ -1,8 +1,8 @@
 # Query 真流式 TTFT + Knowledge Hub FAQ 短路设计
 
 **日期**: 2026-08-08  
-**分支**: `main`（待开 feature 分支实施）  
-**状态**: 已确认设计意向；待用户审阅本 spec 后进入实现计划
+**分支**: `feat/query-streaming-faq-fastpath`  
+**状态**: 本仓 P0 已实现（真流式 TTFT + FAQ 短路接线）；待 knowledge-hub P0c 实现 `kb_faq_match`
 
 ---
 
