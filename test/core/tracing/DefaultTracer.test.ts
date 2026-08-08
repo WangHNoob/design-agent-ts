@@ -292,4 +292,39 @@ describe("DefaultTracer + TracingHook", () => {
     expect(postReasoning?.["inputTokens"]).toBe(100);
     expect(postReasoning?.["outputTokens"]).toBe(20);
   });
+
+  test("toolResult strips knowledge-envelope noise (keeps result/trust/qualityFlags)", async () => {
+    const store = new InMemoryTraceStore();
+    const context = new MemoryContext<TraceRuntimeState>();
+    const tracer = new DefaultTracer(store, new FakeIds(), context);
+    const hook = new TracingHook(tracer, { maxAttrChars: 400 });
+
+    const envelope = JSON.stringify({
+      contract: { schemaVersion: "knowledge-envelope/v1", toolName: "kb_get_page" },
+      release: { releaseId: "rel_x", version: "2026.08.08.001" },
+      trace: { componentId: "cmp_xxx" },
+      result: { page: "03-技能系统设计.md", found: true, title: "技能系统" },
+      trust: { score: 0.938, status: "trusted" },
+      qualityFlags: { stale: false },
+    });
+
+    const handle = await tracer.startTrace({ sessionId: "s", userId: "u", name: "director.query" });
+    await tracer.withTrace(handle, async () => {
+      await hook.onEvent(
+        "post_tool_execution",
+        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "kb_get_page", toolResult: envelope }),
+      );
+      await tracer.endTrace(handle.traceId, "ok");
+    });
+
+    const detail = await store.getTrace("u", handle.traceId);
+    const attrs = detail!.spans.find((s) => s.name === "QueryAgent.post_tool_execution")!.attributes;
+    const raw = String(attrs["toolResult"]);
+    expect(raw).toContain('"result"');
+    expect(raw).toContain("03-技能系统设计.md");
+    expect(raw).toContain('"trust"');
+    expect(raw).not.toContain("knowledge-envelope/v1");
+    expect(raw).not.toContain("releaseId");
+    expect(raw).not.toContain("componentId");
+  });
 });

@@ -20,6 +20,30 @@ function truncate(value: string, max: number): string {
   return `${value.slice(0, max)}…[+${value.length - max} chars]`;
 }
 
+/**
+ * knowledge-hub 工具返回 knowledge-envelope/v1 协议包（contract/release/
+ * result/qualityFlags/trust/trace）。观测只关心核心内容：提取 result，
+ * 附带 trust（可信度）与 qualityFlags（质量标记），丢弃协议噪音，
+ * 让截断预算全部用在核心内容上。
+ */
+function extractToolResult(value: string, max: number): string {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const env = parsed as Record<string, unknown>;
+      if (env.result !== undefined && typeof env.result === "object") {
+        const core: Record<string, unknown> = { result: env.result };
+        if (env.trust !== undefined) core.trust = env.trust;
+        if (env.qualityFlags !== undefined) core.qualityFlags = env.qualityFlags;
+        return truncate(JSON.stringify(core), max);
+      }
+    }
+  } catch {
+    // 非 JSON 结果，原样截断
+  }
+  return truncate(value, max);
+}
+
 export class TracingHook implements AgentHook {
   /** Run early so later hooks see abort decisions after span recording. */
   priority = 5;
@@ -102,7 +126,7 @@ export class TracingHook implements AgentHook {
       sessionId: context.sessionId,
       toolName: context.toolName,
       toolArguments: context.toolArguments ? truncate(JSON.stringify(context.toolArguments), max) : undefined,
-      toolResult: context.toolResult ? truncate(context.toolResult, max) : undefined,
+      toolResult: context.toolResult ? extractToolResult(context.toolResult, max) : undefined,
       llmReasoning: context.llmReasoning ? truncate(context.llmReasoning, max) : undefined,
       llmOutput: context.llmOutput ? truncate(context.llmOutput, max) : undefined,
       inputTokens: context.inputTokenCount,
