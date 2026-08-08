@@ -219,6 +219,8 @@ export interface DirectorDeps {
   planHard?: DirectorPlanHardConfig;
   /** Multi-agent runaway guards + handoff. Defaults: enabled. */
   multiAgent?: DirectorMultiAgentConfig;
+  /** When false, query path suppresses token-level SSE chunks. Default true. */
+  streamingEnabled?: boolean;
 }
 
 export class DirectorAgent {
@@ -1558,11 +1560,21 @@ export class DirectorAgent {
       messages.push(ChatMessage.text("user", "user", requirement));
 
       let finalOutput = "";
+      const streamingEnabled = this.deps.streamingEnabled !== false;
+      let streamed = "";
+      const processOptions = {
+        ...(signal ? { signal } : {}),
+        streamingEnabled,
+        onTextDelta: (delta: string) => {
+          streamed += delta;
+          eventBus.emit({ type: "chunk", data: { text: delta } });
+        },
+      };
       if (agent.processStream) {
         for await (const response of agent.processStream(
           sessionId,
           messages,
-          signal ? { signal } : undefined,
+          processOptions,
         )) {
           for (const event of eventBus.drain()) {
             yield event;
@@ -1573,12 +1585,16 @@ export class DirectorAgent {
           }
           const text = response.message ? ChatMessage.textContent(response.message) : "";
           if (text) {
-            finalOutput += text;
-            yield { type: "chunk", data: { text } };
+            finalOutput = text;
+            if (!streamingEnabled || !streamed) {
+              yield { type: "chunk", data: { text } };
+            } else if (text.length > streamed.length && text.startsWith(streamed)) {
+              yield { type: "chunk", data: { text: text.slice(streamed.length) } };
+            }
           }
         }
       } else {
-        const response = await agent.process(sessionId, messages, signal ? { signal } : undefined);
+        const response = await agent.process(sessionId, messages, processOptions);
         for (const event of eventBus.drain()) {
           yield event;
         }
