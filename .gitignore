@@ -57,6 +57,9 @@ docker-compose.override.yml
 # Mimosa security-scan tool state
 .mimosa/
 
+# ZCode session artifacts
+.zcode/
+
 # Cache
 .eslintcache
 *.tsbuildinfo
