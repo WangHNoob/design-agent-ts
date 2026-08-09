@@ -301,6 +301,7 @@ export function loadConfig(): FrameworkConfig {
       toolRetryMaxAttempts: Number(process.env.TOOL_RETRY_MAX_ATTEMPTS ?? 2),
       toolRetryBackoffMs: Number(process.env.TOOL_RETRY_BACKOFF_MS ?? 200),
       toolTimeoutMs: Number(process.env.TOOL_TIMEOUT_MS ?? 30000),
+      toolResultMaxChars: Number(process.env.TOOL_RESULT_MAX_CHARS ?? 6000),
       planHardEnabled: process.env.PLAN_HARD_ENABLED !== "false",
       planMaxReplans: Number(process.env.PLAN_MAX_REPLANS ?? 2),
       planRejectUnauthorizedTools: process.env.PLAN_REJECT_UNAUTHORIZED_TOOLS !== "false",

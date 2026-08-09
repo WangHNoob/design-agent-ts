@@ -173,6 +173,8 @@ export interface DirectorDeps {
     eventDrainIntervalMs?: number;
     /** Grace period to collect partial output from an aborted in-flight task (ms). Default 2000. */
     inFlightPartialOutputTimeoutMs?: number;
+    /** 单条工具结果进入模型上下文的最大字符数（0=不截断）。 */
+    toolResultMaxChars?: number;
   };
   /** Short-term sliding-window memory (query path required). */
   memory?: {
@@ -1299,6 +1301,7 @@ export class DirectorAgent {
         ...this.resolveQueryMcpToolNames(),
       ],
       options: {},
+      toolResultMaxChars: this.deps.limits?.toolResultMaxChars,
     };
     const memoryPort = await this.createMemoryPort();
     return this.deps.agentFactory.createAgent(
@@ -1328,6 +1331,7 @@ export class DirectorAgent {
         ...this.resolveQueryMcpToolNames(),
       ],
       options: {},
+      toolResultMaxChars: this.deps.limits?.toolResultMaxChars,
     };
     const memoryPort = await this.createMemoryPort();
     return this.deps.agentFactory.createAgent(

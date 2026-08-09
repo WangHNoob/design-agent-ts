@@ -1,7 +1,7 @@
 import { StateGraph, Annotation, START, END, type MemorySaver } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { BaseMessage, AIMessage as AIMessageType } from "@langchain/core/messages";
-import { SystemMessage, HumanMessage, AIMessage, AIMessageChunk } from "@langchain/core/messages";
+import { SystemMessage, HumanMessage, AIMessage, AIMessageChunk, ToolMessage } from "@langchain/core/messages";
 import type { AgentPort, AgentProcessOptions } from "../../port/agent/AgentPort.js";
 import type { AgentDescriptor } from "../../port/agent/AgentDescriptor.js";
 import type { AgentResponse } from "../../port/agent/AgentResponse.js";
@@ -11,8 +11,10 @@ import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { MemoryPort } from "../../port/memory/MemoryPort.js";
 import { HookContext } from "../../port/hook/HookContext.js";
 import { classifyModelError } from "../../core/model/classifyModelError.js";
+import { hashString, normalizeToolArgs, stableStringify } from "../../core/guard/hash.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
+import { sanitizeToolSequence } from "./sanitizeMessages.js";
 import type { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
 import { isToolFastFailError } from "../../core/tool/ToolFastFailError.js";
 import { isToolHitlRequiredError } from "../../core/tool/ToolHitlRequiredError.js";
@@ -44,6 +46,59 @@ function demoteNonLeadingSystemMessages(msgs: BaseMessage[]): BaseMessage[] {
   return msgs.map((m) =>
     m instanceof SystemMessage ? new HumanMessage({ content: m.content }) : m,
   );
+}
+
+/**
+ * 重复调用守卫（循环防护）：
+ * - 签名 = toolName + 规范化参数（数字字符串折叠为数字，键排序），
+ *   模型交替 `"40"`/`40` 无法绕过（评测 EV-021 实证原 hash 被躲过）；
+ * - 同一签名在历史中已出现 >= REPEAT_CANCEL_THRESHOLD 次 → 取消执行并提示。
+ */
+export const REPEAT_CANCEL_THRESHOLD = 2;
+
+export function toolCallSignature(toolName: string, args?: Record<string, unknown>): string {
+  return hashString(`${toolName}:${stableStringify(normalizeToolArgs(args ?? {}))}`);
+}
+
+/** 统计历史消息中同一签名工具调用的出现次数（含未执行被取消的调用，保守计数）。 */
+export function countToolCallOccurrences(messages: BaseMessage[], signature: string): number {
+  let count = 0;
+  for (const m of messages) {
+    if (m instanceof AIMessage) {
+      for (const tc of (m as AIMessage).tool_calls ?? []) {
+        if (toolCallSignature(tc.name, tc.args as Record<string, unknown>) === signature) {
+          count += 1;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+/** 收集历史中重复执行 >=2 次的 (toolName, count) 列表，用于注入提示。 */
+export function collectRepeatedToolCalls(messages: BaseMessage[]): Array<[string, number]> {
+  const counts = new Map<string, { name: string; count: number }>();
+  for (const m of messages) {
+    if (!(m instanceof AIMessage)) continue;
+    for (const tc of (m as AIMessage).tool_calls ?? []) {
+      const sig = toolCallSignature(tc.name, tc.args as Record<string, unknown>);
+      const entry = counts.get(sig);
+      if (entry) {
+        entry.count += 1;
+      } else {
+        counts.set(sig, { name: tc.name, count: 1 });
+      }
+    }
+  }
+  return Array.from(counts.values())
+    .filter((e) => e.count >= 2)
+    .map((e) => [e.name, e.count] as [string, number]);
+}
+
+/** 工具结果截断：超长 ToolMessage 内容只保留前缀并标注原长（模型上下文预算兜底）。 */
+export function truncateToolResult(content: string, limit: number): string {
+  if (content.length <= limit) return content;
+  return `${content.slice(0, limit)}...[已截断 原长 ${content.length} 字符]`;
 }
 
 export class LangGraphAgentAdapter implements AgentPort {
@@ -347,6 +402,23 @@ export class LangGraphAgentAdapter implements AgentPort {
           );
         }
 
+        // 重复调用守卫：历史中同一 (tool, 规范化参数) 已执行 >=2 次 → 提示模型
+        // 停止重复（评测 EV-021：模型对同一表连续 5 次重复查询烧穿 500k token 预算）。
+        const repeated = collectRepeatedToolCalls(injectedMessages);
+        if (repeated.length > 0) {
+          const summary = repeated.map(([name, n]) => `${name}(${n} 次)`).join("、");
+          injectedMessages.push(
+            new HumanMessage({
+              content: `【系统提示】你已用相同参数重复调用工具：${summary}。重复调用不会得到新结果。请立即停止重复调用，直接基于已有信息输出最终答案，或换一种完全不同的查询方式。`,
+            })
+          );
+        }
+
+        // 消息序列合法性兜底：压缩/归档可能产生"悬空 tool 消息"（无前置
+        // assistant tool_calls），OpenAI 系 provider 会 400 拒绝（评测 EV-058
+        // 实证）。降级为文本而非整题失败。
+        const sanitizedMessages = sanitizeToolSequence(injectedMessages);
+
         console.log(`[LangGraphAgentAdapter:${descriptor.name}] LLM invoke (streaming) with maxTokens=${descriptor.maxTokens ?? "undefined"} model=${modelAdapter.getActiveModelName()}`);
         // Use streaming internally to avoid Anthropic SDK's 10-minute timeout
         // for non-streaming requests with high max_tokens.
@@ -361,7 +433,7 @@ export class LangGraphAgentAdapter implements AgentPort {
         let response: AIMessage;
         for (let attempt = 1; ; attempt += 1) {
           try {
-            response = await invokeLlm([systemMsg, ...injectedMessages], streamOptions);
+            response = await invokeLlm([systemMsg, ...sanitizedMessages], streamOptions);
             modelAdapter.recordSuccess();
             break;
           } catch (err) {
@@ -456,7 +528,31 @@ export class LangGraphAgentAdapter implements AgentPort {
       const lastMessage = state.messages.at(-1) as AIMessageType | undefined;
       const toolCalls = lastMessage?.tool_calls ?? [];
 
+      // 重复调用守卫：同一 (tool, 规范化参数) 历史中已执行 >=2 次 → 本次取消执行，
+      // 用取消说明代替真实结果，防止模型空转烧 token（评测 6 题 token 风暴根因）。
+      const priorMessages = state.messages.slice(0, -1);
+      const callIdOf = (tc: { id?: string }): string => tc.id ?? "";
+      const cancelledById = new Set<string>();
       for (const tc of toolCalls) {
+        const sig = toolCallSignature(tc.name, tc.args as Record<string, unknown>);
+        const prior = countToolCallOccurrences(priorMessages, sig);
+        if (prior >= REPEAT_CANCEL_THRESHOLD) {
+          cancelledById.add(callIdOf(tc));
+          console.warn(
+            `[LangGraphAgentAdapter:${descriptor.name}] Repeat tool call cancelled: ${tc.name} prior=${prior} hash=${sig}`,
+          );
+        }
+      }
+      const executeCalls = toolCalls.filter((tc) => !cancelledById.has(callIdOf(tc)));
+      const cancelledMessages: BaseMessage[] = toolCalls
+        .filter((tc) => cancelledById.has(callIdOf(tc)))
+        .map((tc) => new ToolMessage({
+          content: `【系统】该调用 (${tc.name}) 与历史完全相同（已执行过），已由重复调用守卫取消。请基于已有信息直接作答，或换一种完全不同的查询方式。`,
+          tool_call_id: callIdOf(tc),
+          name: tc.name,
+        }));
+
+      for (const tc of executeCalls) {
         const preCtx = HookContext.create({
           agentName: descriptor.name,
           sessionId: state.sessionId,
@@ -477,7 +573,23 @@ export class LangGraphAgentAdapter implements AgentPort {
 
       let result: { messages: BaseMessage[] };
       try {
-        result = await toolNode.invoke(state);
+        if (executeCalls.length === 0) {
+          result = { messages: cancelledMessages };
+        } else {
+          // 只执行未被取消的调用：用过滤后的 lastMessage 调用 ToolNode。
+          const filteredLast = new AIMessage({
+            content: lastMessage?.content ?? "",
+            tool_calls: executeCalls,
+            additional_kwargs: lastMessage?.additional_kwargs ?? {},
+          });
+          const nodeResult = await toolNode.invoke({
+            ...state,
+            messages: [...state.messages.slice(0, -1), filteredLast],
+          });
+          result = {
+            messages: [...nodeResult.messages, ...cancelledMessages],
+          };
+        }
       } catch (err) {
         if (isToolFastFailError(err)) {
           console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${err.message}`);
@@ -492,7 +604,21 @@ export class LangGraphAgentAdapter implements AgentPort {
         throw err;
       }
 
-      for (const tc of toolCalls) {
+      // 模型上下文预算兜底：超长工具结果截断（knowledge-hub 精简后少触发）。
+      const truncateLimit = this.descriptor.toolResultMaxChars ?? 0;
+      if (truncateLimit > 0) {
+        result.messages = result.messages.map((m) =>
+          m instanceof ToolMessage && typeof m.content === "string"
+            ? new ToolMessage({
+                content: truncateToolResult(m.content, truncateLimit),
+                tool_call_id: m.tool_call_id,
+                name: m.name,
+              })
+            : m,
+        );
+      }
+
+      for (const tc of executeCalls) {
         const metadata = this.toolAdapter.lastToolMetadata.get(tc.name) || {};
         const postCtx = HookContext.create({
           agentName: descriptor.name,
@@ -534,7 +660,11 @@ export class LangGraphAgentAdapter implements AgentPort {
       }
       const response = await this.aggregateStream(
         await rawModel.stream(
-          [systemMsg, ...demoteNonLeadingSystemMessages(state.messages), finalInstruction],
+          sanitizeToolSequence([
+            systemMsg,
+            ...demoteNonLeadingSystemMessages(state.messages),
+            finalInstruction,
+          ]),
           streamOptions,
         ),
         this.resolveOnTextDelta(),

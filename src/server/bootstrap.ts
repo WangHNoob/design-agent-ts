@@ -217,6 +217,7 @@ function buildDirectorDeps(params: {
       webSourceResultLimit: params.config.limits.webSourceResultLimit,
       eventDrainIntervalMs: params.config.execution.eventDrainIntervalMs,
       inFlightPartialOutputTimeoutMs: params.config.execution.inFlightPartialOutputTimeoutMs,
+      toolResultMaxChars: params.config.guards.toolResultMaxChars,
     },
     memory: {
       archiveEnabled: params.config.memory.archiveEnabled,

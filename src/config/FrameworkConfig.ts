@@ -285,6 +285,11 @@ export interface FrameworkConfig {
     /** Per-call timeout for external/MCP tools (ms). 0 disables. */
     toolTimeoutMs: number;
     /**
+     * 单条工具结果进入模型上下文的最大字符数（0=不截断）。
+     * 长 KB envelope 撑爆上下文的兜底；与 knowledge-hub 侧精简输出配合。
+     */
+    toolResultMaxChars: number;
+    /**
      * Plan hard guards (paradigm II): step ordering, tool whitelist, replan budget.
      * When false, whitelist/replan/jump assertions are no-ops.
      */
