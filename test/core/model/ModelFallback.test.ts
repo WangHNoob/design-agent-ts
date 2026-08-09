@@ -7,6 +7,8 @@ describe("classifyModelError", () => {
     expect(classifyModelError(Object.assign(new Error("rate limited"), { status: 429 }))).toBe("retriable");
     expect(classifyModelError(new Error("Request timed out"))).toBe("retriable");
     expect(classifyModelError(new Error("fetch failed"))).toBe("retriable");
+    // 上游流中断（网络抖动）是瞬时故障，必须可重试而非直接判死
+    expect(classifyModelError(new Error("terminated"))).toBe("retriable");
   });
 
   test("treats auth and validation as terminal", () => {
