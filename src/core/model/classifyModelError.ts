@@ -29,6 +29,8 @@ export function classifyModelError(error: unknown): ModelErrorClass {
     || lower.includes("econnreset")
     || lower.includes("fetch failed")
     || lower.includes("socket hang up")
+    // 流中断（上游连接被切断），瞬时故障，应触发重试而非直接判死
+    || lower.includes("terminated")
     || lower.includes("503")
     || lower.includes("502")
     || lower.includes("500")
