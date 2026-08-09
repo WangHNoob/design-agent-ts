@@ -10,6 +10,7 @@ import type { ToolPort } from "../../port/tool/ToolPort.js";
 import type { AgentHook } from "../../port/hook/AgentHook.js";
 import type { MemoryPort } from "../../port/memory/MemoryPort.js";
 import { HookContext } from "../../port/hook/HookContext.js";
+import { classifyModelError } from "../../core/model/classifyModelError.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
 import type { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
@@ -354,20 +355,33 @@ export class LangGraphAgentAdapter implements AgentPort {
           streamOptions.signal = config.signal;
         }
 
+        // LLM 调用重试：优先走 fallback 链（promoteFallback）；无备用模型但
+        // 错误可重试（流中断/超时等瞬时故障）时同模型退避重试一次。
+        const maxLlmAttempts = 2;
         let response: AIMessage;
-        try {
-          response = await invokeLlm([systemMsg, ...injectedMessages], streamOptions);
-          modelAdapter.recordSuccess();
-        } catch (firstErr) {
-          if (config?.signal?.aborted) throw firstErr;
-          if (!modelAdapter.promoteFallback(firstErr)) {
-            throw firstErr;
+        for (let attempt = 1; ; attempt += 1) {
+          try {
+            response = await invokeLlm([systemMsg, ...injectedMessages], streamOptions);
+            modelAdapter.recordSuccess();
+            break;
+          } catch (err) {
+            if (config?.signal?.aborted) throw err;
+            if (modelAdapter.promoteFallback(err)) {
+              console.warn(
+                `[LangGraphAgentAdapter:${descriptor.name}] Retrying LLM with fallback model=${modelAdapter.getActiveModelName()}`,
+              );
+              continue;
+            }
+            if (classifyModelError(err) === "retriable" && attempt < maxLlmAttempts) {
+              const backoffMs = 1500 * attempt;
+              console.warn(
+                `[LangGraphAgentAdapter:${descriptor.name}] Retriable LLM error (${err instanceof Error ? err.message : String(err)}), same-model retry ${attempt}/${maxLlmAttempts - 1} after ${backoffMs}ms`,
+              );
+              await new Promise((r) => setTimeout(r, backoffMs));
+              continue;
+            }
+            throw err;
           }
-          console.warn(
-            `[LangGraphAgentAdapter:${descriptor.name}] Retrying LLM with fallback model=${modelAdapter.getActiveModelName()}`,
-          );
-          response = await invokeLlm([systemMsg, ...injectedMessages], streamOptions);
-          modelAdapter.recordSuccess();
         }
 
         const metadata = response.response_metadata as Record<string, unknown> | undefined;
