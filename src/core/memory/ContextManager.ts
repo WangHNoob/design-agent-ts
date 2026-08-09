@@ -91,11 +91,21 @@ export class ContextManager {
       return { messages, archiveEntry: null, evicted: false };
     }
 
-    const recent = active.slice(-this.protectRecentTurns);
-    const toEvict = active.slice(0, -this.protectRecentTurns);
+    // 轮次切分：非 tool 消息开启新轮次，其后连续的 tool 消息并入该轮次。
+    // 归档/保留边界永不切开 assistant(tool_calls) ↔ tool 消息对 —— 否则
+    // 消息序列会含"悬空 tool 消息"，被 OpenAI 系 provider 以 400 拒绝
+    // (INVALID_TOOL_RESULTS，评测 EV-058 实证)。
+    const turns = splitIntoTurns(active);
+    if (turns.length <= this.protectRecentTurns) {
+      return { messages, archiveEntry: null, evicted: false };
+    }
+
+    const recentTurns = turns.slice(-this.protectRecentTurns);
+    const toEvict = turns.slice(0, -this.protectRecentTurns).flat();
     if (toEvict.length === 0) {
       return { messages, archiveEntry: null, evicted: false };
     }
+    const recent = recentTurns.flat();
 
     let archiveEntry: ArchiveEntry | null = null;
     const summaryMessages: ChatMessage[] = [...priorSummaries];
@@ -139,4 +149,24 @@ export class ContextManager {
   private activeNonSystemCount(messages: ChatMessage[]): number {
     return messages.filter((m) => m.role !== "system").length;
   }
+}
+
+/**
+ * Split non-system messages into turn units.
+ *
+ * A turn starts at every non-`tool` message (user / assistant) and absorbs all
+ * following consecutive `tool` messages — so an assistant(tool_calls) message
+ * and its ToolMessages always stay in the same unit. Dangling `tool` messages
+ * (whose assistant turn was already evicted earlier) form their own unit.
+ */
+function splitIntoTurns(active: ChatMessage[]): ChatMessage[][] {
+  const turns: ChatMessage[][] = [];
+  for (const m of active) {
+    if (m.role !== "tool" || turns.length === 0) {
+      turns.push([m]);
+    } else {
+      turns[turns.length - 1]!.push(m);
+    }
+  }
+  return turns;
 }

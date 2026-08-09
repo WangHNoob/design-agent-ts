@@ -59,10 +59,15 @@ export class TokenBudgetHook implements AgentHook {
       const used = (this.usedByTrace.get(traceId) ?? 0) + delta;
       this.usedByTrace.set(traceId, used);
 
+      const guardAttrs = {
+        iteration: context.iteration,
+        messageCount: context.messages?.length ?? 0,
+      };
+
       if (singleBudget > 0 && used > singleBudget) {
         const reason = `Trace token budget exceeded: used=${used} budget=${singleBudget}`;
         this.logger.warn(`[TokenBudgetHook] ${reason}`);
-        await this.recordGuardSpan("guard.token_budget", reason, used, singleBudget);
+        await this.recordGuardSpan("guard.token_budget", reason, used, singleBudget, guardAttrs);
         context.metadata.tokenBudgetExceeded = true;
         context.metadata.tokenBudgetUsed = used;
         context.metadata.tokenBudgetLimit = singleBudget;
@@ -71,7 +76,7 @@ export class TokenBudgetHook implements AgentHook {
       if (multiEnabled && used > multiBudget) {
         const reason = `Multi-agent token budget exceeded: used=${used} budget=${multiBudget}`;
         this.logger.warn(`[TokenBudgetHook] ${reason}`);
-        await this.recordGuardSpan("guard.multi_agent_token_budget", reason, used, multiBudget);
+        await this.recordGuardSpan("guard.multi_agent_token_budget", reason, used, multiBudget, guardAttrs);
         context.metadata.multiAgentTokenBudgetExceeded = true;
         context.metadata.multiAgentTokenBudgetUsed = used;
         context.metadata.multiAgentTokenBudgetLimit = multiBudget;
@@ -87,13 +92,18 @@ export class TokenBudgetHook implements AgentHook {
       const multiExceeded = multiEnabled
         && (used > multiBudget || context.metadata.multiAgentTokenBudgetExceeded === true);
 
+      const guardAttrs = {
+        iteration: context.iteration,
+        messageCount: context.messages?.length ?? 0,
+      };
+
       if (multiExceeded) {
         const reason = `Multi-agent token budget exceeded: used=${used} budget=${multiBudget}`;
         context.abort = true;
         context.abortReason = reason;
         context.metadata.multiAgentTokenBudgetExceeded = true;
         context.metadata.tokenBudgetExceeded = true;
-        await this.recordGuardSpan("guard.multi_agent_token_budget", reason, used, multiBudget);
+        await this.recordGuardSpan("guard.multi_agent_token_budget", reason, used, multiBudget, guardAttrs);
         return context;
       }
 
@@ -102,7 +112,7 @@ export class TokenBudgetHook implements AgentHook {
         context.abort = true;
         context.abortReason = reason;
         context.metadata.tokenBudgetExceeded = true;
-        await this.recordGuardSpan("guard.token_budget", reason, used, singleBudget);
+        await this.recordGuardSpan("guard.token_budget", reason, used, singleBudget, guardAttrs);
       }
       return context;
     }
@@ -136,6 +146,7 @@ export class TokenBudgetHook implements AgentHook {
     reason: string,
     used: number,
     budget: number,
+    extra: Record<string, unknown> = {},
   ): Promise<void> {
     const tracer = this.options.tracer;
     if (!tracer?.getCurrentTrace()) return;
@@ -147,6 +158,7 @@ export class TokenBudgetHook implements AgentHook {
         used,
         budget,
         abortReason: reason,
+        ...extra,
       },
     });
   }
