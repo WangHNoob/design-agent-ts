@@ -15,17 +15,34 @@ export interface TracingHookOptions {
 
 const DEFAULT_MAX_ATTR_CHARS = 1500;
 /** 提取核心后数组最多保留的条数（防止整表倾倒） */
-const MAX_CORE_ARRAY_ITEMS = 20;
+const MAX_CORE_ARRAY_ITEMS = 15;
+/** 工具出参预算倍率：核心内容值得比普通属性更大的空间 */
+const TOOL_RESULT_BUDGET_MULTIPLIER = 4;
 
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max)}…[+${value.length - max} chars]`;
 }
 
-/** 容忍前缀的 JSON 解析（黑板缓存等包装器会在 JSON 前加 `[来自黑板缓存]` 标记行）。 */
+/** 容忍前缀与双重编码的 JSON 解析：
+ *  - 黑板缓存等包装器会在 JSON 前加 `[来自黑板缓存]` 标记行；
+ *  - 工具框架可能把 JSON 字符串再 stringify 一次（内容为转义 JSON 的字符串）。
+ */
 function parseJsonWithPrefix(value: string): unknown {
   try {
-    return JSON.parse(value);
+    const parsed: unknown = JSON.parse(value);
+    // 双重编码：解析结果是字符串，且内容本身是 JSON → 再解析一层
+    if (typeof parsed === "string") {
+      const inner = parsed.trim();
+      if (inner.startsWith("{") || inner.startsWith("[")) {
+        try {
+          return JSON.parse(inner);
+        } catch {
+          return parsed;
+        }
+      }
+    }
+    return parsed;
   } catch {
     const brace = value.indexOf("{");
     if (brace > 0) {
@@ -163,7 +180,9 @@ export class TracingHook implements AgentHook {
       sessionId: context.sessionId,
       toolName: context.toolName,
       toolArguments: context.toolArguments ? truncate(JSON.stringify(context.toolArguments), max) : undefined,
-      toolResult: context.toolResult ? extractToolResult(context.toolResult, max) : undefined,
+      toolResult: context.toolResult
+        ? extractToolResult(context.toolResult, max * TOOL_RESULT_BUDGET_MULTIPLIER)
+        : undefined,
       llmReasoning: context.llmReasoning ? truncate(context.llmReasoning, max) : undefined,
       llmOutput: context.llmOutput ? truncate(context.llmOutput, max) : undefined,
       inputTokens: context.inputTokenCount,
