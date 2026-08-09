@@ -2,7 +2,8 @@
 
 > 依据：78 题 v0.2 查询模式评测（75.6 分，18 FAIL）的失败归因 + trace 级证据链。
 > 范围：**仅 design-agent-ts**。knowledge-hub 侧（工具返回体/token 优化）由另一任务并行处理，见 `knowledge-hub/docs/optimization-task-prompt.md`。
-> 状态：**已批准**（2026-08-09）。P2-5 压缩时机提前经用户确认**撤销**；其余 P0-1/P0-2/P1-3/P1-4/P2-6 实施中。
+> 状态：**已批准并完成实施**（2026-08-09，提交 `bb7162e`，分支 `fix/query-eval-badcases`）。
+> P2-5 压缩时机提前经用户确认**撤销**；其余 P0-1/P0-2/P1-3/P1-4/P2-6 已实现，`pnpm build`/`pnpm test`（96 文件 476 用例）/`pnpm lint` 全过。
 
 ## 一、排查结论：LLM 重试路径的真相
 
