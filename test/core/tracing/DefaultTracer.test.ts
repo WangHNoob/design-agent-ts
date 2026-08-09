@@ -256,7 +256,7 @@ describe("DefaultTracer + TracingHook", () => {
           agentName: "QueryAgent",
           sessionId: "sess-1",
           toolName: "kb_query_table",
-          toolResult: "trust=0.938 trusted heroId=H001 baseAtk=110 (long result payload truncated here)",
+          toolResult: "trust=0.938 trusted heroId=H001 baseAtk=110 " + "x".repeat(200) + " (long result payload)",
         }),
       );
       await hook.onEvent(
@@ -308,7 +308,7 @@ describe("DefaultTracer + TracingHook", () => {
         found: true,
         title: "技能系统",
         rows: [
-          { skillId: "SK001", name: "烈焰斩", note: "注".repeat(200) },
+          { skillId: "SK001", name: "烈焰斩", note: "注".repeat(700) },
           { skillId: "SK002", name: "炎龙突刺", note: "x" },
         ],
       },
@@ -317,6 +317,8 @@ describe("DefaultTracer + TracingHook", () => {
     });
     // 黑板缓存包装器会加前缀
     const prefixed = `[来自黑板缓存]\n${envelope}`;
+    // 工具框架可能双重编码（JSON 字符串再 stringify）
+    const doubleEncoded = JSON.stringify(envelope);
 
     const handle = await tracer.startTrace({ sessionId: "s", userId: "u", name: "director.query" });
     await tracer.withTrace(handle, async () => {
@@ -324,12 +326,16 @@ describe("DefaultTracer + TracingHook", () => {
         "post_tool_execution",
         HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "kb_get_page", toolResult: prefixed }),
       );
+      await hook.onEvent(
+        "post_tool_execution",
+        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "kb_query_table", toolResult: doubleEncoded }),
+      );
       await tracer.endTrace(handle.traceId, "ok");
     });
 
     const detail = await store.getTrace("u", handle.traceId);
-    const attrs = detail!.spans.find((s) => s.name === "QueryAgent.post_tool_execution")!.attributes;
-    const raw = String(attrs["toolResult"]);
+    const spans = detail!.spans.filter((s) => s.name === "QueryAgent.post_tool_execution");
+    const raw = String(spans[0]!.attributes["toolResult"]);
     expect(raw).toContain('"result"');
     expect(raw).toContain("03-技能系统设计.md");
     expect(raw).toContain('"trust"');
@@ -342,5 +348,10 @@ describe("DefaultTracer + TracingHook", () => {
     expect(JSON.parse(raw).result.rows).toHaveLength(2);
     // 值级截断生效
     expect(JSON.parse(raw).result.rows[0].note).toContain("…[+");
+    // 双重编码路径同样提取成功
+    const raw2 = String(spans[1]!.attributes["toolResult"]);
+    expect(raw2).toContain('"result"');
+    expect(() => JSON.parse(raw2)).not.toThrow();
+    expect(JSON.parse(raw2).result.rows).toHaveLength(2);
   });
 });
