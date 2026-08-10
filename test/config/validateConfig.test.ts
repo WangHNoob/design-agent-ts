@@ -151,8 +151,6 @@ function config(
     },
     cost: {
       enabled: true,
-      inputPricePer1M: 2.5,
-      outputPricePer1M: 10,
       rpmLimitPerUser: 60,
       tpmLimitPerUser: 200000,
       windowMs: 60000,

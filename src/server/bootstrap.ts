@@ -822,11 +822,6 @@ export async function lateBootstrapDirector(): Promise<void> {
       hooks.push(
         new CostAccountingHook({
           enabled: true,
-          pricing: {
-            inputPricePer1M: config.cost.inputPricePer1M,
-            outputPricePer1M: config.cost.outputPricePer1M,
-            modelPrices: config.cost.modelPrices,
-          },
           costStore: costStoreAdapter,
           defaultModelName: config.model.modelName,
           tracer,

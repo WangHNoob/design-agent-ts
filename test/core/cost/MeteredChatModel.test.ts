@@ -66,7 +66,6 @@ describe("MeteredChatModel", () => {
       tpmEstimatePerCall: 100,
       rateLimit: limiter,
       costStore: store,
-      pricing: { inputPricePer1M: 2.5, outputPricePer1M: 10 },
       resolveUserId: () => "u1",
       defaultAgentName: "Director",
     });
@@ -98,7 +97,6 @@ describe("MeteredChatModel", () => {
           getRemaining: async () => ({}),
         },
         costStore: new InMemoryCostStore(new FakeIds()),
-        pricing: { inputPricePer1M: 1, outputPricePer1M: 1 },
         resolveUserId: () => "u1",
       },
     );
@@ -131,7 +129,6 @@ describe("MeteredChatModel", () => {
         tpmEstimatePerCall: 50,
         rateLimit: limiter,
         costStore: new InMemoryCostStore(new FakeIds()),
-        pricing: { inputPricePer1M: 1, outputPricePer1M: 1 },
         resolveUserId: () => "u1",
       },
     );
