@@ -60,6 +60,9 @@ docker-compose.override.yml
 # ZCode session artifacts
 .zcode/
 
+# Personal interview prep material (local only)
+docs/interview-qna-2026-08.md
+
 # Cache
 .eslintcache
 *.tsbuildinfo

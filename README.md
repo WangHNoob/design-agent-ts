@@ -218,13 +218,13 @@ HTTP 只负责创建幂等 Execution 并入队；`ExecutionWorker` 消费 Redis 
 
 **禁止**执行完成后伪分块模拟流式。
 
-### Query 快速路径与消息序列护栏（评测实战沉淀）
+### Query 模式可靠性护栏
 
-- **FAQ 快速路径**（`src/core/faq/`，`FAQ_ENABLED` 默认关）：query 请求先经 `decideFaqHit` 用 `kb_faq_match` 做高置信短路（`FAQ_THRESHOLD=0.82`，`FAQ_TIMEOUT_MS=800`），命中直接返回答案、不进 LLM——省 token 且 TTFB 更低。`FAQ_TOOL_NAME` 可配置工具名。
-- **重复调用守卫**（评测 6 题 token 风暴根因修复，提交 bb7162e）：执行前统计历史中同一 `(tool, 规范化参数)` 的出现次数，≥2 次直接取消本次调用并提示模型；hash 做 `normalizeToolArgs` 归一化（`"40"` vs `40` 不再绕过检测，修复 `ToolLoopDetectorHook` 被类型抖动绕过的缺陷）。
-- **消息序列合法性兜底**（`sanitizeToolSequence`）：压缩/归档可能产生"悬空 tool 消息"（无前置 assistant tool_calls），OpenAI 系 provider 会 400（评测 EV-058 实证）——发送前扫描消息流，把悬空 ToolMessage 降级为 `HumanMessage("[工具结果] ...")`，让"丢一条结果"而非"整题失败"。
-- **thinking 模型往返保真**（提交 ae84d32）：`LangGraphMessageMapper` 往返必须保留 `additional_kwargs`（含 `reasoning_content`）——Console Go 类 thinking provider 硬性要求历史 assistant 消息原样回传思考内容，否则 400（评测 EV-021/058 实证）。
-- **工具结果截断**：`TOOL_RESULT_MAX_CHARS`（默认 6000）限制单条工具结果进上下文的字符数，防止知识库 envelope 撑爆上下文预算。
+- **FAQ 快速路径**：query 入口先做高置信 FAQ 匹配，命中即直接返回答案、不进 LLM——更省 token、首字延迟更低（`FAQ_ENABLED` 默认关闭）。
+- **重复工具调用守卫**：同一工具以相同参数连续重复调用时自动拦截并提示模型改用其他方式，防止无效循环消耗预算。
+- **消息序列兜底校验**：发送给模型前校验消息流合法性，压缩/归档导致的"悬空工具结果"自动降级为普通文本，避免整轮失败。
+- **thinking 模型往返保真**：消息在压缩/归档往返中保留模型的思考内容（`reasoning_content`），满足 thinking 模型的回传要求。
+- **工具结果截断**：单条工具结果进上下文前按字符数截断（`TOOL_RESULT_MAX_CHARS`），控制长知识库返回体的上下文占用。
 
 ---
 
@@ -377,39 +377,16 @@ pnpm eval:offline   # Eval V1 Offline（--exact-only 默认精确匹配，无需
 
 ---
 
-## 十、评测与验证：78 题黄金评测集
+## 十、评测与验证
 
-知识库升级与 Agent 改动是否真的"变好了"，靠一套**可复算、可审计**的评测体系回答，而不是拍脑袋。
+知识库升级与 Agent 改动是否真的"变好了"，靠一套**可复算、可审计**的评测体系回答：
 
-### 评测集与打分
+- **黄金评测集**：78 道知识问答用例（含回归集与新增集），覆盖单表检索、跨表关联、数值计算、经济闭环、一致性、证据链、防幻觉七类能力，每题带关键事实断言、字段数值断言与幻觉锚点。
+- **自动打分**：数值严格匹配（精确值 / 容差），表达形式兼容内联与表格；未注册 ID 计入幻觉记录，防幻觉类题目出现幻觉 ID 直接判失败。
+- **数值审计**：评测集里每个期望值由程序从配表数据重新计算比对，防止"拿错误答案考模型"（评测集与数据更新需同步）。
+- **回归门禁**：Agent / 知识库改动后重跑评测，对比前后得分确认无"旧通过 → 新失败"回归。
 
-- **黄金集**（`knowledge-hub/evals/golden_evals.json`）：78 题 = 30 题 v0.1 回归 + 48 题 v0.2 新增，按能力分组（basic_retrieval / cross_table / formula_calc / economy_loop / consistency / evidence_chain / anti_hallucination），每题带 `expectedAnswer`、`keyFacts`（关键事实）、`numPairs`（字段=值数值断言）、`fakeId`（防幻觉锚点）。
-- **跑法**（`knowledge-hub/evals/run_query_mode_eval.py`）：78 题串行打 `/api/console/execute`（query 模式），带 TPM 限流退避与连接抖动重试，产物为 answers JSON + Markdown 报告。
-- **打分器 v3**（`knowledge-hub/evals/run_eval.py`）：**数值严格、表达形式兼容**——keyFacts 精确子串/数字匹配；numPairs 支持内联（`字段=值`，含 `**` 装饰）与 Markdown 表格（表头列定位 / 两列字段|值行 / 中文标签前缀），**存在性匹配**（任一候选值命中即通过，修复首匹配误判）；未注册 ID 计入幻觉记录，anti_hallucination 题直接 FAIL。
-- **数值审计**（`knowledge-hub/evals/audit_evals.py`）：**48/48 全部通过**——用程序从 CSV 重算 golden 里每个数值（战力公式、掉落概率、技能倍率等）逐项比对，防止"拿错误答案考模型"（golden 与配表不一致会导致假阴性，实测发现并修复过 EV-027 的过时断言）。
-
-### 得分演进（2026-08 实录）
-
-| 轮次 | 得分 | 说明 |
-|------|------|------|
-| v0.1 库基线 | 83.3 | 旧知识库 |
-| v0.2 首轮（75.6） | 75.6 | 新库 49 文档/204 CSV；18 FAIL 归因：7 基础设施（6 token 风暴 + 1 消息序列 400）、8 格式、2 首匹配、1 内容 |
-| 修复后初跑（71.8） | 71.8 | 修复生效 6 题转好，但暴露 2 个新 `reasoning_content` 400（存量 bug 被放行到下一层校验）+ 格式漂移噪声 |
-| 打分器 v3 重评分 | **85.3** | 表格感知 + 存在性匹配，同一份 answers 重打分；旧答案回放零回归 |
-
-### 修复清单（提交 bb7162e / ae84d32）
-
-| 问题 | 修复 | 效果 |
-|------|------|------|
-| 6 题 token 风暴（模型重复调用同一表） | 重复调用守卫（hash 归一化 + 取消重复调用 + 提示注入）+ `TOOL_RESULT_MAX_CHARS` 截断 | 6 题救回 5 个 |
-| EV-058 消息序列断裂 400 | 轮次感知压缩（整轮保留，不切断 tool_calls↔tool 对）+ `sanitizeToolSequence` 兜底 | 从"整题失败"降级为"丢一条结果" |
-| EV-021/058 `reasoning_content` 400 | `LangGraphMessageMapper` 往返回填 `additional_kwargs` | thinking 模型不再 400 |
-
-### 相关文档
-
-- [badcase 修复方案与归因](docs/query-eval-badcase-fix-plan-2026-08-09.md)
-- [2026-08 优化计划](docs/optimization-plan-2026-08.md)
-- [面试问答整理（项目实战细节）](docs/interview-qna-2026-08.md)
+评测脚本与黄金集位于配套的 [knowledge-hub](https://github.com/WangHNoob/knowledge-hub) 工程 `evals/` 目录。
 
 ---
 
