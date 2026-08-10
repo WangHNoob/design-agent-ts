@@ -92,29 +92,6 @@ function parseToolRiskOverrides(raw: string | undefined): Record<string, ToolRis
   }
 }
 
-function parseModelPrices(
-  raw: string | undefined,
-): Record<string, { inputPer1M: number; outputPer1M: number }> | undefined {
-  if (!raw || raw.trim().length === 0) return undefined;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
-    const out: Record<string, { inputPer1M: number; outputPer1M: number }> = {};
-    for (const [model, value] of Object.entries(parsed)) {
-      if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
-      const inputPer1M = Number((value as Record<string, unknown>).inputPer1M);
-      const outputPer1M = Number((value as Record<string, unknown>).outputPer1M);
-      if (Number.isFinite(inputPer1M) && Number.isFinite(outputPer1M)) {
-        out[model] = { inputPer1M, outputPer1M };
-      }
-    }
-    return Object.keys(out).length > 0 ? out : undefined;
-  } catch {
-    console.warn("[loadConfig] COST_MODEL_PRICES is not valid JSON, ignoring");
-    return undefined;
-  }
-}
-
 function parseCsvList(raw: string | undefined, defaults: string[] = []): string[] {
   if (!raw || raw.trim().length === 0) return defaults;
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
@@ -326,9 +303,6 @@ export function loadConfig(): FrameworkConfig {
     },
     cost: {
       enabled: process.env.COST_ENABLED !== "false",
-      inputPricePer1M: Number(process.env.COST_INPUT_PRICE_PER_1M ?? 2.5),
-      outputPricePer1M: Number(process.env.COST_OUTPUT_PRICE_PER_1M ?? 10),
-      modelPrices: parseModelPrices(process.env.COST_MODEL_PRICES),
       rpmLimitPerUser: Number(process.env.COST_RPM_LIMIT_PER_USER ?? 60),
       tpmLimitPerUser: Number(process.env.COST_TPM_LIMIT_PER_USER ?? 200000),
       windowMs: Number(process.env.COST_WINDOW_MS ?? 60000),

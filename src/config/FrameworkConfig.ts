@@ -353,13 +353,10 @@ export interface FrameworkConfig {
     offlineExactOnlyDefault: boolean;
   };
   /**
-   * Cost attribution (Trace-based metering) and RPM/TPM per-user rate limits.
+   * Token usage metering (no dollar billing — users bring their own LLM) and RPM/TPM rate limits.
    */
   cost: {
     enabled: boolean;
-    inputPricePer1M: number;
-    outputPricePer1M: number;
-    modelPrices?: Record<string, { inputPer1M: number; outputPer1M: number }>;
     rpmLimitPerUser: number;
     tpmLimitPerUser: number;
     windowMs: number;

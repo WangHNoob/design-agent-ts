@@ -13,6 +13,10 @@ interface StoredUsage extends CostUsageRecord {
   readonly createdAt: string;
 }
 
+function tokenTotal(row: Pick<CostAggregate, "inputTokens" | "outputTokens">): number {
+  return row.inputTokens + row.outputTokens;
+}
+
 export class InMemoryCostStore implements CostStorePort {
   private readonly records: StoredUsage[] = [];
 
@@ -40,7 +44,7 @@ export class InMemoryCostStore implements CostStorePort {
     });
     const limit = Math.max(1, Math.min(100, options.limit ?? 10));
     return grouped
-      .sort((a, b) => b.estimatedCostMicros - a.estimatedCostMicros)
+      .sort((a, b) => tokenTotal(b) - tokenTotal(a))
       .slice(0, limit);
   }
 
@@ -89,7 +93,7 @@ export class InMemoryCostStore implements CostStorePort {
       });
     }
     return [...buckets.values()].sort(
-      (a, b) => b.estimatedCostMicros - a.estimatedCostMicros,
+      (a, b) => tokenTotal(b) - tokenTotal(a),
     );
   }
 

@@ -30,11 +30,6 @@ export function createDirectorModel(
     tpmEstimatePerCall: config.cost.tpmEstimatePerCall,
     rateLimit: deps.rateLimit,
     costStore: deps.costStore,
-    pricing: {
-      inputPricePer1M: config.cost.inputPricePer1M,
-      outputPricePer1M: config.cost.outputPricePer1M,
-      modelPrices: config.cost.modelPrices,
-    },
     tracer: deps.tracer,
     resolveUserId: deps.resolveUserId,
     defaultAgentName: "Director",
