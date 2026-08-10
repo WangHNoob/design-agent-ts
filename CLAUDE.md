@@ -52,6 +52,9 @@
 - [ ] **工具注册**：新工具是否在 `bootstrap.ts` 中注册？工具名是否与提示词期望一致？
 - [ ] **端口契约**：适配器实现是否静默破坏端口契约？降级行为是否可审计（如 `fallback` 标记）？
 - [ ] **租户边界**：仓储查询是否带 `userId`？是否出现全局 `setUserId` / 请求间共享可变租户状态？
+- [ ] **消息序列**：消息流是否存在悬空 ToolMessage（无前置 assistant tool_calls）？发送前是否走 `sanitizeToolSequence`？
+- [ ] **往返保真**：`toLangGraph` 重建消息时是否回填 `additional_kwargs`（`reasoning_content`）？是否新增了会丢弃 `metadata` 的消息转换路径？
+- [ ] **重复调用**：新增工具调用路径是否绕过重复调用守卫（hash 是否走 `normalizeToolArgs`）？
 - [ ] **模拟数据**：代码中是否有 TODO / FIXME / mock / placeholder？未实现部分必须显式标记
 - [ ] **架构守护（工具强制）**：`pnpm lint`（eslint `no-restricted-imports` 分层规则）与 `pnpm test`（`test/architecture/layer-boundaries.test.ts` 扫描全部 import）是否通过？这两道闸不可绕过，违反分层时先改代码再提交
 
@@ -98,6 +101,12 @@
 - **版本**：Prompt/Skill/Workflow 会话快照 MVCC；灰度/回滚不改写已绑定会话
 - **知识库**：Wiki/RAG/向量索引归独立项目 `knowledge-hub`；本仓只保留工具适配点
 
+### 消息序列与往返保真（查询链路硬约束，勿静默拆除）
+- **重复调用守卫**：`LangGraphAgentAdapter` 在 `wrappedToolNode` 执行前统计历史中同一 `(tool, 规范化参数)` 出现次数，`>= REPEAT_CANCEL_THRESHOLD(2)` 直接取消调用并回填取消说明 ToolMessage；hash 必须走 `normalizeToolArgs`（数字字符串折叠），**禁止**绕过归一化直接 `stableStringify`（`"40"` vs `40` 会绕过 `ToolLoopDetectorHook`）
+- **消息序列合法性**：发送给 provider 前必须经 `sanitizeToolSequence`——悬空 ToolMessage（无前置 assistant tool_calls）降级为 `HumanMessage("[工具结果] ...")`，禁止带悬空 tool 消息直发（OpenAI 系 400）
+- **`additional_kwargs` 往返保真**：`LangGraphMessageMapper` 的 `toLangGraph` 必须把 `metadata` 回填进 `additional_kwargs`（含 thinking 模型的 `reasoning_content`）；丢失即触发 Console Go 类 provider 400（评测 EV-021/058 实证）
+- **FAQ 快速路径**：`src/core/faq/`（`decideFaqHit` / `parseFaqMatchResult`）在 query 入口做高置信短路；`FAQ_ENABLED` 默认关闭，开启需 `kb_faq_match` 工具可用（`FAQ_TOOL_NAME`）
+
 ---
 
 ## 五、环境变量规范
@@ -117,6 +126,19 @@
 3. 可跑完一个完整案例（design / query / table 至少各一条 happy path）
 4. 架构自查 Checklist 全部通过
 5. Docker 镜像依赖本地 `dist/`：改源码后需重建镜像再验 live
+
+---
+
+## 六·五、查询链路评测门禁（knowledge-hub 黄金集）
+
+query 模式 / 知识库 / 消息链路的改动，除上述五项外还需过评测门禁：
+
+- **评测集**：`knowledge-hub/evals/golden_evals.json`（78 题 = 30 回归 + 48 新增，7 个能力分组）
+- **跑法**：`cd knowledge-hub && python evals/run_query_mode_eval.py`（串行打 13000 `/api/console/execute`，带 TPM 退避与连接重试；eval 进程长跑后可能出现 WinError 10061 进程级异常，遇持续失败改用 `127.0.0.1` 重跑，勿直接判定服务故障）
+- **打分**：`python evals/run_eval.py --answers ...`（v3：数值精确匹配，表达形式兼容内联/Markdown 表格，存在性匹配；**禁止**为凑分放宽数值断言）
+- **数值审计**：`python evals/audit_evals.py --kb-dir ... --evals evals/golden_evals.json` 必须 48/48 通过——golden 期望与配表程序化重算一致，**golden 过时与数据更新必须同步**（实测 EV-027 曾因 SK033 扩展注册而断言过时，模型答对反被判 FAIL）
+- **回归对比**：改动前后同一 answers 回放打分，确认无"旧 PASS → 新 FAIL"回归；`TOOL_RESULT_MAX_CHARS` / 重复调用守卫 / `sanitizeToolSequence` / `additional_kwargs` 往返为现役护栏，评测结果变化先归因再改护栏
+- 相关文档：`docs/query-eval-badcase-fix-plan-2026-08-09.md`（修复方案）、`docs/interview-qna-2026-08.md`（实战细节）
 
 ---
 
