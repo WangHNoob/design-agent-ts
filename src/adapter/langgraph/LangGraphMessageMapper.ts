@@ -24,16 +24,21 @@ export class LangGraphMessageMapper {
         args: c.arguments,
       }));
 
+    // 往返保真：fromLangGraph 把 additional_kwargs（含 thinking 模型的
+    // reasoning_content）存进 metadata，这里必须原样带回，否则 Console Go
+    // 类 thinking provider 会 400 拒绝（评测 EV-021/058 实证）。
+    const additionalKwargs: Record<string, unknown> = msg.metadata ?? {};
+
     switch (msg.role) {
       case "system":
-        return new SystemMessage({ content: textParts });
+        return new SystemMessage({ content: textParts, additional_kwargs: additionalKwargs });
       case "user":
-        return new HumanMessage({ content: textParts, name: msg.name });
+        return new HumanMessage({ content: textParts, name: msg.name, additional_kwargs: additionalKwargs });
       case "assistant": {
         if (toolCalls.length > 0) {
-          return new AIMessage({ content: textParts || "", tool_calls: toolCalls, name: msg.name });
+          return new AIMessage({ content: textParts || "", tool_calls: toolCalls, name: msg.name, additional_kwargs: additionalKwargs });
         }
-        return new AIMessage({ content: textParts, name: msg.name });
+        return new AIMessage({ content: textParts, name: msg.name, additional_kwargs: additionalKwargs });
       }
       case "tool": {
         const results = msg.content.filter((c): c is ToolResultContent => c.type === "tool_result");
@@ -43,12 +48,14 @@ export class LangGraphMessageMapper {
             content: first.output,
             tool_call_id: first.callId,
             name: first.toolName,
+            additional_kwargs: additionalKwargs,
           });
         }
         return new ToolMessage({
           content: JSON.stringify(results.map((r) => ({ callId: r.callId, output: r.output }))),
           tool_call_id: results[0]?.callId ?? "unknown",
           name: msg.name ?? "tool",
+          additional_kwargs: additionalKwargs,
         });
       }
     }

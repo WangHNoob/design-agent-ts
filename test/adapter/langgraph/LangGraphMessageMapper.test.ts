@@ -162,4 +162,37 @@ describe("LangGraphMessageMapper", () => {
       expect(messages[1].role).toBe("user");
     });
   });
+
+  describe("reasoning_content 往返保真（P0：EV-021/058 thinking 模型 400）", () => {
+    it("AIMessage 的 reasoning_content 经 round-trip 必须保留在 additional_kwargs", () => {
+      const lg = new AIMessage({
+        content: "结论文本",
+        additional_kwargs: { reasoning_content: "模型内部思考过程" },
+      });
+      const chat = mapper.fromLangGraph(lg);
+      expect(chat.metadata).toMatchObject({ reasoning_content: "模型内部思考过程" });
+
+      const back = mapper.toLangGraph(chat) as AIMessage;
+      expect(back.additional_kwargs).toMatchObject({ reasoning_content: "模型内部思考过程" });
+    });
+
+    it("带 tool_calls 的 AIMessage 同样保留 reasoning_content", () => {
+      const lg = new AIMessage({
+        content: "先查一下",
+        tool_calls: [{ id: "call_x", name: "kb_query_table", args: { table: "Skill" } }],
+        additional_kwargs: { reasoning_content: "需要先查表" },
+      });
+      const chat = mapper.fromLangGraph(lg);
+      const back = mapper.toLangGraph(chat) as AIMessage;
+      expect(back.tool_calls).toHaveLength(1);
+      expect(back.additional_kwargs).toMatchObject({ reasoning_content: "需要先查表" });
+    });
+
+    it("无 reasoning_content 的消息不受影响（metadata 为空对象）", () => {
+      const lg = new AIMessage({ content: "普通回复" });
+      const chat = mapper.fromLangGraph(lg);
+      const back = mapper.toLangGraph(chat) as AIMessage;
+      expect(back.additional_kwargs).toEqual({});
+    });
+  });
 });
