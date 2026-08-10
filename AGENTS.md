@@ -138,7 +138,7 @@ query 模式 / 知识库 / 消息链路的改动，除上述五项外还需过�
 - **打分**：`python evals/run_eval.py --answers ...`（v3：数值精确匹配，表达形式兼容内联/Markdown 表格，存在性匹配；**禁止**为凑分放宽数值断言）
 - **数值审计**：`python evals/audit_evals.py --kb-dir ... --evals evals/golden_evals.json` 必须 48/48 通过——golden 期望与配表程序化重算一致，**golden 过时与数据更新必须同步**（实测 EV-027 曾因 SK033 扩展注册而断言过时，模型答对反被判 FAIL）
 - **回归对比**：改动前后同一 answers 回放打分，确认无"旧 PASS → 新 FAIL"回归；`TOOL_RESULT_MAX_CHARS` / 重复调用守卫 / `sanitizeToolSequence` / `additional_kwargs` 往返为现役护栏，评测结果变化先归因再改护栏
-- 相关文档：`docs/query-eval-badcase-fix-plan-2026-08-09.md`（修复方案）、`docs/interview-qna-2026-08.md`（实战细节）
+- 相关文档：`docs/query-eval-badcase-fix-plan-2026-08-09.md`（修复方案）
 
 ---
 
