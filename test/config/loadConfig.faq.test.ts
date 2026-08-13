@@ -8,7 +8,13 @@ const BASE_ENV: Record<string, string> = {
   MQ_ENABLED: "true",
 };
 
-const FAQ_ENV_KEYS = ["FAQ_ENABLED", "FAQ_THRESHOLD", "FAQ_TIMEOUT_MS", "FAQ_TOOL_NAME"] as const;
+const FAQ_ENV_KEYS = [
+  "FAQ_ENABLED",
+  "FAQ_THRESHOLD",
+  "FAQ_TIMEOUT_MS",
+  "FAQ_TOOL_NAME",
+  "FAQ_REQUIRE_METRICS",
+] as const;
 
 function stubBaseEnv(): void {
   for (const [key, value] of Object.entries(BASE_ENV)) {
@@ -35,6 +41,7 @@ describe("loadConfig FAQ settings", () => {
       faqThreshold: 0.82,
       faqTimeoutMs: 800,
       faqToolName: "kb_faq_match",
+      faqRequireMetrics: true,
     });
   });
 
@@ -50,6 +57,14 @@ describe("loadConfig FAQ settings", () => {
       faqThreshold: 0.91,
       faqTimeoutMs: 1500,
       faqToolName: "custom_faq_tool",
+      faqRequireMetrics: true,
     });
+  });
+
+  test("FAQ_REQUIRE_METRICS=false disables the metric gate", () => {
+    vi.stubEnv("FAQ_ENABLED", "true");
+    vi.stubEnv("FAQ_REQUIRE_METRICS", "false");
+
+    expect(loadConfig().faq.faqRequireMetrics).toBe(false);
   });
 });

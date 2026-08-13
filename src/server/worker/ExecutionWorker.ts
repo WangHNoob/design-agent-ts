@@ -6,6 +6,7 @@ import type {
 import { ErrorClassifier } from "../../core/execution/ErrorClassifier.js";
 import { ExecutionService } from "../../core/execution/ExecutionService.js";
 import { ExecutionStateMachine } from "../../core/execution/ExecutionStateMachine.js";
+import { buildOutcomeSignal } from "../../core/execution/outcomeSignal.js";
 import type { InflightLane, InflightLimiter } from "../../core/execution/InflightLimiter.js";
 import type { TaskPlan } from "../../core/schema/TaskPlan.js";
 import type { TaskResult } from "../../core/schema/TaskResult.js";
@@ -178,6 +179,10 @@ export class ExecutionWorker {
 
     let execution = initialExecution;
     let tenantAcquired = false;
+    // Review points passed so far — collected in the stream loop, attached to the
+    // terminal outcome signal (flywheel 01-P4). Declared here so the catch path
+    // (which sees a stream error after HITL checkpoints) can include them too.
+    const hitlCheckpoints: string[] = [];
     try {
       if (execution.status === "queued") {
         try {
@@ -297,6 +302,14 @@ export class ExecutionWorker {
             await this.persistPlan(repository, execution, event);
           } else if (event.type === "hitl") {
             sawHitl = true;
+            const checkpoint = typeof event.data.reviewPoint === "string"
+              ? event.data.reviewPoint
+              : typeof event.data.checkpointId === "string"
+                ? event.data.checkpointId
+                : "";
+            if (checkpoint && !hitlCheckpoints.includes(checkpoint)) {
+              hitlCheckpoints.push(checkpoint);
+            }
             await this.pauseForHitl(
               repository,
               sessionRepository,
@@ -343,6 +356,20 @@ export class ExecutionWorker {
                 error: latest.errorMessage,
               },
             });
+            await this.append(latest, {
+              type: "execution_outcome",
+              data: {
+                ...buildOutcomeSignal(
+                  latest,
+                  latest.status === "timed_out" ? "timed_out" : "cancelled",
+                  {
+                    attempts: message.retryCount,
+                    hitlCheckpoints,
+                    failReason: latest.errorClass ?? (latest.status === "timed_out" ? "timeout" : "cancelled"),
+                  },
+                ),
+              },
+            });
           }
           return { success: true };
         }
@@ -365,6 +392,13 @@ export class ExecutionWorker {
           type: "execution_terminal",
           data: { status: "completed", output: completedOutput },
         });
+        await this.append(completed, {
+          type: "execution_outcome",
+          data: { ...buildOutcomeSignal(completed, "success", {
+            attempts: message.retryCount,
+            hitlCheckpoints,
+          }) },
+        });
         return { success: true };
       } catch (error) {
         const current = await repository.get(execution.id);
@@ -376,6 +410,20 @@ export class ExecutionWorker {
           await this.append(current, {
             type: "execution_terminal",
             data: { status: current.status, error: current.errorMessage },
+          });
+          await this.append(current, {
+            type: "execution_outcome",
+            data: {
+              ...buildOutcomeSignal(
+                current,
+                current.status === "timed_out" ? "timed_out" : "cancelled",
+                {
+                  attempts: message.retryCount,
+                  hitlCheckpoints,
+                  failReason: current.errorClass ?? (current.status === "timed_out" ? "timeout" : "cancelled"),
+                },
+              ),
+            },
           });
           return { success: true };
         }
@@ -427,6 +475,14 @@ export class ExecutionWorker {
             errorClass: failed.errorClass,
             error: errorText,
           },
+        });
+        await this.append(failed, {
+          type: "execution_outcome",
+          data: { ...buildOutcomeSignal(failed, "failed", {
+            attempts: message.retryCount,
+            hitlCheckpoints,
+            failReason: failed.errorClass,
+          }) },
         });
         return { success: false, retry: false, error: ErrorClassifier.message(error) };
       } finally {

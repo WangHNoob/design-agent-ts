@@ -7,6 +7,7 @@ import type {
 import type {
   Execution,
   ExecutionErrorClass,
+  ExecutionOutcome,
   ExecutionPayload,
   ExecutionStatus,
 } from "../../port/execution/types.js";
@@ -16,6 +17,7 @@ import {
   ExecutionStateMachine,
   InvalidExecutionTransitionError,
 } from "./ExecutionStateMachine.js";
+import { buildOutcomeSignal } from "./outcomeSignal.js";
 
 export interface CreateExecutionCommand {
   sessionId: string;
@@ -114,8 +116,8 @@ export class ExecutionService {
     );
   }
 
-  complete(executionId: string, command: CompleteExecutionCommand = {}): Promise<Execution> {
-    return this.transition(
+  async complete(executionId: string, command: CompleteExecutionCommand = {}): Promise<Execution> {
+    const execution = await this.transition(
       executionId,
       "running",
       "completed",
@@ -127,6 +129,8 @@ export class ExecutionService {
       },
       true,
     );
+    await this.recordOutcomeSignal(execution, "success");
+    return execution;
   }
 
   async fail(executionId: string, error: unknown): Promise<Execution> {
@@ -139,7 +143,7 @@ export class ExecutionService {
     }
     const current = await this.requireExecution(executionId);
     if (current.status === "waiting_hitl") {
-      return this.transition(
+      const failed = await this.transition(
         executionId,
         "waiting_hitl",
         "failed",
@@ -150,16 +154,49 @@ export class ExecutionService {
         },
         true,
       );
+      await this.recordOutcomeSignal(failed, "failed", errorClass);
+      return failed;
     }
-    return this.transitionToTerminal(executionId, "failed", errorClass, ErrorClassifier.message(error));
+    const failed = await this.transitionToTerminal(
+      executionId,
+      "failed",
+      errorClass,
+      ErrorClassifier.message(error),
+    );
+    await this.recordOutcomeSignal(failed, "failed", errorClass);
+    return failed;
   }
 
   cancel(executionId: string, message = "Execution cancelled"): Promise<Execution> {
-    return this.transitionActiveToTerminal(executionId, "cancelled", "cancelled", message);
+    return this.transitionActiveToTerminal(executionId, "cancelled", "cancelled", message)
+      .then(async (execution) => {
+        await this.recordOutcomeSignal(execution, "cancelled", "cancelled");
+        return execution;
+      });
   }
 
   timeout(executionId: string, message = "Execution timed out"): Promise<Execution> {
-    return this.transitionActiveToTerminal(executionId, "timed_out", "timeout", message);
+    return this.transitionActiveToTerminal(executionId, "timed_out", "timeout", message)
+      .then(async (execution) => {
+        await this.recordOutcomeSignal(execution, "timed_out", "timeout");
+        return execution;
+      });
+  }
+
+  /**
+   * Flywheel 01-P4: persist the structured outcome signal on the executions row at
+   * every terminal transition (complete/fail/cancel/timeout). The worker additionally
+   * emits an `execution_outcome` event for stream consumers.
+   */
+  async recordOutcomeSignal(
+    execution: Execution,
+    outcome: ExecutionOutcome,
+    failReason?: string,
+  ): Promise<void> {
+    await this.repository.update(execution.id, {
+      requirementHash: buildOutcomeSignal(execution, outcome).requirementHash,
+      outcomeSignal: buildOutcomeSignal(execution, outcome, { failReason }),
+    });
   }
 
   private transitionToTerminal(

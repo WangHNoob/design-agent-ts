@@ -1,0 +1,22 @@
+{
+  "createdAt": "2026-08-13T16:39:39.770Z",
+  "datasetId": "design-golden-v1",
+  "datasetHash": "174078de21c12d1a",
+  "summary": {
+    "datasetId": "design-golden-v1",
+    "total": 3,
+    "passed": 2,
+    "passRate": 0.6666666666666666,
+    "averageScore": 0.6666666666666666,
+    "byMetric": {
+      "doc_structure": {
+        "total": 3,
+        "passed": 2,
+        "averageScore": 0.6666666666666666
+      }
+    },
+    "failedScores": [
+      "incomplete-doc/doc_structure"
+    ]
+  }
+}

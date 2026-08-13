@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { ExecutionService } from "../../core/execution/ExecutionService.js";
+import { buildOutcomeSignal } from "../../core/execution/outcomeSignal.js";
 import type { TaskPlan } from "../../core/schema/TaskPlan.js";
 import { buildPendingBoard } from "../../core/hitl/HITLOps.js";
 import { assertHITLFreshness } from "../../core/hitl/HITLTimeoutSweeper.js";
@@ -258,6 +259,13 @@ hitlRoute.post("/checkpoints/:id/review", async (c) => {
         checkpoint.executionId,
         Object.assign(new Error(body.comment ?? "HITL rejected"), { errorClass: "permanent" }),
       );
+      // Flywheel 01-P4: override the terminal signal so observers can distinguish
+      // a human rejection from a plain failure.
+      await executionRepository.update(checkpoint.executionId, {
+        outcomeSignal: buildOutcomeSignal(failed, "hitl_rejected", {
+          failReason: "permanent",
+        }),
+      });
       await sessionRepository.update(execution.sessionId, {
         status: "failed",
         error: failed.errorMessage ?? body.comment ?? "HITL rejected",

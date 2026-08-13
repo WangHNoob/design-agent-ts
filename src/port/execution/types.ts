@@ -21,6 +21,37 @@ export type ExecutionErrorClass = "transient" | "permanent" | "cancelled" | "tim
 
 export type ExecutionPayload = Readonly<Record<string, unknown>>;
 
+/** Terminal outcome of an execution, used for observability clustering and flywheel backfeed. */
+export type ExecutionOutcome =
+  | "success"
+  | "failed"
+  | "cancelled"
+  | "timed_out"
+  | "hitl_rejected"
+  | "hitl_modified";
+
+/**
+ * Structured per-execution outcome signal (flywheel plan 01-P4).
+ *
+ * Landing points: `executions.requirement_hash` + `executions.outcome_signal` columns
+ * (written by ExecutionService at every terminal transition) and the `execution_outcome`
+ * event appended by the ExecutionWorker. Consumers: agent-observe metrics/reporting
+ * (cluster by requirementHash) and the flywheel backfeed scheduler.
+ */
+export interface ExecutionOutcomeSignal {
+  readonly executionId: string;
+  readonly mode: "design" | "query" | "table";
+  readonly outcome: ExecutionOutcome;
+  /** Retry count (queue redeliveries) of this execution. */
+  readonly attempts: number;
+  /** Review points this execution passed through. */
+  readonly hitlCheckpoints: readonly string[];
+  /** Normalized requirement hash — identical for near-duplicate requirements. */
+  readonly requirementHash: string;
+  /** ErrorClassifier class when the outcome is a failure. */
+  readonly failReason?: string;
+}
+
 export interface Execution {
   id: string;
   userId: string;
@@ -37,6 +68,10 @@ export interface Execution {
   deadlineAt?: string;
   startedAt?: string;
   completedAt?: string;
+  /** Normalized requirement hash (flywheel 01-P4). */
+  requirementHash?: string;
+  /** Terminal outcome signal (flywheel 01-P4). */
+  outcomeSignal?: ExecutionOutcomeSignal;
   createdAt: string;
   updatedAt: string;
 }

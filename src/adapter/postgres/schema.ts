@@ -79,6 +79,8 @@ export const executions = pgTable(
     deadlineAt: timestamp("deadline_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    requirementHash: varchar("requirement_hash", { length: 64 }),
+    outcomeSignal: jsonb("outcome_signal"),
     createdAt,
     updatedAt,
   },
@@ -86,6 +88,7 @@ export const executions = pgTable(
     unique("executions_user_idempotency_unique").on(table.userId, table.idempotencyKey),
     index("idx_executions_user_status_created").on(table.userId, table.status, table.createdAt),
     index("idx_executions_user_session").on(table.userId, table.sessionId, table.createdAt),
+    index("idx_executions_requirement_hash").on(table.requirementHash),
     check(
       "executions_status_check",
       sql`${table.status} in ('queued', 'running', 'waiting_hitl', 'completed', 'failed', 'cancelled', 'timed_out')`,
