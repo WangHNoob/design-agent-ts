@@ -120,4 +120,135 @@ describe("DurableHumanReviewGateway", () => {
     await expect(gateway.requestReview("session-1", "hitl-1-task-plan", {}))
       .rejects.toThrow(/authenticated tenant context/);
   });
+
+  test("idempotent create with an approved checkpoint returns approved (resume anti-loop)", async () => {
+    const contextStorage = new MemoryContextStorage();
+    const repository = new MemoryHITLRepository();
+    const gateway = new DurableHumanReviewGateway({
+      repositoryFactory: () => repository,
+      contextStorage,
+      idGenerator: { randomUUID: () => "cp-3" },
+    });
+    gateway.configure({
+      "hitl-2-agent-output": { enabled: true, timeout: 1000, autoContinueOnTimeout: true },
+    });
+    // 预置已批准的同 key checkpoint
+    repository.checkpoints.set("cp-3", {
+      id: "cp-3",
+      sessionId: "session-1",
+      stage: "subagent",
+      status: "approved",
+      content: "{}",
+      contentType: "json",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userId: "user-1",
+      executionId: "exec-1",
+      taskId: "T1",
+      idempotencyKey: "exec-1:hitl-2-agent-output:after_task:T1",
+      reviewPoint: "hitl-2-agent-output",
+      resumeCursor: "after_task:T1",
+      fallback: false,
+    });
+
+    const result = await contextStorage.run(
+      { userId: "user-1", role: "user", sessionId: "session-1" },
+      () => gateway.requestReview(
+        "session-1",
+        "hitl-2-agent-output",
+        { taskId: "T1", output: "产出" },
+        { executionId: "exec-1", taskId: "T1", resumeCursor: "after_task:T1" },
+      ),
+    );
+
+    expect(result.decision).toBe("approved");
+    expect(result.checkpointId).toBe("cp-3");
+  });
+
+  test("idempotent create with a modified checkpoint returns modifications", async () => {
+    const contextStorage = new MemoryContextStorage();
+    const repository = new MemoryHITLRepository();
+    const gateway = new DurableHumanReviewGateway({
+      repositoryFactory: () => repository,
+      contextStorage,
+      idGenerator: { randomUUID: () => "cp-4" },
+    });
+    gateway.configure({
+      "hitl-3-final": { enabled: true, timeout: 1000, autoContinueOnTimeout: true },
+    });
+    repository.checkpoints.set("cp-4", {
+      id: "cp-4",
+      sessionId: "session-1",
+      stage: "integrate",
+      status: "modified",
+      content: "{}",
+      contentType: "json",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userId: "user-1",
+      executionId: "exec-1",
+      idempotencyKey: "exec-1:hitl-3-final:after_integrate",
+      reviewPoint: "hitl-3-final",
+      resumeCursor: "after_integrate",
+      modifiedContent: JSON.stringify({ summary: "修改后的终稿" }),
+      fallback: false,
+    });
+
+    const result = await contextStorage.run(
+      { userId: "user-1", role: "user", sessionId: "session-1" },
+      () => gateway.requestReview(
+        "session-1",
+        "hitl-3-final",
+        { summary: "初稿", conflictCount: 0 },
+        { executionId: "exec-1", resumeCursor: "after_integrate" },
+      ),
+    );
+
+    expect(result.decision).toBe("modified");
+    expect((result.modifications as { summary: string }).summary).toBe("修改后的终稿");
+  });
+
+  test("idempotent create with a rejected checkpoint returns rejected", async () => {
+    const contextStorage = new MemoryContextStorage();
+    const repository = new MemoryHITLRepository();
+    const gateway = new DurableHumanReviewGateway({
+      repositoryFactory: () => repository,
+      contextStorage,
+      idGenerator: { randomUUID: () => "cp-5" },
+    });
+    gateway.configure({
+      "hitl-3-final": { enabled: true, timeout: 1000, autoContinueOnTimeout: true },
+    });
+    repository.checkpoints.set("cp-5", {
+      id: "cp-5",
+      sessionId: "session-1",
+      stage: "integrate",
+      status: "rejected",
+      content: "{}",
+      contentType: "json",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userId: "user-1",
+      executionId: "exec-1",
+      idempotencyKey: "exec-1:hitl-3-final:after_integrate",
+      reviewPoint: "hitl-3-final",
+      resumeCursor: "after_integrate",
+      reviewComment: "数值不合理",
+      fallback: false,
+    });
+
+    const result = await contextStorage.run(
+      { userId: "user-1", role: "user", sessionId: "session-1" },
+      () => gateway.requestReview(
+        "session-1",
+        "hitl-3-final",
+        { summary: "初稿", conflictCount: 0 },
+        { executionId: "exec-1", resumeCursor: "after_integrate" },
+      ),
+    );
+
+    expect(result.decision).toBe("rejected");
+    expect(result.feedback).toBe("数值不合理");
+  });
 });
+

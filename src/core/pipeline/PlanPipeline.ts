@@ -110,9 +110,16 @@ export class PlanPipeline {
         this.options.onFanOutBatch,
       );
 
+      let hitlPending = false;
       for (const result of layerResults) {
         allResults.push(result);
         resultByTaskId.set(result.taskId, result);
+        // HITL-2 checkpoint：本层其余任务已完成，剩余层不再执行（也不标记 skipped，
+        // 由 resume 后重新执行）——执行流在收到 pending 结果后转入 waiting_hitl。
+        if (result.status === "pending") hitlPending = true;
+      }
+      if (hitlPending) {
+        break;
       }
     }
 

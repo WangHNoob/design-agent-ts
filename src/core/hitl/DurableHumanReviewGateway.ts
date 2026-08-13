@@ -107,12 +107,43 @@ export class DurableHumanReviewGateway implements HumanReviewGateway {
       },
     };
 
-    const { checkpoint } = await repository.create(input);
+    const { checkpoint, created } = await repository.create(input);
+    // 幂等已决分支：同 (executionId, reviewPoint, resumeCursor) 的 checkpoint 已有人工
+    // 决策时直接返回真实决策——这是 resume 后执行流重访同一审阅点的防死循环关键
+    // （hitl-2/3 的恢复依赖它；hitl-1 仍由 resumePlan 跳过审阅）。
+    if (!created && checkpoint.status !== "waiting_review" && checkpoint.status !== "escalated") {
+      if (checkpoint.status === "approved") {
+        return { decision: "approved", checkpointId: checkpoint.id };
+      }
+      if (checkpoint.status === "modified") {
+        return {
+          decision: "modified",
+          checkpointId: checkpoint.id,
+          modifications: checkpoint.modifiedContent
+            ? parseStoredModifications<T>(checkpoint.modifiedContent)
+            : undefined,
+        };
+      }
+      // rejected / expired：一律按驳回处理（禁静默通过）
+      return {
+        decision: "rejected",
+        checkpointId: checkpoint.id,
+        feedback: checkpoint.reviewComment ?? `${reviewPoint} was not approved`,
+      };
+    }
     return {
       decision: "pending",
       checkpointId: checkpoint.id,
       feedback: `${reviewPoint} waiting for human review`,
     };
+  }
+}
+
+function parseStoredModifications<T>(raw: string): T | undefined {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return raw as unknown as T;
   }
 }
 

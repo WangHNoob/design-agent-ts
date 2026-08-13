@@ -93,6 +93,44 @@ describe("PlanPipeline", () => {
     });
   });
 
+  it("HITL-2 pending 结果应中断剩余层且不标记 skipped（resume 后重新执行）", async () => {
+    const calls: string[] = [];
+    const plan = createPlan([
+      { id: "A", fragmentId: "F1", domain: "system_design", description: "A", dependencies: [], priority: 1 },
+      { id: "B", fragmentId: "F2", domain: "combat_design", description: "B", dependencies: ["A"], priority: 1 },
+      { id: "C", fragmentId: "F3", domain: "qa", description: "C", dependencies: ["B"], priority: 1 },
+    ]);
+    const pipeline = new PlanPipeline(plan, async (task) => {
+      calls.push(task.id);
+      if (task.id === "A") {
+        return {
+          taskId: "A",
+          domain: task.domain,
+          status: "pending",
+          output: "产出等待人工审阅",
+          errorMessage: null,
+          checkpointId: "cp-2-a",
+          reviewPoint: "hitl-2-agent-output",
+          resumeCursor: "after_task:A",
+        };
+      }
+      return {
+        taskId: task.id,
+        domain: task.domain,
+        status: "success",
+        output: "ok",
+        errorMessage: null,
+      };
+    });
+
+    const results = await pipeline.execute();
+
+    // 仅 A 被执行；B/C 不执行且不出现在结果中（不标记 skipped）
+    expect(calls).toEqual(["A"]);
+    expect(results.map((r) => r.taskId)).toEqual(["A"]);
+    expect(results[0]).toMatchObject({ status: "pending", checkpointId: "cp-2-a" });
+  });
+
   it("同层单项 throw 不应妨碍其他任务结果收集", async () => {
     const plan = createPlan([
       { id: "A", fragmentId: "F1", domain: "system_design", description: "A", dependencies: [], priority: 1 },

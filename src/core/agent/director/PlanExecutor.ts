@@ -226,7 +226,7 @@ export class PlanExecutor {
               allowedTools: task.allowedTools,
             };
         assignmentsById.set(task.id, assignment);
-        return this.executeSingleTask(assignment, sessionId, traceId, undefined, taskSignal, options);
+        return this.executeTaskWithHitl2(assignment, sessionId, traceId, undefined, taskSignal, options);
       },
       pipelineOptions: {
         signal,
@@ -239,6 +239,28 @@ export class PlanExecutor {
     });
 
     const results = runResult.results;
+
+    // HITL-2：任务产出审阅 checkpoint → 非流式路径返回 waitingHitl（Worker 由流式路径接管）
+    const hitl2Pending = results.find((r) => r.status === "pending");
+    if (hitl2Pending) {
+      return {
+        agentName: "Director",
+        message: ChatMessage.text(
+          "assistant",
+          "Director",
+          `等待人工审阅任务产出（checkpoint=${hitl2Pending.checkpointId ?? "unknown"}）`,
+        ),
+        metadata: {
+          waitingHitl: true,
+          checkpointId: hitl2Pending.checkpointId ?? null,
+          reviewPoint: "hitl-2-agent-output",
+          taskId: hitl2Pending.taskId,
+          resumeCursor: hitl2Pending.resumeCursor ?? null,
+        },
+        success: true,
+        errorMessage: null,
+      };
+    }
 
     if (runResult.exhausted) {
       const failed = results.find((r) => r.status === "error");
@@ -279,7 +301,49 @@ export class PlanExecutor {
       ? `\n\n⚠️ 检测到 **${integration.conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
       : "";
 
-    const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+    let summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+
+    // HITL-3：终稿验收（非流式路径；resume 后由幂等已决分支返回人工决策）
+    const hitl3Gateway = this.ctx.deps.humanReviewGateway;
+    if (hitl3Gateway.isReviewPointEnabled("hitl-3-final")) {
+      const review = await hitl3Gateway.requestReview(
+        sessionId,
+        "hitl-3-final",
+        { summary, conflictCount: integration.conflictCount },
+        { executionId: options?.executionId, resumeCursor: "after_integrate" },
+      );
+      if (review.decision === "pending") {
+        return {
+          agentName: "Director",
+          message: ChatMessage.text(
+            "assistant",
+            "Director",
+            `等待人工验收终稿（checkpoint=${review.checkpointId ?? "unknown"}）`,
+          ),
+          metadata: {
+            waitingHitl: true,
+            checkpointId: review.checkpointId ?? null,
+            reviewPoint: "hitl-3-final",
+            resumeCursor: "after_integrate",
+          },
+          success: true,
+          errorMessage: null,
+        };
+      }
+      if (review.decision === "rejected") {
+        return {
+          agentName: "Director",
+          message: ChatMessage.text("assistant", "Director", review.feedback ?? "终稿被驳回"),
+          metadata: { rejected: true },
+          success: false,
+          errorMessage: review.feedback ?? "终稿被驳回",
+        };
+      }
+      if (review.decision === "modified") {
+        const modifiedSummary = (review.modifications as { summary?: string } | undefined)?.summary;
+        if (typeof modifiedSummary === "string") summary = modifiedSummary;
+      }
+    }
 
     return {
       agentName: "Director",
@@ -316,6 +380,57 @@ export class PlanExecutor {
 
     return { conflictCount: integration.conflicts.length, extraFiles };
   }
+  /**
+   * 执行单个任务并在产出后走 hitl-2（agent output）审阅点：
+   * - pending → 返回 status:"pending" 的 TaskResult（携带 checkpoint 信息），
+   *   PlanPipeline 检测到后中断剩余层，执行流转入 waiting_hitl；
+   * - rejected → 任务标 error（permanent）；
+   * - modified → 用审阅修改内容替换产出（重新参与冲突检测与整合）。
+   * resume 后任务重跑会再次 requestReview，由 DurableHumanReviewGateway 的
+   * 幂等已决分支返回人工决策（防死循环）。
+   */
+  private async executeTaskWithHitl2(
+    task: TaskAssignment,
+    sessionId: string,
+    traceId: string | undefined,
+    additionalHook: AgentHook | undefined,
+    signal: AbortSignal | undefined,
+    options: DirectorStreamOptions | undefined,
+  ): Promise<TaskResult> {
+    const result = await this.executeSingleTask(task, sessionId, traceId, additionalHook, signal, options);
+    if (result.status !== "success") return result;
+    const gateway = this.ctx.deps.humanReviewGateway;
+    if (!gateway.isReviewPointEnabled("hitl-2-agent-output")) return result;
+    const review = await gateway.requestReview(
+      sessionId,
+      "hitl-2-agent-output",
+      { taskId: task.taskId, domain: result.domain, output: result.output },
+      { executionId: options?.executionId, taskId: task.taskId, resumeCursor: `after_task:${task.taskId}` },
+    );
+    if (review.decision === "pending") {
+      return {
+        ...result,
+        status: "pending",
+        reviewPoint: "hitl-2-agent-output",
+        checkpointId: review.checkpointId,
+        resumeCursor: `after_task:${task.taskId}`,
+      };
+    }
+    if (review.decision === "rejected") {
+      return {
+        ...result,
+        status: "error",
+        errorMessage: review.feedback ?? "任务产出被人工驳回",
+        errorClass: "permanent",
+      };
+    }
+    if (review.decision === "modified") {
+      const modified = (review.modifications as { output?: string } | undefined)?.output;
+      return { ...result, output: typeof modified === "string" ? modified : result.output };
+    }
+    return result;
+  }
+
   private async executeSingleTask(
     task: TaskAssignment,
     sessionId: string,
@@ -884,7 +999,7 @@ export class PlanExecutor {
                 allowedTools: task.allowedTools,
               };
           assignmentsById.set(task.id, assignment);
-          return this.executeSingleTask(
+          return this.executeTaskWithHitl2(
             assignment,
             sessionId,
             undefined,
@@ -955,6 +1070,26 @@ export class PlanExecutor {
         return;
       }
 
+      // HITL-2：任务产出审阅 checkpoint → 流式路径发 hitl 事件（Worker pauseForHitl）
+      const hitl2Pending = results.find((r) => r.status === "pending");
+      if (hitl2Pending) {
+        yield {
+          type: "hitl",
+          data: {
+            checkpointId: hitl2Pending.checkpointId,
+            reviewPoint: "hitl-2-agent-output",
+            status: "waiting_review",
+            resumeCursor: hitl2Pending.resumeCursor,
+            taskId: hitl2Pending.taskId,
+            feedback: hitl2Pending.checkpointId
+              ? `任务 ${hitl2Pending.taskId} 产出等待人工审阅`
+              : "任务产出等待人工审阅",
+            message: "子任务产出已生成，等待人工审阅后继续",
+          },
+        };
+        return;
+      }
+
       if (runResult.exhausted) {
         yield {
           type: "error",
@@ -1001,7 +1136,48 @@ export class PlanExecutor {
         ? `\n\n⚠️ 检测到 **${integration.conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
         : "";
 
-      const summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+      let summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+
+      // HITL-3：终稿验收（resume 后由幂等已决分支返回人工决策）
+      const hitl3Gateway = this.ctx.deps.humanReviewGateway;
+      if (hitl3Gateway.isReviewPointEnabled("hitl-3-final")) {
+        const review = await hitl3Gateway.requestReview(
+          sessionId,
+          "hitl-3-final",
+          { summary, conflictCount: integration.conflictCount },
+          { executionId: options?.executionId, resumeCursor: "after_integrate" },
+        );
+        if (review.decision === "pending") {
+          yield {
+            type: "hitl",
+            data: {
+              checkpointId: review.checkpointId,
+              reviewPoint: "hitl-3-final",
+              status: "waiting_review",
+              resumeCursor: "after_integrate",
+              feedback: review.checkpointId ? "终稿等待人工验收" : "终稿等待人工验收",
+              message: "整合完成，等待人工验收终稿",
+            },
+          };
+          return;
+        }
+        if (review.decision === "rejected") {
+          yield {
+            type: "error",
+            data: {
+              error: review.feedback ?? "终稿被驳回",
+              phase: "final_review",
+              errorClass: "permanent",
+              rejected: true,
+            },
+          };
+          return;
+        }
+        if (review.decision === "modified") {
+          const modifiedSummary = (review.modifications as { summary?: string } | undefined)?.summary;
+          if (typeof modifiedSummary === "string") summary = modifiedSummary;
+        }
+      }
 
       yield { type: "integrate", data: { message: "汇总完成，产出已保存到工作空间", conflictCount: integration.conflictCount } };
       yield { type: "complete", data: { success: true, output: summary } };
