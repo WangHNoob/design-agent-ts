@@ -180,8 +180,11 @@ export interface FrameworkConfig {
      * (message count — not user/assistant conversation turns).
      */
     protectRecentTurns: number;
-    /** Evict when active non-system messages exceed this count (even under token budget). */
-    maxActiveMessages: number;
+    /** Evict when active non-system messages exceed this count (even under token budget). */    maxActiveMessages: number;
+    /** 归档摘要器：heuristic（默认，无 LLM 依赖）| llm（LLMSummarizerAdapter，opt-in，须过小实验） */
+    summarizer: "heuristic" | "llm";
+    /** LLM 摘要器输出 token 上限（summarizer=llm 时生效） */
+    summarizerMaxOutputTokens: number;
   };
   mcp: {
     enabled: boolean;

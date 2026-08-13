@@ -57,6 +57,8 @@ export class DirectorContext {
       maxActiveMessages: mem?.maxActiveMessages ?? 40,
       maxTokens: mem?.maxTokens ?? 128_000,
       compressionThreshold: mem?.compressionThreshold ?? 0.7,
+      // 01-P3：注入 LLM 摘要器（缺省时 ContextManager 回落启发式）
+      summarizer: mem?.summarizer,
     });
   }
 
