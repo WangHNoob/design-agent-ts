@@ -14,9 +14,11 @@ import type { AgentHook } from "../../../port/hook/AgentHook.js";
 import type { IdGeneratorPort } from "../../../port/infra/IdGeneratorPort.js";
 import type { TracerPort } from "../../../port/tracing/TracerPort.js";
 import type { WorkspaceManager } from "../../workspace/WorkspaceManager.js";
-import { TaskPlanner } from "./TaskPlanner.js";
-import { Router } from "./Router.js";
 import { Integrator } from "./Integrator.js";
+import type { Router } from "./Router.js";
+import { DirectorContext } from "./DirectorContext.js";
+import { clearTraceTokenBudget } from "./traceBudget.js";
+import { AGENT_NAME_TO_ROLE } from "./constants.js";
 import { ErrorClassifier } from "../../execution/ErrorClassifier.js";
 import {
   buildCancellationPayload,
@@ -25,7 +27,6 @@ import {
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
 import type { SubTask, TaskPlan } from "../../schema/TaskPlan.js";
-import { getSubAgentDescriptor } from "../subagents/SubAgentFactory.js";
 import { resolveExposedMcpTools, stripAndMergeMcpToolNames } from "../../structured/mcpExpose.js";
 import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
@@ -42,35 +43,11 @@ import type { ExecutionOverrides } from "../../versioning/buildExecutionOverride
 import { PlanHardGuard } from "../../plan/PlanHardGuard.js";
 import { PlanReplanner } from "../../plan/PlanReplanner.js";
 import { runPlanWithReplan } from "../../plan/runPlanWithReplan.js";
-import {
-  AgentCallGuard,
-  AgentInvokeTool,
-  AGENT_INVOKE_TOOL_NAME,
-  type CallContext,
-  distillHandoff,
-  isHandoffViolationError,
-  isMultiAgentGuardError,
-  seedHandoffsFromResults,
-  validateHandoff,
-  collectHandoffsForPrompt,
-  type HandoffLimits,
-  type HandoffPayload,
-} from "../../multiagent/index.js";
-import { TokenBudgetHook } from "../../hook/TokenBudgetHook.js";
+import { AgentCallGuard, AgentInvokeTool, AGENT_INVOKE_TOOL_NAME, type CallContext, distillHandoff, isHandoffViolationError, isMultiAgentGuardError, seedHandoffsFromResults, validateHandoff, collectHandoffsForPrompt, type HandoffLimits, type HandoffPayload } from "../../multiagent/index.js";
 import { SubAgentDescriptors } from "../subagents/SubAgentFactory.js";
 import { decideFaqHit } from "../../faq/decideFaqHit.js";
 import type { FaqMatchRaw } from "../../faq/types.js";
 
-
-/** Map agent descriptor names to role strings for skill matching. */
-const AGENT_NAME_TO_ROLE: Record<string, string> = {
-  SystemDesigner: "system_designer",
-  CombatDesigner: "combat_designer",
-  NumericalPlanner: "numerical_planner",
-  GameplayDesigner: "gameplay_designer",
-  ExecutivePlanner: "executive_planner",
-  QAPlanner: "qa_planner",
-};
 
 export interface StreamEvent {
   type: "start" | "plan" | "route" | "task_start" | "task_complete" | "integrate" | "chunk" | "complete" | "error" | "cancelled"
@@ -229,10 +206,8 @@ export interface DirectorDeps {
 }
 
 export class DirectorAgent {
-  private taskPlanner: TaskPlanner;
-  private router: Router;
   private integrator: Integrator;
-  private querySystemPrompt: string;
+  private skillCtx: DirectorContext;
   private callGuard: AgentCallGuard;
   private callRoot: CallContext;
   private activeCallParent: CallContext;
@@ -242,10 +217,8 @@ export class DirectorAgent {
 
   constructor(private deps: DirectorDeps) {
     this.logger = deps.logger ?? new ConsoleLogger();
-    this.taskPlanner = new TaskPlanner(deps.model, deps.prompts?.taskPlanner, this.logger);
-    this.router = new Router(deps.model, deps.prompts?.router, this.logger);
+    this.skillCtx = new DirectorContext(deps, this.logger);
     this.integrator = new Integrator();
-    this.querySystemPrompt = deps.prompts?.querySystem ?? "";
     const multi = this.multiAgentConfig();
     this.callGuard = new AgentCallGuard({
       maxDepth: multi.maxDepth,
@@ -253,50 +226,6 @@ export class DirectorAgent {
     });
     this.callRoot = this.callGuard.root("Director");
     this.activeCallParent = this.callRoot;
-  }
-
-  private skillRegistry(options?: DirectorStreamOptions): SkillRegistry {
-    return options?.executionOverrides?.skillRegistry ?? this.deps.skillRegistry;
-  }
-
-  private getTaskPlanner(options?: DirectorStreamOptions): TaskPlanner {
-    return options?.executionOverrides?.taskPlanner ?? this.taskPlanner;
-  }
-
-  private getRouter(options?: DirectorStreamOptions): Router {
-    return options?.executionOverrides?.router ?? this.router;
-  }
-
-  private getQuerySystemPrompt(options?: DirectorStreamOptions): string {
-    return options?.executionOverrides?.querySystemPrompt ?? this.querySystemPrompt;
-  }
-
-  /** Query/design short-term memory: sliding-window + archive by default. */
-  private async createMemoryPort() {
-    const mem = this.deps.memory;
-    if (mem?.archiveEnabled === false) {
-      const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
-      return new InMemoryMemoryPort();
-    }
-    const { SlidingWindowMemoryPort } = await import("../../memory/SlidingWindowMemoryPort.js");
-    return new SlidingWindowMemoryPort({
-      archiveEnabled: true,
-      protectRecentTurns: mem?.protectRecentTurns ?? 10,
-      maxActiveMessages: mem?.maxActiveMessages ?? 40,
-      maxTokens: mem?.maxTokens ?? 128_000,
-      compressionThreshold: mem?.compressionThreshold ?? 0.7,
-    });
-  }
-
-  private getAgentDescriptor(
-    agentName: string,
-    options?: DirectorStreamOptions,
-  ): AgentDescriptor | undefined {
-    const override = options?.executionOverrides?.subAgentPrompts?.[agentName];
-    const base = getSubAgentDescriptor(agentName);
-    if (!base) return undefined;
-    if (override) return { ...base, systemPrompt: override };
-    return base;
   }
 
   private planHardConfig(): DirectorPlanHardConfig {
@@ -353,17 +282,7 @@ export class DirectorAgent {
   }
 
   private clearTraceTokenBudget(traceId?: string): void {
-    if (!traceId) return;
-    for (const hook of this.deps.hooks) {
-      if (hook instanceof TokenBudgetHook) {
-        hook.clear(traceId);
-        continue;
-      }
-      const maybeClear = (hook as unknown as { clear?: (id: string) => void }).clear;
-      if (typeof maybeClear === "function") {
-        maybeClear.call(hook, traceId);
-      }
-    }
+    clearTraceTokenBudget(this.deps.hooks, traceId);
   }
 
   private buildTaskHandoff(
@@ -444,7 +363,7 @@ export class DirectorAgent {
   ): TaskAssignment[] {
     return routing
       .map((decision): TaskAssignment | null => {
-        const descriptor = this.getAgentDescriptor(decision.agentName, options);
+        const descriptor = this.skillCtx.getAgentDescriptor(decision.agentName, options);
         if (!descriptor) {
           this.logger.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
           return null;
@@ -540,7 +459,7 @@ export class DirectorAgent {
 
     const role = AGENT_NAME_TO_ROLE[descriptor.name];
     const skill = role
-      ? this.skillRegistry(options).matchSkill(task.assignment, role)
+      ? this.skillCtx.skillRegistry(options).matchSkill(task.assignment, role)
       : null;
     const skillPatterns = task.allowedTools === undefined
       ? [
@@ -638,7 +557,7 @@ export class DirectorAgent {
       throw err;
     } finally {
       await tracer.endTrace(handle.traceId, status);
-      this.clearTraceTokenBudget(handle.traceId);
+      clearTraceTokenBudget(this.deps.hooks, handle.traceId);
       unbind();
     }
   }
@@ -690,7 +609,7 @@ export class DirectorAgent {
         throw err;
       } finally {
         await tracer.endTrace(handle.traceId, status);
-        this.clearTraceTokenBudget(handle.traceId);
+        clearTraceTokenBudget(this.deps.hooks, handle.traceId);
       }
     });
   }
@@ -713,9 +632,9 @@ export class DirectorAgent {
 
     await this.beginMultiAgentRun(options?.initialTaskResults);
 
-    const skill = this.skillRegistry(options).matchSkill(requirement, role);
+    const skill = this.skillCtx.skillRegistry(options).matchSkill(requirement, role);
     this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
-    const plan = await this.getTaskPlanner(options).plan(requirement, role, skill);
+    const plan = await this.skillCtx.getTaskPlanner(options).plan(requirement, role, skill);
 
     const reviewedPlan = await this.deps.humanReviewGateway.requestReview(
       sessionId,
@@ -750,7 +669,7 @@ export class DirectorAgent {
       };
     }
 
-    const routing = await this.getRouter(options).route(reviewedPlan.modifications ?? plan, role);
+    const routing = await this.skillCtx.getRouter(options).route(reviewedPlan.modifications ?? plan, role);
 
     const assignments = this.mapRoutingToAssignments(
       reviewedPlan.modifications ?? plan,
@@ -789,7 +708,7 @@ export class DirectorAgent {
           requirement: nextPlan.requirement,
           subTasks: [...remaining],
         };
-        const reRoute = await this.getRouter(options).route(fragment, role);
+        const reRoute = await this.skillCtx.getRouter(options).route(fragment, role);
         for (const a of this.mapRoutingToAssignments(fragment, reRoute, options)) {
           assignmentsById.set(a.taskId, a);
           this.deps.workspace?.registerTaskDir(sessionId, a.taskId, a.domain);
@@ -808,7 +727,7 @@ export class DirectorAgent {
               taskId: task.id,
               domain: task.domain,
               assignment: task.description,
-              agentDescriptor: this.getAgentDescriptor("SystemDesigner", options)!,
+              agentDescriptor: this.skillCtx.getAgentDescriptor("SystemDesigner", options)!,
               dependencies: task.dependencies,
               allowedTools: task.allowedTools,
             };
@@ -917,7 +836,7 @@ export class DirectorAgent {
     const role = AGENT_NAME_TO_ROLE[descriptor.name];
     if (!role) return descriptor;
 
-    const skill = this.skillRegistry(options).matchSkill(assignment, role);
+    const skill = this.skillCtx.skillRegistry(options).matchSkill(assignment, role);
     if (!skill) return descriptor;
 
     const skillContent = skill.getContent();
@@ -951,7 +870,7 @@ export class DirectorAgent {
     const multi = this.multiAgentConfig();
     const prevCallParent = this.activeCallParent;
     try {
-      const memoryPort = await this.createMemoryPort();
+      const memoryPort = await this.skillCtx.createMemoryPort();
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
 
       const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
@@ -1068,7 +987,7 @@ export class DirectorAgent {
     const prev = this.activeCallParent;
     this.activeCallParent = input.callParent;
     try {
-      const base = this.getAgentDescriptor(input.agentName, input.options);
+      const base = this.skillCtx.getAgentDescriptor(input.agentName, input.options);
       if (!base) {
         throw new Error(`Unknown agent for invoke_agent: ${input.agentName}`);
       }
@@ -1080,7 +999,7 @@ export class DirectorAgent {
           toolNames: Array.from(new Set([...descriptor.toolNames, AGENT_INVOKE_TOOL_NAME])),
         };
       }
-      const memoryPort = await this.createMemoryPort();
+      const memoryPort = await this.skillCtx.createMemoryPort();
       const toolRegistry = this.buildSessionToolRegistry(
         input.sessionId,
         input.agentName,
@@ -1289,7 +1208,7 @@ export class DirectorAgent {
   private async createQueryAgent(sessionId: string, querySystemPrompt?: string) {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
-      systemPrompt: querySystemPrompt ?? this.querySystemPrompt,
+      systemPrompt: querySystemPrompt ?? this.skillCtx.getQuerySystemPrompt(),
       maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
       maxTokens: this.deps.limits?.queryMaxTokens,
       toolNames: [
@@ -1303,7 +1222,7 @@ export class DirectorAgent {
       options: {},
       toolResultMaxChars: this.deps.limits?.toolResultMaxChars,
     };
-    const memoryPort = await this.createMemoryPort();
+    const memoryPort = await this.skillCtx.createMemoryPort();
     return this.deps.agentFactory.createAgent(
       queryDescriptor,
       this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
@@ -1319,7 +1238,7 @@ export class DirectorAgent {
   ) {
     const queryDescriptor: AgentDescriptor = {
       name: "QueryAgent",
-      systemPrompt: querySystemPrompt ?? this.querySystemPrompt,
+      systemPrompt: querySystemPrompt ?? this.skillCtx.getQuerySystemPrompt(),
       maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
       maxTokens: this.deps.limits?.queryMaxTokens,
       toolNames: [
@@ -1333,7 +1252,7 @@ export class DirectorAgent {
       options: {},
       toolResultMaxChars: this.deps.limits?.toolResultMaxChars,
     };
-    const memoryPort = await this.createMemoryPort();
+    const memoryPort = await this.skillCtx.createMemoryPort();
     return this.deps.agentFactory.createAgent(
       queryDescriptor,
       this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
@@ -1463,7 +1382,7 @@ export class DirectorAgent {
       const agent = await this.createQueryAgentWithHooks(
         hooksWithEmitter,
         sessionId,
-        this.getQuerySystemPrompt(options),
+        this.skillCtx.getQuerySystemPrompt(options),
       );
 
       const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
@@ -1589,7 +1508,7 @@ export class DirectorAgent {
 
       await this.beginMultiAgentRun(options?.initialTaskResults);
 
-      const skill = this.skillRegistry(options).matchSkill(requirement, role);
+      const skill = this.skillCtx.skillRegistry(options).matchSkill(requirement, role);
       this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       let plan = options?.resumePlan;
       if (plan) {
@@ -1604,7 +1523,7 @@ export class DirectorAgent {
           },
         };
         try {
-          plan = await this.getTaskPlanner(options).plan(requirement, role, skill);
+          plan = await this.skillCtx.getTaskPlanner(options).plan(requirement, role, skill);
         } catch (err) {
           const detail = err instanceof Error ? err.message : String(err);
           yield {
@@ -1683,7 +1602,7 @@ export class DirectorAgent {
       const activePlan = reviewedPlan.modifications ?? plan;
       let routing;
       try {
-        routing = await this.getRouter(options).route(activePlan, role);
+        routing = await this.skillCtx.getRouter(options).route(activePlan, role);
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
         yield {
@@ -1729,7 +1648,7 @@ export class DirectorAgent {
             requirement: nextPlan.requirement,
             subTasks: [...remaining],
           };
-          const reRoute = await this.getRouter(options).route(fragment, role);
+          const reRoute = await this.skillCtx.getRouter(options).route(fragment, role);
           for (const a of this.mapRoutingToAssignments(fragment, reRoute, options)) {
             assignmentsById.set(a.taskId, a);
             this.deps.workspace?.registerTaskDir(sessionId, a.taskId, a.domain);
@@ -1757,7 +1676,7 @@ export class DirectorAgent {
                 taskId: task.id,
                 domain: task.domain,
                 assignment: task.description,
-                agentDescriptor: this.getAgentDescriptor("SystemDesigner", options)!,
+                agentDescriptor: this.skillCtx.getAgentDescriptor("SystemDesigner", options)!,
                 dependencies: task.dependencies,
                 allowedTools: task.allowedTools,
               };
@@ -1912,7 +1831,7 @@ export class DirectorAgent {
     const { RoleAgentMap, parseRole } = await import("../../schema/Role.js");
     const typedRole = parseRole(role);
     const agentName = RoleAgentMap[typedRole];
-    const descriptor = this.getAgentDescriptor(agentName, options);
+    const descriptor = this.skillCtx.getAgentDescriptor(agentName, options);
 
     if (!descriptor) {
       return {
@@ -1928,7 +1847,7 @@ export class DirectorAgent {
       await this.deps.workspace.initialize(sessionId);
     }
 
-    const skill = this.skillRegistry(options).matchSkill(requirement, role);
+    const skill = this.skillCtx.skillRegistry(options).matchSkill(requirement, role);
     this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
 
     // Inject full skill content into descriptor, not just the name in assignment
@@ -1986,7 +1905,7 @@ export class DirectorAgent {
       const { RoleAgentMap, parseRole } = await import("../../schema/Role.js");
       const typedRole = parseRole(role);
       const agentName = RoleAgentMap[typedRole];
-      const descriptor = this.getAgentDescriptor(agentName, options);
+      const descriptor = this.skillCtx.getAgentDescriptor(agentName, options);
 
       if (!descriptor) {
         yield { type: "error", data: { error: `未找到角色 ${role} 对应的 Agent` } };
@@ -1996,7 +1915,7 @@ export class DirectorAgent {
       yield { type: "plan", data: { message: `直接执行 ${descriptor.name} 任务` } };
       yield { type: "route", data: { message: `分配给 ${descriptor.name}` } };
 
-      const skill = this.skillRegistry(options).matchSkill(requirement, role);
+      const skill = this.skillCtx.skillRegistry(options).matchSkill(requirement, role);
       this.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
       yield { type: "skill_matched", data: { skillName: skill?.getName() ?? null, role } };
 
