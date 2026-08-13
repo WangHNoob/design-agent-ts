@@ -18,6 +18,7 @@ import { PlanExecutor } from "./PlanExecutor.js";
 import { clearTraceTokenBudget } from "./traceBudget.js";
 import type { TaskPlan } from "../../schema/TaskPlan.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
+import type { SummarizerPort } from "../../../port/memory/SummarizerPort.js";
 import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPort.js";
 import type { ExecutionOverrides } from "../../versioning/buildExecutionOverrides.js";
 import { AgentCallGuard, type CallContext, type HandoffLimits, type HandoffPayload } from "../../multiagent/index.js";
@@ -135,6 +136,8 @@ export interface DirectorDeps {
     maxActiveMessages?: number;
     maxTokens?: number;
     compressionThreshold?: number;
+    /** 归档摘要器：缺省启发式；注入 LLMSummarizerAdapter 启用 LLM 摘要（01-P3） */
+    summarizer?: SummarizerPort;
   };
   /** Extra tool names (e.g. MCP-sourced tools) appended to the query agent's toolset. */
   extraToolNames?: string[];

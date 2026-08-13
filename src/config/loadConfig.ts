@@ -219,6 +219,8 @@ export function loadConfig(): FrameworkConfig {
       archiveEnabled: process.env.MEMORY_ARCHIVE_ENABLED !== "false",
       protectRecentTurns: Number(process.env.MEMORY_PROTECT_RECENT_TURNS ?? 10),
       maxActiveMessages: Number(process.env.MEMORY_MAX_ACTIVE_MESSAGES ?? 40),
+      summarizer: process.env.MEMORY_SUMMARIZER === "llm" ? "llm" : "heuristic",
+      summarizerMaxOutputTokens: Number(process.env.MEMORY_SUMMARIZER_MAX_OUTPUT_TOKENS ?? 800),
     },
     mcp: {
       enabled: process.env.MCP_ENABLED === "true",

@@ -73,6 +73,7 @@ import { sweepHITLTimeouts } from "../core/hitl/HITLTimeoutSweeper.js";
 import { ExecutionService } from "../core/execution/ExecutionService.js";
 import { InflightLimiter } from "../core/execution/InflightLimiter.js";
 import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
+import { LLMSummarizerAdapter } from "../adapter/llm/LLMSummarizerAdapter.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
@@ -225,6 +226,11 @@ function buildDirectorDeps(params: {
       maxActiveMessages: params.config.memory.maxActiveMessages,
       maxTokens: params.config.limits.contextMaxTokens,
       compressionThreshold: params.config.limits.contextCompressionThreshold,
+      summarizer: params.config.memory.summarizer === "llm"
+        ? new LLMSummarizerAdapter(params.model, {
+            maxOutputTokens: params.config.memory.summarizerMaxOutputTokens,
+          })
+        : undefined,
     },
     extraToolNames: resolveExposedMcpTools({
       allMcpToolNames: mcpToolNames,
@@ -1272,4 +1278,6 @@ export async function reloadDirector(): Promise<void> {
     console.log("[Bootstrap] Prompts/skills/workflows reloaded (Director not yet initialized)");
   }
 }
+
+
 
