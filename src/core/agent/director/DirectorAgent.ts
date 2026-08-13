@@ -15,10 +15,9 @@ import type { IdGeneratorPort } from "../../../port/infra/IdGeneratorPort.js";
 import type { TracerPort } from "../../../port/tracing/TracerPort.js";
 import type { WorkspaceManager } from "../../workspace/WorkspaceManager.js";
 import { Integrator } from "./Integrator.js";
-import type { Router } from "./Router.js";
 import { DirectorContext } from "./DirectorContext.js";
+import { ToolPlanResolver } from "./ToolPlanResolver.js";
 import { clearTraceTokenBudget } from "./traceBudget.js";
-import { AGENT_NAME_TO_ROLE } from "./constants.js";
 import { ErrorClassifier } from "../../execution/ErrorClassifier.js";
 import {
   buildCancellationPayload,
@@ -26,25 +25,15 @@ import {
 } from "../../execution/CancellationPayload.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
-import type { SubTask, TaskPlan } from "../../schema/TaskPlan.js";
-import { resolveExposedMcpTools, stripAndMergeMcpToolNames } from "../../structured/mcpExpose.js";
+import type { TaskPlan } from "../../schema/TaskPlan.js";
 import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
-import { SessionToolRegistry } from "../../tool/SessionToolRegistry.js";
-import { WorkspaceReadTool } from "../../tool/workspace/WorkspaceReadTool.js";
-import { WorkspaceListTool } from "../../tool/workspace/WorkspaceListTool.js";
-import { DelegatingTool } from "../../tool/DelegatingTool.js";
-import { BlackboardTool } from "../../tool/BlackboardTool.js";
-import { CachingToolRegistry } from "../../tool/CachingToolRegistry.js";
-import { WhitelistToolRegistry } from "../../tool/ToolWhitelistWrapper.js";
 import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPort.js";
 import { isToolHitlRequiredError, type ToolHitlRequiredError } from "../../tool/ToolHitlRequiredError.js";
 import type { ExecutionOverrides } from "../../versioning/buildExecutionOverrides.js";
-import { PlanHardGuard } from "../../plan/PlanHardGuard.js";
 import { PlanReplanner } from "../../plan/PlanReplanner.js";
 import { runPlanWithReplan } from "../../plan/runPlanWithReplan.js";
-import { AgentCallGuard, AgentInvokeTool, AGENT_INVOKE_TOOL_NAME, type CallContext, distillHandoff, isHandoffViolationError, isMultiAgentGuardError, seedHandoffsFromResults, validateHandoff, collectHandoffsForPrompt, type HandoffLimits, type HandoffPayload } from "../../multiagent/index.js";
-import { SubAgentDescriptors } from "../subagents/SubAgentFactory.js";
+import { AgentCallGuard, AGENT_INVOKE_TOOL_NAME, type CallContext, distillHandoff, isHandoffViolationError, isMultiAgentGuardError, seedHandoffsFromResults, validateHandoff, type HandoffLimits, type HandoffPayload } from "../../multiagent/index.js";
 import { decideFaqHit } from "../../faq/decideFaqHit.js";
 import type { FaqMatchRaw } from "../../faq/types.js";
 
@@ -208,6 +197,7 @@ export interface DirectorDeps {
 export class DirectorAgent {
   private integrator: Integrator;
   private skillCtx: DirectorContext;
+  private planResolver: ToolPlanResolver;
   private callGuard: AgentCallGuard;
   private callRoot: CallContext;
   private activeCallParent: CallContext;
@@ -226,6 +216,24 @@ export class DirectorAgent {
     });
     this.callRoot = this.callGuard.root("Director");
     this.activeCallParent = this.callRoot;
+    this.planResolver = new ToolPlanResolver({
+      deps,
+      skillCtx: this.skillCtx,
+      logger: this.logger,
+      config: {
+        planHard: () => this.planHardConfig(),
+        multiAgent: () => this.multiAgentConfig(),
+        handoffLimits: () => this.handoffLimits(),
+      },
+      state: {
+        getCallGuard: () => this.callGuard,
+        getActiveParent: () => this.activeCallParent,
+        getCallRoot: () => this.callRoot,
+        getHandoffByTask: () => this.handoffByTask,
+      },
+      runNestedAgentInvoke: (input) => this.runNestedAgentInvoke(input),
+      safeRecordPlanSpan: (name, attributes) => this.safeRecordPlanSpan(name, attributes),
+    });
   }
 
   private planHardConfig(): DirectorPlanHardConfig {
@@ -320,162 +328,6 @@ export class DirectorAgent {
     }
   }
 
-  private resolveTaskAllowedTools(task: Pick<SubTask, "domain" | "allowedTools">): readonly string[] {
-    return PlanHardGuard.resolveAllowedTools(task, {
-      domainToolDefaults: this.planHardConfig().domainToolDefaults,
-    });
-  }
-
-  private buildMergedExecutablePlan(
-    plan: TaskPlan,
-    assignments: TaskAssignment[],
-    requirement: string,
-  ): TaskPlan {
-    return {
-      planId: plan.planId,
-      requirement,
-      skillId: plan.skillId,
-      subTasks: assignments.map((a) => {
-        const originalSubTask = plan.subTasks.find(
-          (st) => st.id === a.taskId || st.fragmentId === a.taskId,
-        );
-        // Preserve explicit allowedTools (including []); leave undefined for prepareTaskAgent
-        const allowedTools = a.allowedTools !== undefined
-          ? a.allowedTools
-          : originalSubTask?.allowedTools;
-        return {
-          id: a.taskId,
-          fragmentId: a.taskId,
-          domain: a.domain,
-          description: a.assignment,
-          dependencies: originalSubTask?.dependencies ?? a.dependencies ?? [],
-          priority: originalSubTask?.priority ?? 1,
-          ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
-        };
-      }),
-    };
-  }
-
-  private mapRoutingToAssignments(
-    plan: TaskPlan,
-    routing: Awaited<ReturnType<Router["route"]>>,
-    options?: DirectorStreamOptions,
-  ): TaskAssignment[] {
-    return routing
-      .map((decision): TaskAssignment | null => {
-        const descriptor = this.skillCtx.getAgentDescriptor(decision.agentName, options);
-        if (!descriptor) {
-          this.logger.warn(`[DirectorAgent] Unknown agent: ${decision.agentName}`);
-          return null;
-        }
-        const originalSubTask = plan.subTasks.find(
-          (st) => st.id === decision.fragmentId || st.fragmentId === decision.fragmentId,
-        );
-        // Only pass through when the plan explicitly declared allowedTools (incl. [])
-        const allowedTools = originalSubTask?.allowedTools;
-        return {
-          taskId: decision.fragmentId,
-          domain: decision.domain,
-          assignment: decision.assignment,
-          agentDescriptor: descriptor,
-          dependencies: originalSubTask?.dependencies ?? [],
-          ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
-        };
-      })
-      .filter((a): a is TaskAssignment => a !== null);
-  }
-
-  private prepareTaskAgent(
-    task: TaskAssignment,
-    sessionId: string,
-    options?: DirectorStreamOptions,
-  ): { descriptor: AgentDescriptor; toolRegistry: ToolRegistry } {
-    const planHard = this.planHardConfig();
-    const multi = this.multiAgentConfig();
-    // Resolve here: undefined → domain defaults; [] → no external tools
-    let allowedTools = [...this.resolveTaskAllowedTools({
-      domain: task.domain,
-      allowedTools: task.allowedTools,
-    })];
-    if (multi.enabled && multi.allowInvoke && !allowedTools.includes(AGENT_INVOKE_TOOL_NAME)) {
-      allowedTools = [...allowedTools, AGENT_INVOKE_TOOL_NAME];
-    }
-
-    let descriptor = this.augmentDescriptorWithSkill(task.agentDescriptor, task.assignment, options);
-    const mcpTools = this.resolveMcpToolsForTask(task, descriptor, options);
-    const allMcpNames = this.deps.mcp?.toolNames ?? [];
-    if (allMcpNames.length > 0) {
-      // Always strip registered MCP from base descriptor first so defaultExposePrefixes
-      // cannot leak past an explicit empty / narrow task whitelist.
-      descriptor = {
-        ...descriptor,
-        toolNames: stripAndMergeMcpToolNames(descriptor.toolNames, allMcpNames, mcpTools),
-      };
-    }
-    if (mcpTools.length > 0) {
-      // Keep plan-hard whitelist in sync with concrete MCP names (patterns like kb_* expand here).
-      // Never expand when task.allowedTools === [] (mcpTools is already empty in that case).
-      allowedTools = Array.from(new Set([...allowedTools, ...mcpTools]));
-    }
-    if (multi.enabled && multi.allowInvoke) {
-      descriptor = {
-        ...descriptor,
-        toolNames: Array.from(new Set([...descriptor.toolNames, AGENT_INVOKE_TOOL_NAME])),
-      };
-    }
-    if (planHard.enabled) {
-      descriptor = {
-        ...descriptor,
-        toolNames: PlanHardGuard.filterToolNames(descriptor.toolNames, allowedTools),
-      };
-    }
-
-    let toolRegistry = this.buildSessionToolRegistry(sessionId, task.agentDescriptor.name, options);
-    if (planHard.enabled) {
-      toolRegistry = new WhitelistToolRegistry(toolRegistry, {
-        taskId: task.taskId,
-        allowedTools,
-        rejectUnauthorized: planHard.rejectUnauthorizedTools,
-        onDenied: (info) => this.safeRecordPlanSpan("plan.tool_denied", { ...info }),
-      });
-    }
-
-    return { descriptor, toolRegistry };
-  }
-
-  /**
-   * Resolve MCP tools for a task under mcp.exposeMode + task.allowedTools semantics:
-   * - undefined → defaultExposePrefixes ∪ skill patterns
-   * - [] → none
-   * - non-empty → only patterns in allowedTools (no defaultExposePrefixes)
-   */
-  private resolveMcpToolsForTask(
-    task: TaskAssignment,
-    descriptor: AgentDescriptor,
-    options?: DirectorStreamOptions,
-  ): string[] {
-    const mcp = this.deps.mcp;
-    if (!mcp || mcp.toolNames.length === 0) return [];
-
-    const role = AGENT_NAME_TO_ROLE[descriptor.name];
-    const skill = role
-      ? this.skillCtx.skillRegistry(options).matchSkill(task.assignment, role)
-      : null;
-    const skillPatterns = task.allowedTools === undefined
-      ? [
-        ...(skill?.getMcpTools() ?? []),
-        ...(skill ? (mcp.skillToolAllowlist[skill.getName()] ?? []) : []),
-      ]
-      : [];
-
-    return resolveExposedMcpTools({
-      allMcpToolNames: mcp.toolNames,
-      exposeMode: mcp.exposeMode,
-      defaultExposePrefixes: mcp.defaultExposePrefixes,
-      skillPatterns,
-      taskAllowedTools: task.allowedTools,
-    });
-  }
 
   async execute(
     requirement: string,
@@ -671,7 +523,7 @@ export class DirectorAgent {
 
     const routing = await this.skillCtx.getRouter(options).route(reviewedPlan.modifications ?? plan, role);
 
-    const assignments = this.mapRoutingToAssignments(
+    const assignments = this.planResolver.mapRoutingToAssignments(
       reviewedPlan.modifications ?? plan,
       routing,
       options,
@@ -683,7 +535,7 @@ export class DirectorAgent {
       }
     }
 
-    const mergedPlan = this.buildMergedExecutablePlan(
+    const mergedPlan = this.planResolver.buildMergedExecutablePlan(
       reviewedPlan.modifications ?? plan,
       assignments,
       requirement,
@@ -709,7 +561,7 @@ export class DirectorAgent {
           subTasks: [...remaining],
         };
         const reRoute = await this.skillCtx.getRouter(options).route(fragment, role);
-        for (const a of this.mapRoutingToAssignments(fragment, reRoute, options)) {
+        for (const a of this.planResolver.mapRoutingToAssignments(fragment, reRoute, options)) {
           assignmentsById.set(a.taskId, a);
           this.deps.workspace?.registerTaskDir(sessionId, a.taskId, a.domain);
         }
@@ -824,30 +676,6 @@ export class DirectorAgent {
     return { conflictCount: integration.conflicts.length, extraFiles };
   }
 
-  /**
-   * Match the best agent skill for a task's sub-agent and inject the full
-   * skill content into the descriptor's systemPrompt.
-   */
-  private augmentDescriptorWithSkill(
-    descriptor: AgentDescriptor,
-    assignment: string,
-    options?: DirectorStreamOptions,
-  ): AgentDescriptor {
-    const role = AGENT_NAME_TO_ROLE[descriptor.name];
-    if (!role) return descriptor;
-
-    const skill = this.skillCtx.skillRegistry(options).matchSkill(assignment, role);
-    if (!skill) return descriptor;
-
-    const skillContent = skill.getContent();
-    if (!skillContent) return descriptor;
-
-    this.logger.info(`[DirectorAgent] Injecting skill "${skill.getName()}" (${skillContent.length} chars) into ${descriptor.name}`);
-    return {
-      ...descriptor,
-      systemPrompt: `${descriptor.systemPrompt}\n\n---\n\n${skillContent}`,
-    };
-  }
 
   private async executeSingleTask(
     task: TaskAssignment,
@@ -873,7 +701,7 @@ export class DirectorAgent {
       const memoryPort = await this.skillCtx.createMemoryPort();
       const hooks = additionalHook ? [...this.deps.hooks, additionalHook] : this.deps.hooks;
 
-      const { descriptor, toolRegistry } = this.prepareTaskAgent(task, sessionId, options);
+      const { descriptor, toolRegistry } = this.planResolver.prepareTaskAgent(task, sessionId, options);
 
       const parent = options?.callParent ?? this.callRoot;
       if (multi.enabled) {
@@ -889,7 +717,7 @@ export class DirectorAgent {
         hooks
       );
 
-      const enhancedAssignment = await this.injectPredecessorContext(task, sessionId);
+      const enhancedAssignment = await this.planResolver.injectPredecessorContext(task, sessionId);
       const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
 
@@ -1000,7 +828,7 @@ export class DirectorAgent {
         };
       }
       const memoryPort = await this.skillCtx.createMemoryPort();
-      const toolRegistry = this.buildSessionToolRegistry(
+      const toolRegistry = this.planResolver.buildSessionToolRegistry(
         input.sessionId,
         input.agentName,
         input.options,
@@ -1021,265 +849,6 @@ export class DirectorAgent {
     } finally {
       this.activeCallParent = prev;
     }
-  }
-
-  private buildSessionToolRegistry(
-    sessionId: string,
-    agentType: string,
-    options?: DirectorStreamOptions,
-  ): ToolRegistry {
-    let registry: ToolRegistry = this.deps.toolRegistry;
-    const wrap = this.deps.wrapTool ?? ((t) => t);
-    const sessionTools: ToolPort[] = [];
-    if (this.deps.workspace) {
-      sessionTools.push(wrap(new WorkspaceReadTool(this.deps.workspace, sessionId)));
-      sessionTools.push(wrap(new WorkspaceListTool(this.deps.workspace, sessionId)));
-    }
-    const multi = this.multiAgentConfig();
-    if (multi.enabled && multi.allowInvoke) {
-      sessionTools.push(
-        wrap(
-          new AgentInvokeTool({
-            guard: this.callGuard,
-            getParent: () => this.activeCallParent ?? this.callRoot,
-            allowedAgentNames: Object.keys(SubAgentDescriptors),
-            runNested: ({ agentName, assignment, callParent }) =>
-              this.runNestedAgentInvoke({
-                agentName,
-                assignment,
-                callParent,
-                sessionId,
-                signal: options?.signal,
-                options,
-              }),
-            onGuardViolation: (err) =>
-              this.safeRecordPlanSpan(`guard.${err.code}`, {
-                agentName: err.agentName,
-                path: err.path,
-                depth: err.depth,
-                maxDepth: err.maxDepth,
-                reason: err.reason,
-                via: AGENT_INVOKE_TOOL_NAME,
-              }),
-          }),
-        ),
-      );
-    }
-    if (sessionTools.length > 0) {
-      registry = new SessionToolRegistry(registry, sessionTools);
-    }
-    return this.wrapWithBlackboard(registry, sessionId, agentType);
-  }
-
-  /**
-   * 为指定会话叠加共享黑板能力：
-   * 1) 注入 4 个 session-scoped 的 blackboard_* 工具（绑定该会话黑板）；
-   * 2) 对白名单工具套上透明读穿缓存（{@link CachingToolRegistry}）。
-   * 黑板禁用时原样返回 base，零侵入。
-   */
-  private wrapWithBlackboard(base: ToolRegistry, sessionId: string, agentType: string): ToolRegistry {
-    const cfg = this.deps.blackboardConfig;
-    if (!cfg?.enabled || !this.deps.blackboardStore) {
-      return base;
-    }
-    const bb = this.deps.blackboardStore.getOrCreate(sessionId);
-
-    // 1) session-scoped blackboard_* 工具
-    const bbTool = new BlackboardTool(bb, agentType, cfg.defaultTtlSeconds);
-    const wrap = this.deps.wrapTool ?? ((t) => t);
-    const withBbTools = new SessionToolRegistry(base, [
-      wrap(new DelegatingTool("blackboard_write", "向团队共享黑板写入一条关键要点。参数: key (string), value (string), ttl_seconds (number, optional)", bbTool, { action: "write" })),
-      wrap(new DelegatingTool("blackboard_read", "按 key 读取黑板中的要点。参数: key (string)", bbTool, { action: "read" })),
-      wrap(new DelegatingTool("blackboard_search", "按关键字检索黑板中的要点。参数: keyword (string)", bbTool, { action: "search" })),
-      wrap(new DelegatingTool("blackboard_recent", "列出黑板中最近写入的要点。参数: limit (number, optional, default 5)", bbTool, { action: "recent" })),
-    ]);
-
-    // 2) 透明缓存：联网类工具用 webTtl，其余用 defaultTtl
-    const cachedTools = new Set(cfg.cachedTools);
-    const ttlOverrides = new Map<string, number>();
-    for (const name of cfg.cachedTools) {
-      if (name.startsWith("tavily") || name.startsWith("kb_")) {
-        ttlOverrides.set(name, cfg.webTtlSeconds);
-      }
-    }
-    return new CachingToolRegistry(withBbTools, bb, cachedTools, cfg.defaultTtlSeconds, ttlOverrides, agentType);
-  }
-
-  private async injectPredecessorContext(task: TaskAssignment, sessionId: string): Promise<string> {
-    const blackboardBlock = this.buildBlackboardContext(sessionId);
-
-    if (!task.dependencies || task.dependencies.length === 0) {
-      return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
-    }
-
-    const multi = this.multiAgentConfig();
-    const limits = this.handoffLimits();
-    const accepted: HandoffPayload[] = [];
-
-    for (const depId of task.dependencies) {
-      let handoff = this.handoffByTask.get(depId);
-
-      if (handoff) {
-        try {
-          validateHandoff(handoff, limits);
-        } catch (err) {
-          await this.safeRecordPlanSpan("guard.handoff_violation", {
-            taskId: depId,
-            reason: isHandoffViolationError(err) ? err.reason : String(err),
-            field: isHandoffViolationError(err) ? err.field : undefined,
-            source: "cache",
-          });
-          this.handoffByTask.delete(depId);
-          handoff = undefined;
-        }
-      }
-
-      // Prefer cached handoff; otherwise distill from workspace (never dump full text).
-      if (!handoff && this.deps.workspace) {
-        const content = await this.deps.workspace.readTaskOutput(sessionId, depId, "output.md");
-        if (content) {
-          const distilled = distillHandoff({
-            taskId: depId,
-            domain: "unknown",
-            output: content,
-            artifacts: ["output.md"],
-            limits,
-          });
-          try {
-            validateHandoff(distilled, limits);
-            handoff = distilled;
-            this.handoffByTask.set(depId, handoff);
-          } catch (err) {
-            await this.safeRecordPlanSpan("guard.handoff_violation", {
-              taskId: depId,
-              reason: isHandoffViolationError(err) ? err.reason : String(err),
-              field: isHandoffViolationError(err) ? err.field : undefined,
-              source: "workspace_distill",
-            });
-            handoff = undefined;
-          }
-        }
-      }
-
-      if (handoff) {
-        accepted.push(handoff);
-      }
-    }
-
-    if (accepted.length === 0) {
-      return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
-    }
-
-    const collected = collectHandoffsForPrompt(accepted, multi.handoffMaxTotalChars);
-    if (collected.truncatedAtIndex !== undefined) {
-      const skipped = accepted[collected.truncatedAtIndex];
-      await this.safeRecordPlanSpan("guard.handoff_total_truncated", {
-        taskId: task.taskId,
-        skippedDepId: skipped?.taskId,
-        totalChars: collected.totalChars,
-        maxTotal: multi.handoffMaxTotalChars,
-        truncatedAtIndex: collected.truncatedAtIndex,
-      });
-    }
-
-    return `${task.assignment}${blackboardBlock}\n\n---\n## 前驱任务 Handoff（蒸馏结论）\n\n${collected.sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
-  }
-
-  /**
-   * 构造注入子任务的近期黑板要点摘要块。无要点 / 黑板禁用时返回空串。
-   * 每条仅取前 80 字，最多 recentInjectCount 条，避免膨胀 prompt。
-   */
-  private buildBlackboardContext(sessionId: string): string {
-    const cfg = this.deps.blackboardConfig;
-    if (!cfg?.enabled || !this.deps.blackboardStore) {
-      return "";
-    }
-    const recent = this.deps.blackboardStore.getOrCreate(sessionId).listRecent(cfg.recentInjectCount);
-    if (recent.length === 0) {
-      return "";
-    }
-    const lines = recent.map((e) => {
-      const preview = e.value.length > 80 ? e.value.slice(0, 80) + "…" : e.value;
-      return `- [${e.agentType}] ${e.key}: ${preview}`;
-    });
-    return `\n\n---\n## 团队共享黑板（近期要点，避免重复搜索）\n\n${lines.join("\n")}\n\n> 可用 blackboard_read/blackboard_search 获取完整内容，或 blackboard_write 记录新要点。`;
-  }
-
-  private async createQueryAgent(sessionId: string, querySystemPrompt?: string) {
-    const queryDescriptor: AgentDescriptor = {
-      name: "QueryAgent",
-      systemPrompt: querySystemPrompt ?? this.skillCtx.getQuerySystemPrompt(),
-      maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
-      maxTokens: this.deps.limits?.queryMaxTokens,
-      toolNames: [
-        "wiki_lookup", "wiki_read", "wiki_list",
-        "grep_search",
-        "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
-        "tavily_search", "tavily_extract",
-        ...this.blackboardToolNames(),
-        ...this.resolveQueryMcpToolNames(),
-      ],
-      options: {},
-      toolResultMaxChars: this.deps.limits?.toolResultMaxChars,
-    };
-    const memoryPort = await this.skillCtx.createMemoryPort();
-    return this.deps.agentFactory.createAgent(
-      queryDescriptor,
-      this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
-      memoryPort,
-      this.deps.hooks
-    );
-  }
-
-  private async createQueryAgentWithHooks(
-    hooks: AgentHook[],
-    sessionId: string,
-    querySystemPrompt?: string,
-  ) {
-    const queryDescriptor: AgentDescriptor = {
-      name: "QueryAgent",
-      systemPrompt: querySystemPrompt ?? this.skillCtx.getQuerySystemPrompt(),
-      maxIterations: this.deps.limits?.queryAgentMaxIterations ?? 10,
-      maxTokens: this.deps.limits?.queryMaxTokens,
-      toolNames: [
-        "wiki_lookup", "wiki_read", "wiki_list",
-        "grep_search",
-        "kg_query_node", "kg_query_neighbors", "kg_list_nodes",
-        "tavily_search", "tavily_extract",
-        ...this.blackboardToolNames(),
-        ...this.resolveQueryMcpToolNames(),
-      ],
-      options: {},
-      toolResultMaxChars: this.deps.limits?.toolResultMaxChars,
-    };
-    const memoryPort = await this.skillCtx.createMemoryPort();
-    return this.deps.agentFactory.createAgent(
-      queryDescriptor,
-      this.wrapWithBlackboard(this.deps.toolRegistry, sessionId, "QueryAgent"),
-      memoryPort,
-      hooks
-    );
-  }
-
-  /** QueryAgent: knowledge-related MCP prefixes (defaultExposePrefixes) or all when exposeMode=all. */
-  private resolveQueryMcpToolNames(): string[] {
-    const mcp = this.deps.mcp;
-    if (mcp && mcp.toolNames.length > 0) {
-      return resolveExposedMcpTools({
-        allMcpToolNames: mcp.toolNames,
-        exposeMode: mcp.exposeMode,
-        defaultExposePrefixes: mcp.defaultExposePrefixes,
-      });
-    }
-    return this.deps.extraToolNames ?? [];
-  }
-
-  /** 黑板启用时返回 4 个 blackboard_* 工具名，供 Agent 描述符引用。 */
-  private blackboardToolNames(): string[] {
-    if (!this.deps.blackboardConfig?.enabled || !this.deps.blackboardStore) {
-      return [];
-    }
-    return ["blackboard_write", "blackboard_read", "blackboard_search", "blackboard_recent"];
   }
 
   /**
@@ -1309,7 +878,7 @@ export class DirectorAgent {
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     signal?: AbortSignal
   ): Promise<AgentResponse> {
-    const agent = await this.createQueryAgent(sessionId);
+    const agent = await this.planResolver.createQueryAgent(sessionId);
 
     const messages: import("../../../port/message/ChatMessage.js").ChatMessage[] = [];
     if (history?.length) {
@@ -1379,7 +948,7 @@ export class DirectorAgent {
     const hooksWithEmitter = [...this.deps.hooks, streamEmitterHook];
 
     try {
-      const agent = await this.createQueryAgentWithHooks(
+      const agent = await this.planResolver.createQueryAgentWithHooks(
         hooksWithEmitter,
         sessionId,
         this.skillCtx.getQuerySystemPrompt(options),
@@ -1617,7 +1186,7 @@ export class DirectorAgent {
       }
       yield { type: "route", data: { message: `已路由到 ${routing.length} 个 Agent`, routing } };
 
-      const assignments = this.mapRoutingToAssignments(activePlan, routing, options);
+      const assignments = this.planResolver.mapRoutingToAssignments(activePlan, routing, options);
 
       if (this.deps.workspace) {
         for (const assignment of assignments) {
@@ -1625,7 +1194,7 @@ export class DirectorAgent {
         }
       }
 
-      const mergedPlan = this.buildMergedExecutablePlan(activePlan, assignments, requirement);
+      const mergedPlan = this.planResolver.buildMergedExecutablePlan(activePlan, assignments, requirement);
       yield { type: "plan", data: { message: "Executable plan ready", plan: mergedPlan, executable: true } };
 
       const planHard = this.planHardConfig();
@@ -1649,7 +1218,7 @@ export class DirectorAgent {
             subTasks: [...remaining],
           };
           const reRoute = await this.skillCtx.getRouter(options).route(fragment, role);
-          for (const a of this.mapRoutingToAssignments(fragment, reRoute, options)) {
+          for (const a of this.planResolver.mapRoutingToAssignments(fragment, reRoute, options)) {
             assignmentsById.set(a.taskId, a);
             this.deps.workspace?.registerTaskDir(sessionId, a.taskId, a.domain);
           }
@@ -1852,7 +1421,7 @@ export class DirectorAgent {
 
     // Inject full skill content into descriptor, not just the name in assignment
     const enrichedDescriptor = skill
-      ? this.augmentDescriptorWithSkill(descriptor, requirement, options)
+      ? this.planResolver.augmentDescriptorWithSkill(descriptor, requirement, options)
       : descriptor;
     const assignment = skill
       ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
@@ -1921,7 +1490,7 @@ export class DirectorAgent {
 
       // Inject full skill content into descriptor
       const enrichedDescriptor = skill
-        ? this.augmentDescriptorWithSkill(descriptor, requirement, options)
+        ? this.planResolver.augmentDescriptorWithSkill(descriptor, requirement, options)
         : descriptor;
       const assignment = skill
         ? `【参考技能: ${skill.getName()}】\n\n${requirement}`
