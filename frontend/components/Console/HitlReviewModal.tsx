@@ -91,6 +91,21 @@ export default function HitlReviewModal({
 
   const stageLabel = STAGE_LABELS[checkpoint?.stage ?? 'plan'] ?? checkpoint?.stage ?? '人工审阅';
 
+  // hitl-2/3 的 content 是 JSON 封装（{ taskId, output } / { summary, conflictCount }），
+  // 提取可读正文做预览；编辑框仍提交完整 JSON（modifiedContent 回写执行流）。
+  const contentPreview = (() => {
+    try {
+      const obj = JSON.parse(editContent) as Record<string, unknown>;
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        const readable = obj.output ?? obj.summary;
+        if (typeof readable === 'string' && readable.trim()) return readable.slice(0, 800);
+      }
+    } catch {
+      // 纯文本 content（hitl-1 之外亦可能是原文）——无预览
+    }
+    return null;
+  })();
+
   return (
     <AnimatePresence>
       {open && (
@@ -135,6 +150,13 @@ export default function HitlReviewModal({
                 </div>
               ) : (
                 <>
+                  {contentPreview && (
+                    <div className="mb-3 rounded-xl border border-ink/6 bg-paper/70 p-4 text-sm whitespace-pre-wrap text-ink/80">
+                      <span className="mb-1 block text-[11px] font-medium text-ink/35">可读预览</span>
+                      {contentPreview}
+                      {contentPreview.length >= 800 ? '…' : ''}
+                    </div>
+                  )}
                   <label className="text-xs font-medium text-ink/40 mb-1.5 block">内容</label>
                   <textarea
                     value={editContent}
