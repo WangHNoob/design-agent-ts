@@ -313,6 +313,8 @@ export class PostgresExecutionRepository implements ExecutionRepository {
       ["deadline_at", patch.deadlineAt, patch.deadlineAt !== undefined],
       ["started_at", patch.startedAt, patch.startedAt !== undefined],
       ["completed_at", patch.completedAt, patch.completedAt !== undefined],
+      ["requirement_hash", patch.requirementHash, patch.requirementHash !== undefined],
+      ["outcome_signal", patch.outcomeSignal, patch.outcomeSignal !== undefined],
     ];
     for (const [column, value, present] of fields) {
       if (!present) continue;
@@ -345,6 +347,8 @@ export class PostgresExecutionRepository implements ExecutionRepository {
       deadlineAt: this.optionalIso(row.deadline_at),
       startedAt: this.optionalIso(row.started_at),
       completedAt: this.optionalIso(row.completed_at),
+      requirementHash: this.optionalString(row.requirement_hash),
+      outcomeSignal: this.optionalPayload(row.outcome_signal) as Execution["outcomeSignal"],
       createdAt: this.iso(row.created_at),
       updatedAt: this.iso(row.updated_at),
     };

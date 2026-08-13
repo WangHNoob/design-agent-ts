@@ -214,6 +214,7 @@ export function loadConfig(): FrameworkConfig {
       faqThreshold: Number(process.env.FAQ_THRESHOLD ?? 0.82),
       faqTimeoutMs: Number(process.env.FAQ_TIMEOUT_MS ?? 800),
       faqToolName: process.env.FAQ_TOOL_NAME ?? "kb_faq_match",
+      faqRequireMetrics: process.env.FAQ_REQUIRE_METRICS !== "false",
     },
     memory: {
       archiveEnabled: process.env.MEMORY_ARCHIVE_ENABLED !== "false",

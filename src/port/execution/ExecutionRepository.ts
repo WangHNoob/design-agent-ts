@@ -3,6 +3,7 @@ import type {
   ExecutionAttempt,
   ExecutionAttemptStatus,
   ExecutionErrorClass,
+  ExecutionOutcomeSignal,
   ExecutionPayload,
   ExecutionStatus,
   ExecutionTask,
@@ -27,6 +28,10 @@ export interface ExecutionUpdate {
   deadlineAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  /** Flywheel 01-P4: normalized requirement hash. */
+  requirementHash?: string | null;
+  /** Flywheel 01-P4: terminal outcome signal. */
+  outcomeSignal?: ExecutionOutcomeSignal | null;
 }
 
 export interface ExecutionListOptions {

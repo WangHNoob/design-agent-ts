@@ -280,6 +280,14 @@ describe("ExecutionWorker", () => {
     expect((await f.executions.listTasks(f.execution.id))[0]?.status).toBe("success");
     expect([...f.executions.attempts.values()][0]?.status).toBe("success");
     expect(f.events.events.map((event) => event.type)).toContain("execution_terminal");
+    const outcomeEvent = f.events.events.find((event) => event.type === "execution_outcome");
+    expect(outcomeEvent).toBeDefined();
+    expect(outcomeEvent?.data).toMatchObject({
+      outcome: "success",
+      mode: "design",
+      requirementHash: "fb31c5cf",
+      hitlCheckpoints: [],
+    });
     expect(f.release).toHaveBeenCalledTimes(1);
   });
 

@@ -83,12 +83,22 @@ describe("Postgres Drizzle migrations", () => {
     expect(migration).toContain("artifact_versions_canary_check");
   });
 
+  test("adds outcome-signal columns and closes schema drift in 0008", () => {
+    const migration = readFileSync(resolve("drizzle/0008_fat_supernaut.sql"), "utf8");
+    expect(migration).toContain('ALTER TABLE "executions" ADD COLUMN "requirement_hash" varchar(64)');
+    expect(migration).toContain('ALTER TABLE "executions" ADD COLUMN "outcome_signal" jsonb');
+    expect(migration).toContain('CREATE INDEX "idx_executions_requirement_hash"');
+    // Cumulative drift from earlier phases that had to be closed here.
+    expect(migration).toContain('ALTER TABLE "sessions" ADD COLUMN "version_snapshot_id" uuid');
+    expect(migration).toContain('ALTER TABLE "hitl_checkpoints" ADD COLUMN "escalated_at"');
+  });
+
   test("keeps the migration journal and snapshot in sync", () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
     ) as { entries: Array<{ idx: number; tag: string }> };
     const snapshot = JSON.parse(
-      readFileSync(resolve("drizzle/meta/0001_snapshot.json"), "utf8"),
+      readFileSync(resolve("drizzle/meta/0008_snapshot.json"), "utf8"),
     ) as {
       tables: Record<string, {
         columns: Record<string, { notNull: boolean }>;
@@ -104,10 +114,11 @@ describe("Postgres Drizzle migrations", () => {
       "0005_audit_logs",
       "0006_cost_usage",
       "0007_artifact_versions",
+      "0008_fat_supernaut",
     ]);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 7,
-      tag: "0007_artifact_versions",
+      idx: 8,
+      tag: "0008_fat_supernaut",
     });
     expect(Object.keys(snapshot.tables)).toEqual(
       expect.arrayContaining([

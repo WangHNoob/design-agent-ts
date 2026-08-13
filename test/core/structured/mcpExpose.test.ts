@@ -10,11 +10,8 @@ import type { ToolPort } from "../../../src/port/tool/ToolPort.js";
 import type { ToolDescriptor } from "../../../src/port/tool/ToolDescriptor.js";
 import { ToolResult } from "../../../src/port/tool/ToolResult.js";
 import { ToolCircuitRegistry } from "../../../src/core/resilience/ToolCircuitRegistry.js";
-import { DirectorAgent } from "../../../src/core/agent/director/DirectorAgent.js";
-import type { ChatModelPort } from "../../../src/port/model/ChatModelPort.js";
-import type { AgentFactory } from "../../../src/port/agent/AgentFactory.js";
+import { ToolPlanResolver } from "../../../src/core/agent/director/ToolPlanResolver.js";
 import type { SkillRegistry } from "../../../src/port/skill/SkillRegistry.js";
-import type { HumanReviewGateway } from "../../../src/core/agent/director/HumanReviewGateway.js";
 import type { AgentDescriptor } from "../../../src/port/agent/AgentDescriptor.js";
 import type { TaskAssignment } from "../../../src/core/schema/TaskAssignment.js";
 
@@ -154,67 +151,62 @@ describe("MCP resilient wrapper parity", () => {
   });
 });
 
-describe("DirectorAgent.prepareTaskAgent MCP allowlist", () => {
+describe("ToolPlanResolver.prepareTaskAgent MCP allowlist", () => {
   const mcpNames = ["kb_search", "kb_read"];
 
-  function createDirector(): DirectorAgent {
-    const model: ChatModelPort = {
-      generate: vi.fn(),
-      stream: vi.fn(),
-      getModelName: () => "mock",
-      getProvider: () => "mock",
-      reconfigure: () => {},
-    };
-    const agentFactory: AgentFactory = {
-      createAgent: vi.fn(),
-    };
+  function createResolver(): ToolPlanResolver {
     const skillRegistry: SkillRegistry = {
       register: vi.fn(),
       matchSkill: vi.fn().mockReturnValue(null),
       matchWorkflow: vi.fn().mockReturnValue(null),
       getAll: vi.fn().mockReturnValue([]),
     };
-    const humanReviewGateway: HumanReviewGateway = {
-      isEnabled: () => false,
-      isReviewPointEnabled: () => false,
-      requestReview: vi.fn().mockResolvedValue({ decision: "approved" }),
-      getMaxRevisionRounds: () => 3,
+    const mcp = {
+      exposeMode: "on_demand",
+      defaultExposePrefixes: ["kb_"],
+      skillToolAllowlist: {},
+      toolNames: mcpNames,
     };
-    return new DirectorAgent({
-      model,
-      agentFactory,
-      toolRegistry: {
-        register: vi.fn(),
-        getToolDescriptors: vi.fn().mockReturnValue([]),
-        getTool: vi.fn(),
-        executeTool: vi.fn(),
-        getGroupToolNames: vi.fn().mockReturnValue([]),
+    return new ToolPlanResolver({
+      deps: {
+        mcp,
+        toolRegistry: {
+          register: vi.fn(),
+          getToolDescriptors: vi.fn().mockReturnValue([]),
+          getTool: vi.fn(),
+          executeTool: vi.fn(),
+          getGroupToolNames: vi.fn().mockReturnValue([]),
+        } as never,
       } as never,
-      skillRegistry,
-      humanReviewGateway,
-      hooks: [],
-      mcp: {
-        exposeMode: "on_demand",
-        defaultExposePrefixes: ["kb_"],
-        skillToolAllowlist: {},
-        toolNames: mcpNames,
+      skillCtx: { skillRegistry: () => skillRegistry } as never,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never,
+      config: {
+        planHard: () => ({
+          enabled: true,
+          maxReplans: 2,
+          rejectUnauthorizedTools: true,
+          domainToolDefaults: {},
+        }),
+        multiAgent: () => ({
+          enabled: false,
+          maxFanOut: 8,
+          maxDepth: 3,
+          detectCycles: true,
+          handoffMaxChars: 4000,
+          handoffMaxKeyPoints: 12,
+          handoffMaxTotalChars: 12000,
+          allowInvoke: false,
+        }),
+        handoffLimits: () => ({ maxChars: 4000, maxKeyPoints: 12, maxTotalChars: 12000 }),
       },
-      planHard: {
-        enabled: true,
-        maxReplans: 2,
-        rejectUnauthorizedTools: true,
-        domainToolDefaults: {},
+      state: {
+        getCallGuard: () => ({ register: vi.fn() } as never),
+        getActiveParent: () => ({ rootAgentId: "root", agentId: "root" } as never),
+        getCallRoot: () => ({ rootAgentId: "root", agentId: "root" } as never),
+        getHandoffByTask: () => new Map(),
       },
-      multiAgent: {
-        enabled: false,
-        maxFanOut: 8,
-        maxDepth: 3,
-        detectCycles: true,
-        handoffMaxChars: 4000,
-        handoffMaxKeyPoints: 12,
-        handoffMaxTotalChars: 12000,
-        allowInvoke: false,
-      },
+      runNestedAgentInvoke: async () => "",
+      safeRecordPlanSpan: async () => {},
     });
   }
 
@@ -229,7 +221,7 @@ describe("DirectorAgent.prepareTaskAgent MCP allowlist", () => {
   }
 
   function prepare(
-    director: DirectorAgent,
+    resolver: ToolPlanResolver,
     allowedTools: readonly string[] | undefined,
   ) {
     const task: TaskAssignment = {
@@ -240,29 +232,23 @@ describe("DirectorAgent.prepareTaskAgent MCP allowlist", () => {
       dependencies: [],
       ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
     };
-    // Access private prepareTaskAgent for unit coverage of MCP merge rules.
-    return (director as unknown as {
-      prepareTaskAgent: (
-        t: TaskAssignment,
-        sessionId: string,
-      ) => { descriptor: AgentDescriptor; toolRegistry: unknown };
-    }).prepareTaskAgent(task, "sess-1");
+    return resolver.prepareTaskAgent(task, "sess-1");
   }
 
   test("allowedTools: [] → toolNames 不含 kb_*", () => {
-    const { descriptor } = prepare(createDirector(), []);
+    const { descriptor } = prepare(createResolver(), []);
     expect(descriptor.toolNames.some((n) => n.startsWith("kb_"))).toBe(false);
     expect(descriptor.toolNames).not.toContain("wiki_lookup");
   });
 
   test("allowedTools: [wiki_lookup] → 不含未声明的 kb_*", () => {
-    const { descriptor } = prepare(createDirector(), ["wiki_lookup"]);
+    const { descriptor } = prepare(createResolver(), ["wiki_lookup"]);
     expect(descriptor.toolNames).toContain("wiki_lookup");
     expect(descriptor.toolNames.some((n) => n.startsWith("kb_"))).toBe(false);
   });
 
   test("allowedTools undefined + defaultExposePrefixes kb_ → 可含 kb_*", () => {
-    const { descriptor } = prepare(createDirector(), undefined);
+    const { descriptor } = prepare(createResolver(), undefined);
     expect(descriptor.toolNames.some((n) => n.startsWith("kb_"))).toBe(true);
     expect(descriptor.toolNames).toContain("kb_search");
   });

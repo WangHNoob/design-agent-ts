@@ -186,7 +186,13 @@ describe("ExecutionService", () => {
       resultPayload: { ok: true },
       completedAt: fixedNow().toISOString(),
     });
-    await expect(service.complete(created.entity.id)).resolves.toEqual(completed);
+    // Idempotent terminal re-transition returns the persisted entity (now with
+    // the outcome signal written by the first completion).
+    await expect(service.complete(created.entity.id)).resolves.toMatchObject({
+      status: "completed",
+      resultPayload: { ok: true },
+      outcomeSignal: { outcome: "success" },
+    });
   });
 
   test("rejects illegal transitions", async () => {
@@ -251,5 +257,115 @@ describe("ExecutionService", () => {
     timeoutError.name = "TimeoutError";
     await expect(service.fail(timedOut.entity.id, timeoutError))
       .resolves.toMatchObject({ status: "timed_out", errorClass: "timeout" });
+  });
+
+  describe("outcome signals (flywheel 01-P4)", () => {
+    test("complete records a success signal with a deterministic requirement hash", async () => {
+      const repository = new InMemoryExecutionRepository();
+      const service = new ExecutionService(repository, idGenerator, fixedNow);
+      const created = await service.create({
+        sessionId: "session-sig-1",
+        idempotencyKey: "request-sig-1",
+        requestPayload: { requirement: "  Design  一个 游戏 ", mode: "design" },
+      });
+      await service.claim(created.entity.id);
+      await service.complete(created.entity.id);
+
+      const execution = await repository.get(created.entity.id);
+      expect(execution?.outcomeSignal).toMatchObject({
+        executionId: created.entity.id,
+        outcome: "success",
+        mode: "design",
+        attempts: 0,
+        hitlCheckpoints: [],
+      });
+      expect(execution?.outcomeSignal?.failReason).toBeUndefined();
+      expect(typeof execution?.requirementHash).toBe("string");
+      expect(execution?.requirementHash).toBe(execution?.outcomeSignal?.requirementHash);
+    });
+
+    test("equal requirements hash identically regardless of whitespace/case", async () => {
+      const repository = new InMemoryExecutionRepository();
+      const service = new ExecutionService(repository, idGenerator, fixedNow);
+      const a = await service.create({
+        sessionId: "session-sig-2",
+        idempotencyKey: "request-sig-2",
+        requestPayload: { requirement: "Design A GAME" },
+      });
+      const b = await service.create({
+        sessionId: "session-sig-3",
+        idempotencyKey: "request-sig-3",
+        requestPayload: { requirement: "  design   a game  " },
+      });
+      await service.claim(a.entity.id);
+      await service.complete(a.entity.id);
+      await service.claim(b.entity.id);
+      await service.complete(b.entity.id);
+
+      const [ra, rb] = await Promise.all([repository.get(a.entity.id), repository.get(b.entity.id)]);
+      expect(ra?.requirementHash).toBe(rb?.requirementHash);
+    });
+
+    test("fail records failed with the classified failReason", async () => {
+      const repository = new InMemoryExecutionRepository();
+      const service = new ExecutionService(repository, idGenerator, fixedNow);
+      const created = await service.create({
+        sessionId: "session-sig-4",
+        idempotencyKey: "request-sig-4",
+        requestPayload: { requirement: "r", mode: "query" },
+      });
+      await service.claim(created.entity.id);
+      await service.fail(created.entity.id, Object.assign(new Error("boom"), { errorClass: "permanent" }));
+
+      expect((await repository.get(created.entity.id))?.outcomeSignal).toMatchObject({
+        outcome: "failed",
+        failReason: "permanent",
+        mode: "query",
+      });
+    });
+
+    test("cancel and timeout record their own outcomes", async () => {
+      const repository = new InMemoryExecutionRepository();
+      const service = new ExecutionService(repository, idGenerator, fixedNow);
+
+      const cancelled = await service.create({
+        sessionId: "session-sig-5",
+        idempotencyKey: "request-sig-5",
+        requestPayload: { requirement: "r" },
+      });
+      await service.claim(cancelled.entity.id);
+      await service.cancel(cancelled.entity.id);
+      expect((await repository.get(cancelled.entity.id))?.outcomeSignal).toMatchObject({
+        outcome: "cancelled",
+        failReason: "cancelled",
+      });
+
+      const timedOut = await service.create({
+        sessionId: "session-sig-6",
+        idempotencyKey: "request-sig-6",
+        requestPayload: { requirement: "r" },
+      });
+      await service.claim(timedOut.entity.id);
+      await service.timeout(timedOut.entity.id);
+      expect((await repository.get(timedOut.entity.id))?.outcomeSignal).toMatchObject({
+        outcome: "timed_out",
+        failReason: "timeout",
+      });
+    });
+
+    test("idempotent terminal re-transition keeps the signal", async () => {
+      const repository = new InMemoryExecutionRepository();
+      const service = new ExecutionService(repository, idGenerator, fixedNow);
+      const created = await service.create({
+        sessionId: "session-sig-7",
+        idempotencyKey: "request-sig-7",
+        requestPayload: { requirement: "r" },
+      });
+      await service.claim(created.entity.id);
+      await service.complete(created.entity.id);
+      await service.complete(created.entity.id);
+
+      expect((await repository.get(created.entity.id))?.outcomeSignal?.outcome).toBe("success");
+    });
   });
 });

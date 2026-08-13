@@ -65,6 +65,19 @@ async function main(): Promise<void> {
     };
   }
 
+  // The V1 offline runner has no TraceStore and zero agent cost: it can only
+  // score cases with a recordedOutput fixture. Online-only cases (added later to
+  // the dataset) are skipped here — the CI gate (eval-gate.mjs) scores this
+  // offline subset against a committed baseline.
+  const skip = dataset.cases.filter((c) => c.recordedOutput === undefined);
+  if (skip.length > 0) {
+    dataset = { ...dataset, cases: dataset.cases.filter((c) => c.recordedOutput !== undefined) };
+    console.log(
+      `[run-offline-eval] Skipping ${skip.length} online-only case(s) without recordedOutput: ` +
+        skip.map((c) => c.id).join(", "),
+    );
+  }
+
   const scorers: ScorerPort[] = [new ExactMatchScorer()];
   if (!exactOnly && dataset.metrics.some((m) => m.kind === "llm_judge")) {
     // Deterministic mock judge for local/CI without API keys.

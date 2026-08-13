@@ -146,10 +146,18 @@ function buildDirectorStreamingAndFaqDeps(
   toolRegistry: ToolManager,
   settings: AppSettings,
 ) {
+  if (config.faq.faqEnabled && config.faq.faqRequireMetrics) {
+    console.warn(
+      "[Bootstrap/Director] FAQ 快速路径被指标门禁拦截（FAQ_REQUIRE_METRICS=true）：" +
+        "需观测台确认命中率 ≥70% 且无错命中反馈后显式设置 FAQ_REQUIRE_METRICS=false（与 agent-observe 告警联动，flywheel 01-P4）",
+    );
+  }
   return {
     streamingEnabled: settings.streamingEnabled !== false,
     faqFastPath: {
-      enabled: config.faq.faqEnabled,
+      // Flywheel 01-P4 gate: without metric proof (FAQ_REQUIRE_METRICS=true) the
+      // fast path stays disabled even when FAQ_ENABLED=true — never silently on.
+      enabled: config.faq.faqEnabled && !config.faq.faqRequireMetrics,
       threshold: config.faq.faqThreshold,
       match: async (query: string) => {
         const tool = toolRegistry.getTool(config.faq.faqToolName);

@@ -168,6 +168,14 @@ export interface FrameworkConfig {
     faqTimeoutMs: number;
     /** FAQ_TOOL_NAME — default kb_faq_match. */
     faqToolName: string;
+    /**
+     * FAQ_REQUIRE_METRICS — default true (flywheel 01-P4 gate).
+     * When true, FAQ_ENABLED is force-disabled at startup with a warning until the
+     * observability layer confirms FAQ hit-rate ≥ 70% with no false-positive
+     * feedback (see agent-observe alert rules). Set explicitly to false to enable
+     * the fast path without metric proof.
+     */
+    faqRequireMetrics: boolean;
   };
   /**
    * Short-term sliding-window memory: protect recent messages, archive summaries on eviction.

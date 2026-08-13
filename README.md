@@ -362,6 +362,7 @@ pnpm dev:web      # 前端 Next.js（本地默认端口 4528，见 frontend/pack
 pnpm test
 pnpm run build
 pnpm eval:offline   # Eval V1 Offline（--exact-only 默认精确匹配，无需 LLM；去掉可启用 llm_judge）
+pnpm eval:gate      # 回归门禁：跑 offline eval 并与 eval/baseline.json 基线对比（flywheel 01-P4）
 ```
 
 | 入口 | 本地 `pnpm` 默认 |
@@ -372,6 +373,16 @@ pnpm eval:offline   # Eval V1 Offline（--exact-only 默认精确匹配，无需
 `pnpm dev:local` 还会尝试拉起同级目录的 Knowledge Hub；脚本内 KH 路径与部分凭据是本机约定，换机器需改 `scripts/start-local.mjs`。
 
 联调 Knowledge Hub：`MCP_ENABLED=true`、`MCP_SERVERS` 指向 KH `/mcp`、**显式**设置 `MCP_PROJECT_ID`；MCP 已加载 `kb_search` 时默认禁用本地 wiki 双源（`MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY`）。
+
+### 评测回归门禁（flywheel 01-P4）
+
+`pnpm eval:gate` 把 `pnpm eval:offline`（exact-only，零 LLM 成本）的结果与 `eval/baseline.json` 对比：
+
+- **通过数回归**：基线中通过的评分项本次失败 → FAIL，并列出具体 `caseId/metricId`；
+- **均分回落**：averageScore 低于基线 −0.02（可用 `--tolerance` 调整）→ FAIL；
+- **数据集漂移**：`eval/datasets/design-golden.v1.json` 内容哈希与基线不一致 → FAIL（EV-027 类"golden 过时"的机制性防护：golden 变更必须显式刷新基线）。
+
+常用参数：`--report <path>` 复用已有报告；`--update-baseline` 把本次结果记为新基线（golden 有意变更后使用）；`--baseline <path>` 指定基线文件。CI 中把 `pnpm eval:gate` 挂为 Agent/提示词改动的前置检查即可。离线 runner 只对带 `recordedOutput` 的 fixture 用例打分，纯在线用例在 `pnpm eval:offline` 中跳过（CI 门禁针对可复算的离线子集）。
 
 完整云部署步骤见 [DEPLOY.md](./DEPLOY.md)。
 
@@ -387,6 +398,19 @@ pnpm eval:offline   # Eval V1 Offline（--exact-only 默认精确匹配，无需
 - **回归门禁**：Agent / 知识库改动后重跑评测，对比前后得分确认无"旧通过 → 新失败"回归。
 
 评测脚本与黄金集位于配套的 [knowledge-hub](https://github.com/WangHNoob/knowledge-hub) 工程 `evals/` 目录。
+
+### 执行结果信号（flywheel 01-P4）
+
+每个 execution 的终态（completed / failed / cancelled / timed_out / hitl_rejected）都会写入结构化信号，供 agent-observe 聚合与回流调度消费：
+
+- **落库**：`executions.requirement_hash`（需求归一化 FNV-1a 哈希，用于同类问题聚类）+ `executions.outcome_signal`（jsonb，含 mode/outcome/attempts/hitlCheckpoints/failReason）；`ExecutionService` 的终态转换处统一写入，HTTP 取消、HITL 超时清扫等旁路同样覆盖。迁移见 `drizzle/0008_fat_supernaut.sql`。
+- **事件流**：worker 在每个终态追加 `execution_outcome` 事件（含重试次数与经过的审阅点）。
+- **HITL**：拒绝时信号 outcome 覆盖为 `hitl_rejected`；`modified` 通过 `hitl.decision` 审计日志 + 信号中的 `hitlCheckpoints` 追踪。
+- 需求哈希为纯函数（`src/core/execution/outcomeSignal.ts`），空白/大小写差异不产生新聚类桶。
+
+### FAQ 指标门禁（flywheel 01-P4）
+
+`FAQ_REQUIRE_METRICS=true`（默认）时，即使 `FAQ_ENABLED=true`，FAQ 快速路径也**强制关闭**并在启动时打印告警——直到观测台确认命中率 ≥ 70% 且无"错命中"反馈后，显式设 `FAQ_REQUIRE_METRICS=false` 才生效（与 agent-observe 告警联动，杜绝无指标支撑的静默开启）。
 
 ---
 
