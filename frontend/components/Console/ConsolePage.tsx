@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download } from 'lucide-react';
+import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useRouter } from 'next/navigation';
@@ -11,7 +11,7 @@ import SessionSidebar from '@/components/Console/SessionSidebar';
 import RightPanel from '@/components/Console/RightPanel';
 import type { TimelineEntry } from '@/components/Console/StepsTimeline';
 import type { DetailedLog } from '@/components/Console/DetailedLogs';
-import ResultPanel from '@/components/Console/ResultPanel';
+import ResultPanel, { reportUserSignal } from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
 import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, type SessionMeta, type StreamHandle } from '@/lib/api';
@@ -653,7 +653,7 @@ export default function ConsolePage({ mode }: Props) {
             ) : (
               <div className="space-y-4">
                 {messages.map((msg) => (
-                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} />
+                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} executionId={task?.executionId ?? null} />
                 ))}
                 {streaming && (
                   streamingText ? (
@@ -818,10 +818,12 @@ const ChatBubble = React.memo(function ChatBubble({
   msg,
   sessionId,
   role,
+  executionId,
 }: {
   msg: ChatMessage;
   sessionId: string | null;
   role: string;
+  executionId: string | null;
 }) {
   if (msg.type === 'system') {
     return (
@@ -837,6 +839,15 @@ const ChatBubble = React.memo(function ChatBubble({
 
   const isUser = msg.type === 'user';
   const showDownload = !isUser && sessionId && role !== 'chief_designer' && msg.content.length > 0;
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = () => {
+    if (isUser) return;
+    navigator.clipboard.writeText(msg.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    // 用户明确复制结果 → 观测台在线评测采样信号（flywheel 03-P4）
+    reportUserSignal({ kind: 'copied', sessionId, executionId });
+  };
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -862,16 +873,28 @@ const ChatBubble = React.memo(function ChatBubble({
           <div className={`text-[10px] ${isUser ? 'text-white/60' : 'text-ink/50'}`}>
             {msg.timestamp}
           </div>
-          {showDownload && (
-            <a
-              href={`/api/sessions/${sessionId}/files/download?path=${encodeURIComponent('single/output.md')}`}
-              download
-              className="flex items-center gap-1 text-[10px] text-ink/60 hover:text-coral"
-            >
-              <Download size={12} />
-              下载
-            </a>
-          )}
+          <div className="flex items-center gap-2">
+            {!isUser && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="flex items-center gap-1 text-[10px] text-ink/60 hover:text-coral"
+              >
+                {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+                {copied ? '已复制' : '复制'}
+              </button>
+            )}
+            {showDownload && (
+              <a
+                href={`/api/sessions/${sessionId}/files/download?path=${encodeURIComponent('single/output.md')}`}
+                download
+                className="flex items-center gap-1 text-[10px] text-ink/60 hover:text-coral"
+              >
+                <Download size={12} />
+                下载
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </motion.div>
