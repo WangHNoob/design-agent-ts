@@ -93,12 +93,17 @@ describe("Postgres Drizzle migrations", () => {
     expect(migration).toContain('ALTER TABLE "hitl_checkpoints" ADD COLUMN "escalated_at"');
   });
 
+  test("adds executions.mode for observer mode statistics in 0009", () => {
+    const migration = readFileSync(resolve("drizzle/0009_tranquil_misty_knight.sql"), "utf8");
+    expect(migration).toContain('ALTER TABLE "executions" ADD COLUMN "mode" varchar(20)');
+  });
+
   test("keeps the migration journal and snapshot in sync", () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
     ) as { entries: Array<{ idx: number; tag: string }> };
     const snapshot = JSON.parse(
-      readFileSync(resolve("drizzle/meta/0008_snapshot.json"), "utf8"),
+      readFileSync(resolve("drizzle/meta/0009_snapshot.json"), "utf8"),
     ) as {
       tables: Record<string, {
         columns: Record<string, { notNull: boolean }>;
@@ -115,10 +120,11 @@ describe("Postgres Drizzle migrations", () => {
       "0006_cost_usage",
       "0007_artifact_versions",
       "0008_fat_supernaut",
+      "0009_tranquil_misty_knight",
     ]);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 8,
-      tag: "0008_fat_supernaut",
+      idx: 9,
+      tag: "0009_tranquil_misty_knight",
     });
     expect(Object.keys(snapshot.tables)).toEqual(
       expect.arrayContaining([

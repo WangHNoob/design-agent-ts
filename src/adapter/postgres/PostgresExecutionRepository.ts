@@ -1,4 +1,5 @@
 import type { DatabasePort, DbRow, QueryParams } from "../../port/infra/DatabasePort.js";
+import { executionModeOf } from "../../core/execution/outcomeSignal.js";
 import type {
   CompleteExecutionAttemptInput,
   CreateExecutionAttemptInput,
@@ -21,6 +22,11 @@ import type {
   ExecutionTaskStatus,
 } from "../../port/execution/types.js";
 
+/** 从 request_payload.mode 冗余执行模式列（供观测台按模式统计）。 */
+function executionModeOfRequest(payload: ExecutionPayload | undefined): "design" | "query" | "table" {
+  return executionModeOf(payload);
+}
+
 export class PostgresExecutionRepository implements ExecutionRepository {
   constructor(
     private readonly db: DatabasePort,
@@ -29,12 +35,13 @@ export class PostgresExecutionRepository implements ExecutionRepository {
 
   async create(input: CreateExecutionInput): Promise<IdempotentCreateResult<Execution>> {
     const now = new Date().toISOString();
+    const mode = executionModeOfRequest(input.requestPayload);
     const result = await this.db.query(
       `INSERT INTO executions (
-         id, user_id, session_id, idempotency_key, status, request_payload,
+         id, user_id, session_id, idempotency_key, status, mode, request_payload,
          deadline_at, created_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $7)
+       VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $8)
        ON CONFLICT (user_id, idempotency_key)
        DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
        RETURNING *, (xmax = 0) AS created`,
@@ -43,9 +50,10 @@ export class PostgresExecutionRepository implements ExecutionRepository {
         2: this.userId,
         3: input.sessionId,
         4: input.idempotencyKey,
-        5: input.requestPayload,
-        6: input.deadlineAt ?? null,
-        7: now,
+        5: mode,
+        6: input.requestPayload,
+        7: input.deadlineAt ?? null,
+        8: now,
       },
     );
     return this.idempotentExecutionResult(result.rows[0]);
@@ -347,6 +355,7 @@ export class PostgresExecutionRepository implements ExecutionRepository {
       deadlineAt: this.optionalIso(row.deadline_at),
       startedAt: this.optionalIso(row.started_at),
       completedAt: this.optionalIso(row.completed_at),
+      mode: this.optionalString(row.mode) as Execution["mode"],
       requirementHash: this.optionalString(row.requirement_hash),
       outcomeSignal: this.optionalPayload(row.outcome_signal) as Execution["outcomeSignal"],
       createdAt: this.iso(row.created_at),
