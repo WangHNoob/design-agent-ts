@@ -10,9 +10,31 @@ interface Props {
   output: string | null;
   error: string | null;
   loading: boolean;
+  /** 用户信号（flywheel 03-P4）：复制/评分时上报，供观测台在线评测采样 */
+  sessionId?: string | null;
+  executionId?: string | null;
+  traceId?: string | null;
 }
 
-export default function ResultPanel({ output, error, loading }: Props) {
+/** 上报用户侧信号（fire-and-forget；失败静默，不影响主流程）。 */
+export function reportUserSignal(input: {
+  kind: 'copied' | 'rated';
+  sessionId?: string | null;
+  executionId?: string | null;
+  traceId?: string | null;
+  rating?: number;
+}) {
+  const { kind, sessionId, executionId, traceId, rating } = input;
+  if (!sessionId && !executionId) return;
+  void fetch('/api/user-signals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, sessionId, executionId, traceId, rating }),
+    credentials: 'include',
+  }).catch(() => {});
+}
+
+export default function ResultPanel({ output, error, loading, sessionId, executionId, traceId }: Props) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -20,6 +42,8 @@ export default function ResultPanel({ output, error, loading }: Props) {
       navigator.clipboard.writeText(output);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      // 用户明确复制了结果 → 强采样信号（观测台候选池第 4 源）
+      reportUserSignal({ kind: 'copied', sessionId, executionId, traceId });
     }
   };
 

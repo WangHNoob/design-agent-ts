@@ -13,6 +13,7 @@ import { tracesRoute } from "./routes/traces.js";
 import { auditRoute } from "./routes/audit.js";
 import { costRoute } from "./routes/cost.js";
 import { versionsRoute } from "./routes/versions.js";
+import { userSignalsRoute, setUserSignalDatabase } from "./routes/userSignals.js";
 import type { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
 import type { TenantContext } from "../port/user/TenantIsolationPort.js";
@@ -40,6 +41,7 @@ export function setTenantContextStorage(storage: ContextStoragePort<TenantContex
 
 export function setDatabasePort(db: DatabasePort) {
   databasePort = db;
+  setUserSignalDatabase(db);
 }
 
 /** Wire TRUSTED_ORIGINS into the CORS origin check (comma-separated list). */
@@ -105,6 +107,7 @@ export function createApp() {
   app.route("/api/skills", skillsRoute);
   app.route("/api/workflows", workflowsRoute);
   app.route("/api/versions", versionsRoute);
+  app.route("/api/user-signals", userSignalsRoute);
 
   // ─── Health & Monitoring ───────────────────────────────────────
   app.get("/health", async (c) => {

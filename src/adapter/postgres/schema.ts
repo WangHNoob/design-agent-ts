@@ -405,3 +405,26 @@ export const sessionVersionSnapshots = pgTable(
   },
   (table) => [index("idx_session_version_snapshots_user").on(table.userId, table.createdAt)],
 );
+
+/**
+ * 用户侧信号（flywheel 03-P4 任务 4）：策划对 Agent 输出的复制/评分。
+ * 观测台采样器将其作为第 4 采样源（用户明确认可/评价过 = 强信号）。
+ */
+export const userSignalEvents = pgTable(
+  "user_signal_events",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    userId,
+    sessionId: varchar("session_id", { length: 100 }),
+    executionId: varchar("execution_id", { length: 100 }),
+    traceId: varchar("trace_id", { length: 100 }),
+    kind: varchar("kind", { length: 20 }).notNull(),
+    rating: integer("rating"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_user_signal_user_created").on(table.userId, table.createdAt),
+    index("idx_user_signal_execution").on(table.executionId),
+    check("user_signal_kind_check", sql`${table.kind} in ('copied', 'rated')`),
+  ],
+);
