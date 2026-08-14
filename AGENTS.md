@@ -16,6 +16,12 @@
 
 生产运行强制：PostgreSQL、Redis、Better Auth 密钥、`MQ_ENABLED=true`。禁止恢复无认证 / 文件 Session·HITL·LTM / 无 Redis 的生产降级路径。表结构只通过 `drizzle/` 迁移；启动时不得 `initializeSchema()` 建业务表。
 
+**共享库（5433）迁移例外**：与观测台共用的 `localhost:5433/game_designer` 因 `__drizzle_migrations`
+为旧版整数记账，`pnpm db:migrate` 无法对齐（会重放 0000 的 CREATE TABLE 报 already exists）。
+该库的增量一律用 `pnpm db:apply`（`scripts/apply-pending-migrations.mts`，幂等）补齐：
+新迁移先 `pnpm db:generate` 产出 `drizzle/NNNN_*.sql`，再把结构增量按幂等写法追加到该脚本
+`stmts` 列表并 `pnpm db:apply`；巡检用 `pnpm db:apply:check`（只校验、exit 1 表示有缺失）。
+
 ---
 
 ## 二、分层红线（绝对禁止）

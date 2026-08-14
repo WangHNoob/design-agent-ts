@@ -374,6 +374,24 @@ pnpm eval:gate      # 回归门禁：跑 offline eval 并与 eval/baseline.json 
 
 联调 Knowledge Hub：`MCP_ENABLED=true`、`MCP_SERVERS` 指向 KH `/mcp`、**显式**设置 `MCP_PROJECT_ID`；MCP 已加载 `kb_search` 时默认禁用本地 wiki 双源（`MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY`）。
 
+### 共享库（5433）迁移：用 `db:apply`，不要用 `db:migrate`
+
+本仓与观测台共用 `localhost:5433/game_designer`（观测契约）。该库的 `__drizzle_migrations`
+是旧版整数记账（`id integer / hash text / created_at bigint`），**不跟踪 `drizzle/*.sql` 的
+真实应用状态**：对它跑 `pnpm db:migrate` 会从头重放 `0000` 的 `CREATE TABLE` 并报
+`relation already exists`。因此共享库的结构增量一律走幂等补齐脚本：
+
+```bash
+pnpm db:apply           # 幂等应用全部增量（加列/新表/索引），可重复执行
+pnpm db:apply:check     # 只校验状态不写库，有缺失时 exit 1（巡检/CI 用）
+POSTGRES_URL=postgresql://game_designer:***@localhost:5433/game_designer  # 默认即此
+```
+
+**后续新增迁移的流程**：`pnpm db:generate` 正常产出 `drizzle/NNNN_*.sql`（供全新库/CI 应用）；
+再把其中的结构增量按幂等写法（`ADD COLUMN IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS` /
+`CREATE INDEX IF NOT EXISTS`）追加到 `scripts/apply-pending-migrations.mts` 的 `stmts` 列表
+（按迁移号分组注释），然后 `pnpm db:apply` 落到共享库。
+
 ### 评测回归门禁（flywheel 01-P4）
 
 `pnpm eval:gate` 把 `pnpm eval:offline`（exact-only，零 LLM 成本）的结果与 `eval/baseline.json` 对比：
