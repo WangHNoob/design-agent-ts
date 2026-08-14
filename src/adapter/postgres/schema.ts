@@ -69,6 +69,8 @@ export const executions = pgTable(
       .references(() => sessions.id, { onDelete: "cascade" }),
     idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
     status: varchar("status", { length: 20 }).notNull().default("queued"),
+    /** 执行模式（design/query/table）：从 request_payload.mode 冗余，供观测台按模式统计（schema 契约要求）。 */
+    mode: varchar("mode", { length: 20 }),
     requestPayload: jsonb("request_payload").notNull().default({}),
     planPayload: jsonb("plan_payload"),
     resultPayload: jsonb("result_payload"),

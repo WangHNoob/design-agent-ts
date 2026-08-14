@@ -68,6 +68,8 @@ export interface Execution {
   deadlineAt?: string;
   startedAt?: string;
   completedAt?: string;
+  /** 执行模式（冗余自 request_payload.mode；观测台按模式统计）。 */
+  mode?: "design" | "query" | "table";
   /** Normalized requirement hash (flywheel 01-P4). */
   requirementHash?: string;
   /** Terminal outcome signal (flywheel 01-P4). */
