@@ -196,12 +196,33 @@ export default function ConsolePage({ mode }: Props) {
       setRefreshTick((t) => t + 1);
     };
 
-    getExecution(task.executionId).then(applyExecution).catch(() => {});
+    getExecution(task.executionId).then(applyExecution).catch((err) => {
+      // 执行记录已不存在（会话/执行被删除）：终止 loading，避免状态卡片常驻
+      if (/404/.test(String(err?.message))) {
+        store.updateTask(task.sessionId, {
+          loading: false,
+          streaming: false,
+          streamRef: null,
+          status: 'idle',
+          statusText: '执行记录不存在',
+        });
+      }
+    });
     // Keep polling while loading so silent worker failures still surface.
     const timer = task.loading
       ? setInterval(() => {
           if (!task.executionId) return;
-          getExecution(task.executionId).then(applyExecution).catch(() => {});
+          getExecution(task.executionId).then(applyExecution).catch((err) => {
+            if (/404/.test(String(err?.message))) {
+              store.updateTask(task.sessionId, {
+                loading: false,
+                streaming: false,
+                streamRef: null,
+                status: 'idle',
+                statusText: '执行记录不存在',
+              });
+            }
+          });
         }, 4000)
       : null;
     return () => {
@@ -634,10 +655,13 @@ export default function ConsolePage({ mode }: Props) {
   const handleSelectSession = (session: SessionMeta) => {
     if (!session.mode) return;
     router.push(`/${session.mode}`);
-    const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '');
+    // 同一会话已有任务条目：直接激活，避免重复条目与重复回放流（状态卡片会重复）
+    if (store.getTask(session.id)) {
+      store.setActiveSession(session.mode as TaskMode, session.id);
+      return;
+    }
+    const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '', session.id);
     store.setActiveSession(session.mode as TaskMode, sid);
-    // 回填真实会话 id：取消/文件等接口依赖它
-    store.updateTask(sid, { sessionId: session.id });
 
     if (session.executionId) {
       // 历史回放：从执行事件存储重放全部事件，重建消息/时间线/日志/证据
