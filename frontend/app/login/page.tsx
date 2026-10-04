@@ -160,9 +160,11 @@ export default function LoginPage() {
             </motion.div>
           </AnimatePresence>
 
-          {/* 注册已在 nginx 层关闭（演示环境） */}
-          <div className="mt-6 text-center text-xs text-ink/35">
-            演示环境未开放注册 · 请使用预填访客账号直接登录
+          <div className="mt-6 text-center text-xs text-ink/45 leading-relaxed">
+            没有账号？<button type="button" className="text-coral font-medium hover:underline" onClick={() => { setMode("register"); setEmail(""); setPassword(""); setName(""); }}>注册一个自己的账号</button>
+            <br />注册后可在「设置 → 我的模型（BYOK）」配置你自己的 LLM Key，
+            <span className="text-coral">体验完成后请及时删除 Key</span>。
+            也可以直接用预填的访客账号登录体验。
           </div>
         </div>
       </motion.div>

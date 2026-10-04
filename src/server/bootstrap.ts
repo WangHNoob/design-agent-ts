@@ -56,6 +56,8 @@ import { ToolCircuitRegistry } from "../core/resilience/ToolCircuitRegistry.js";
 import { BlackboardStore } from "../core/blackboard/BlackboardStore.js";
 import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
+import { UserLlmSettingsStore } from "./UserLlmSettingsStore.js";
+import { setUserLlmSettingsStore } from "./routes/settings.js";
 import type { AppSettings } from "../core/settings/SettingsManager.js";
 import { parseFaqMatchResult } from "../core/faq/parseFaqMatchResult.js";
 import { setSettingsManager, setSettingsContainer, setTavilyTool, setMCPStatus } from "./routes/settings.js";
@@ -111,6 +113,7 @@ let bootstrapState: {
   skillRegistry: SkillManager;
   settingsManager: SettingsManager;
   container: Container | null;
+  userLlmStore: UserLlmSettingsStore | null;
   tavilyTool: TavilySearchTool;
   directorPrompts: Record<string, string | undefined>;
   hooks: import("../port/hook/AgentHook.js").AgentHook[];
@@ -317,7 +320,14 @@ export async function lateBootstrapDirector(): Promise<void> {
     { ...config, model: mergedModelConfig },
     toolRegistry,
     skillRegistry,
-    { compensateFailureQueue: bootstrapState.compensateFailureQueue },
+    {
+      compensateFailureQueue: bootstrapState.compensateFailureQueue,
+      userModelOverride: {
+        getUserId: () => contextStorage.getStore()?.userId ?? null,
+        loadModelConfig: async (userId: string) =>
+          (await bootstrapState?.userLlmStore?.getModelConfig(userId)) ?? null,
+      },
+    },
   );
   bootstrapState.container = container;
   container.model.setTracer?.(tracer);
@@ -352,6 +362,8 @@ export async function lateBootstrapDirector(): Promise<void> {
 
   const settingsManager = new SettingsManager(fileSystem, process.env.SETTINGS_DIR || ".");
   await settingsManager.initialize();
+  const userLlmStore = new UserLlmSettingsStore(process.env.SETTINGS_DIR || ".");
+  setUserLlmSettingsStore(userLlmStore);
 
   // If settings.json has no API key yet, seed from env (.env / compose) and persist
   // so subsequent UI reads and rebuilds keep a single source of truth.
@@ -921,6 +933,12 @@ export async function lateBootstrapDirector(): Promise<void> {
     sessionRepositoryFactory,
     userContextManager: userContextManager!,
     contextStorage,
+    preloadUserModel: () => {
+      const adapter = bootstrapState?.container?.model as
+        | { preloadUserModel?: () => Promise<void> }
+        | undefined;
+      return adapter?.preloadUserModel?.() ?? Promise.resolve();
+    },
     idGenerator,
     inflightLimiter: new InflightLimiter({
       query: config.execution.queryMaxInflight,
@@ -949,7 +967,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     },
   });
 
-  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter, compensateFailureQueue, versionStore: versionStoreAdapter };
+  bootstrapState = { config, toolRegistry, skillRegistry, settingsManager, container: null, tavilyTool, directorPrompts, hooks, fileSystem, workspaceManager, memoryManager, userContextManager, dbAdapter, betterAuthAdapter, redisAdapter, mqAdapter, eventStore, executionWorker, durableHitlGateway: null, mcpClients, mcpToolNames, blackboardStore, tracer, traceStore, contextStorage, costStore: costStoreAdapter, rateLimit: rateLimitAdapter, compensateFailureQueue, versionStore: versionStoreAdapter, userLlmStore };
 
   const hitlRepositoryFactory = (userId: string) =>
     new PostgresHITLRepository(dbAdapter!, userId);
@@ -1179,7 +1197,14 @@ export async function lateBootstrapDirector(): Promise<void> {
       { ...config, model: mergedModelConfig },
       toolRegistry,
       skillRegistry,
-      { compensateFailureQueue },
+      {
+        compensateFailureQueue,
+        userModelOverride: {
+          getUserId: () => contextStorage.getStore()?.userId ?? null,
+          loadModelConfig: async (userId: string) =>
+            (await bootstrapState?.userLlmStore?.getModelConfig(userId)) ?? null,
+        },
+      },
     );
     bootstrapState.container = container;
     container.model.setTracer?.(tracer);

@@ -15,6 +15,11 @@ import { MockHumanReviewGateway } from "../adapter/mock/MockHumanReviewGateway.j
 
 export interface ContainerRuntimeDeps {
   readonly compensateFailureQueue?: CompensateFailureQueuePort;
+  /** 访客 BYOK：按租户 userId 解析其自有模型配置；null=走全局模型。 */
+  readonly userModelOverride?: {
+    getUserId(): string | null;
+    loadModelConfig(userId: string): Promise<ModelConfig | null>;
+  };
 }
 
 export class Container {
@@ -45,6 +50,7 @@ export class Container {
           fallbacks,
           failureThreshold: config.model.fallbackFailureThreshold,
           cooldownMs: config.model.fallbackCooldownMs,
+          userOverride: runtimeDeps.userModelOverride,
         });
         this.model = model;
         this.agentFactory = new LangGraphAgentFactory(model, undefined, {
