@@ -264,21 +264,27 @@ export class PlanExecutor {
 
     if (runResult.exhausted) {
       const failed = results.find((r) => r.status === "error");
+      // 区分两种 exhausted：预算真的用完 vs 重规划器自身失败（如限流、输出不合规）。
+      // 二者修法完全不同，报错文案必须如实区分，否则会把人引向"调大预算"的死路。
+      const errorMessage = runResult.replanFailed
+        ? `重规划调用失败（尚未消耗重规划预算）：${runResult.replanErrorMessage ?? "未知原因"}`
+        : `重规划次数耗尽（已重规划 ${runResult.replanCount}/${planHard.maxReplans} 次）`;
       return {
         agentName: "Director",
         message: ChatMessage.text(
           "assistant",
           "Director",
-          `重规划次数耗尽（${runResult.replanCount}/${planHard.maxReplans}）`
-            + (failed ? `；最近失败任务=${failed.taskId}` : ""),
+          errorMessage + (failed ? `；最近失败任务=${failed.taskId}` : ""),
         ),
         metadata: {
           replanCount: runResult.replanCount,
           replanExhausted: true,
+          replanFailed: runResult.replanFailed ?? false,
+          replanErrorMessage: runResult.replanErrorMessage,
           results,
         },
         success: false,
-        errorMessage: `重规划次数耗尽（已重规划 ${runResult.replanCount}/${planHard.maxReplans} 次）`,
+        errorMessage,
       };
     }
 
