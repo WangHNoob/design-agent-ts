@@ -1,4 +1,7 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3000';
+// 同源相对路径（/api/...）为默认：生产部署走 nginx 反代到后端；
+// 本地前后端分离开发时需显式设置 NEXT_PUBLIC_API_BASE（如 http://127.0.0.1:13000）。
+// 注意不能回退到 localhost:3000——空值会被 || 短路成浏览器本机地址。
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
 function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   return fetch(input, {
@@ -31,7 +34,7 @@ export interface SessionMeta {
   requirement: string;
   mode: 'design' | 'query' | 'table';
   role: string;
-  status: 'running' | 'waiting_hitl' | 'completed' | 'failed' | 'clarifying';
+  status: 'running' | 'waiting_hitl' | 'completed' | 'failed' | 'clarifying' | 'cancelled';
   createdAt: string;
   updatedAt: string;
   output?: string;
@@ -166,6 +169,7 @@ export function executeDesignStream(
   req: ExecuteRequest,
   onEvent: (event: string, data: unknown) => void,
   onError?: (error: Error) => void,
+  onDone?: () => void,
 ): StreamHandle {
   const sessionId = req.sessionId ?? crypto.randomUUID();
   const body = { ...req, sessionId };
@@ -191,6 +195,9 @@ export function executeDesignStream(
       onEvent,
       (id) => { lastEventId = id; },
     );
+    // 流"干净结束"（服务端/中间层正常收尾而非抛错）也要通知调用方，
+    // 否则任务仍在 loading 时 UI 会静默失聪（无事件也无错误）
+    if (!controller.signal.aborted) onDone?.();
   }).catch((err) => {
     if (!controller.signal.aborted) onError?.(err);
   });
@@ -208,6 +215,7 @@ export function resumeExecutionStream(
   afterCursor: string | null | undefined,
   onEvent: (event: string, data: unknown) => void,
   onError?: (error: Error) => void,
+  onDone?: () => void,
 ): StreamHandle {
   const controller = new AbortController();
   let lastEventId: string | null = afterCursor ?? null;
@@ -234,6 +242,7 @@ export function resumeExecutionStream(
       onEvent,
       (id) => { lastEventId = id; },
     );
+    if (!controller.signal.aborted) onDone?.();
   }).catch((err) => {
     if (!controller.signal.aborted) onError?.(err);
   });

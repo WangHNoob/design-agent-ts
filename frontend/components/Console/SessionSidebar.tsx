@@ -133,12 +133,14 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
                       s.status === 'completed' ? 'bg-emerald-100 text-emerald-600' :
                       s.status === 'failed' ? 'bg-red-100 text-red-600' :
                       s.status === 'running' ? 'bg-amber-100 text-amber-600' :
+                      s.status === 'waiting_hitl' ? 'bg-indigo-100 text-indigo-600' :
                       'bg-ink/5 text-ink/70'
                     }`}>
                       {s.status === 'completed' ? '完成' :
                        s.status === 'failed' ? '失败' :
                        s.status === 'running' ? '运行中' :
-                       s.status === 'waiting_hitl' ? '等待审阅' : '澄清中'}
+                       s.status === 'waiting_hitl' ? '等待审阅' :
+                       s.status === 'cancelled' ? '已取消' : '澄清中'}
                     </span>
                   </div>
                 </button>

@@ -283,6 +283,13 @@ export default function ConsolePage({ mode }: Props) {
           });
         }
       },
+      // 续订流也可能被服务端/中间层干净收尾：只要任务仍在执行就继续续订
+      // （受 MAX_STREAM_RESUMES 限制；失败时保留 4s getExecution 轮询兜底）
+      () => {
+        if (!mountedRef.current) return;
+        const t = store.getTask(sessionId);
+        if (t?.loading) tryResumeStream(sessionId, '续订流已结束');
+      },
     );
     attachStream(sessionId, resume);
     return true;
@@ -450,6 +457,11 @@ export default function ConsolePage({ mode }: Props) {
           });
         }
       },
+      () => {
+        if (!mountedRef.current) return;
+        const t = store.getTask(sid);
+        if (t?.loading) tryResumeStream(sid, '审批后续订流已结束');
+      },
     );
     attachStream(sid, resume);
   }, [task, store, attachStream, tryResumeStream]);
@@ -530,7 +542,15 @@ export default function ConsolePage({ mode }: Props) {
             source: '请求异常',
             message: err.message,
           });
-        }
+        },
+        // 流被干净收尾（无事件无报错）时：捕获 executionId 并续订，
+        // 避免任务仍在执行而 UI 静默失聪（run 2026-10-04 16:27 的教训）
+        () => {
+          if (!mountedRef.current) return;
+          syncStreamMeta(sid, stream);
+          const t = store.getTask(sid);
+          if (t?.loading) tryResumeStream(sid, '执行流已结束');
+        },
       );
       attachStream(sid, stream);
     } else {
