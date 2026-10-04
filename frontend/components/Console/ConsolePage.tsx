@@ -657,11 +657,14 @@ export default function ConsolePage({ mode }: Props) {
   const handleSelectSession = (session: SessionMeta) => {
     if (!session.mode) return;
     router.push(`/${session.mode}`);
-    // 同一会话已有任务条目：直接激活，避免重复条目与重复回放流（状态卡片会重复）
-    if (store.getTask(session.id)) {
+    // 同一会话已有任务条目：直接激活，避免重复条目与重复回放流（状态卡片会重复）。
+    // 但空壳条目（一条消息都没有且不在加载中）说明上次回放/渲染失败，删掉重新回放
+    const existingTask = store.getTask(session.id);
+    if (existingTask && (existingTask.messages.length > 0 || existingTask.loading)) {
       store.setActiveSession(session.mode as TaskMode, session.id);
       return;
     }
+    if (existingTask) store.removeTask(session.id);
     const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '', session.id);
     store.setActiveSession(session.mode as TaskMode, sid);
 
