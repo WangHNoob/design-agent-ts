@@ -56,8 +56,11 @@ async function proxyAuthRequest(request: NextRequest) {
   });
   headers.set("host", new URL(API_BASE).host);
   // Browser talks to the frontend origin; Better Auth trustedOrigins expects it.
+  // 反代场景优先用 X-Forwarded-* 还原对外 origin，避免内部地址被 Better Auth 拒绝。
   if (!headers.has("origin")) {
-    headers.set("origin", url.origin);
+    const proto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
+    const fwdHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
+    headers.set("origin", `${proto}://${fwdHost}`);
   }
 
   // Forward the request body (if any)

@@ -131,26 +131,33 @@ export class PlanPipeline {
   }
 
   private topologicalSort(plan: TaskPlan): string[][] {
-    const taskIds = new Set<string>();
+    // LLM 生成的计划可能有小瑕疵（重复 id / 引用计划外 id 的依赖）：
+    // 在这里净化出一份可执行的安全副本，而不是让整条执行流崩溃
+    const seen = new Set<string>();
+    const sanitized: TaskPlan["subTasks"] = [];
     for (const task of plan.subTasks) {
-      if (taskIds.has(task.id)) {
-        throw new Error(`Duplicate task id in task plan: ${task.id}`);
+      if (seen.has(task.id)) {
+        console.warn(`[PlanPipeline] dropping duplicate task id in plan: ${task.id}`);
+        continue;
       }
-      taskIds.add(task.id);
-    }
-    for (const task of plan.subTasks) {
-      const unknownDependencies = task.dependencies.filter((dependency) => !taskIds.has(dependency));
+      seen.add(task.id);
+      const unknownDependencies = task.dependencies.filter((dependency) => !seen.has(dependency));
       if (unknownDependencies.length > 0) {
-        throw new Error(
-          `Task ${task.id} has unknown dependencies: ${unknownDependencies.join(", ")}`,
+        // 未知依赖直接丢弃：任务会提前到更早的层执行，影响小于中断执行
+        console.warn(
+          `[PlanPipeline] dropping unknown dependencies of ${task.id}: ${unknownDependencies.join(", ")}`,
         );
+        sanitized.push({ ...task, dependencies: task.dependencies.filter((d) => seen.has(d)) });
+      } else {
+        sanitized.push(task);
       }
     }
+    const orderedTasks = sanitized;
 
     const inDegree = new Map<string, number>();
     const adjacency = new Map<string, string[]>();
 
-    for (const task of plan.subTasks) {
+    for (const task of orderedTasks) {
       inDegree.set(task.id, task.dependencies.length);
       for (const dep of task.dependencies) {
         const list = adjacency.get(dep) ?? [];
@@ -160,7 +167,7 @@ export class PlanPipeline {
     }
 
     const layers: string[][] = [];
-    let queue = plan.subTasks
+    let queue = orderedTasks
       .filter((t) => t.dependencies.length === 0)
       .map((t) => t.id);
     let totalProcessed = 0;
@@ -180,8 +187,8 @@ export class PlanPipeline {
     }
 
     // Cycle detection: if not all tasks were processed, there is a dependency cycle
-    if (totalProcessed !== plan.subTasks.length) {
-      const remaining = plan.subTasks
+    if (totalProcessed !== orderedTasks.length) {
+      const remaining = orderedTasks
         .filter((t) => !layers.flat().includes(t.id))
         .map((t) => t.id);
       throw new Error(

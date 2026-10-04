@@ -4,6 +4,15 @@ import { bootstrap, getBootstrapState } from "./bootstrap.js";
 const port = Number(process.env.PORT ?? 3000);
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
+// 演示部署兜底：未捕获的异步异常只记录不退出（默认行为是整进程崩溃，
+// 曾导致 HITL 计划校验异常触发 502 崩溃循环）。根因仍需逐个修复。
+process.on("unhandledRejection", (reason) => {
+  console.error("[Process] Unhandled rejection (kept alive):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[Process] Uncaught exception (kept alive):", err);
+});
+
 bootstrap().then(({ app }) => {
   serve({
     fetch: app.fetch,

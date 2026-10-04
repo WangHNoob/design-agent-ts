@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Gamepad2, Settings, Plus, PanelRight } from 'lucide-react';
+import { Gamepad2, Settings, Plus, PanelRight, LogOut } from 'lucide-react';
 
 interface Props {
   mode: 'design' | 'query' | 'table';
@@ -135,6 +135,20 @@ export default function Header({
           title="切换监控面板"
         >
           <PanelRight size={14} />
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              await fetch('/design/api/auth/sign-out', { method: 'POST', credentials: 'include' });
+            } catch {
+              // 即使登出接口失败也回到登录页，本地状态由整页刷新重置
+            }
+            window.location.href = '/design/login';
+          }}
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink/50 hover:bg-coral/10 hover:text-coral transition-colors"
+          title="退出登录"
+        >
+          <LogOut size={14} />
         </button>
       </div>
     </header>
