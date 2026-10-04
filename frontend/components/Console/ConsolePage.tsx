@@ -493,7 +493,9 @@ export default function ConsolePage({ mode }: Props) {
 
     // For query mode, reuse the active session so the conversation continues.
     // For design/table mode, each run is a fresh task.
-    const sid = (mode === 'query' && activeSessionId)
+    // 指针可能指向已删除的会话（删除会话后 activeSessionId 未清空）：
+    // 条目不存在时必须新建，否则 appendMessage 全部静默无效、页面空白
+    const sid = (mode === 'query' && activeSessionId && store.getTask(activeSessionId))
       ? activeSessionId
       : store.createTask(mode, effectiveRole, requirement.trim());
     store.setActiveSession(mode, sid);
