@@ -127,8 +127,33 @@ export default function ConsolePage({ mode }: Props) {
     let cancelled = false;
 
     const applyExecution = (execution: Awaited<ReturnType<typeof getExecution>>) => {
-      if (cancelled || !mountedRef.current) return;
+      // 注意只挡组件卸载：loading 翻转会让本 effect 重跑并把在途响应标记
+      // cancelled，若一并丢弃，轮询写入的服务端耗时/起点就永远丢失。
+      if (!mountedRef.current) return;
+      // 耗时以服务端执行时间为准（水合/选中历史会话没有本地 startedAt，
+      // 上一版计时器因此永远不启动、面板与任务卡片恒显 0:00）：
+      // 播种 startedAt 让秒表按服务端起点走；已结束的执行直接定格总耗时。
+      const serverStartMs = execution.createdAt ? Date.parse(execution.createdAt) : 0;
+      const serverEndMs = execution.updatedAt ? Date.parse(execution.updatedAt) : Date.now();
+      const fmt = (ms: number) => {
+        const total = Math.max(0, Math.floor(ms / 1000));
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const sec = total % 60;
+        return h > 0
+          ? `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+          : `${m}:${sec.toString().padStart(2, '0')}`;
+      };
+      if (serverStartMs > 0 && task.startedAt <= 0) {
+        store.updateTask(task.sessionId, { startedAt: serverStartMs });
+      }
+      if (TERMINAL_EXECUTION_STATUSES.has(execution.status) && serverStartMs > 0) {
+        store.updateTask(task.sessionId, { executionTime: fmt(serverEndMs - serverStartMs) });
+      }
       if (WAITING_EXECUTION_STATUSES.has(execution.status)) {
+        if (serverStartMs > 0) {
+          store.updateTask(task.sessionId, { executionTime: fmt(Date.now() - serverStartMs) });
+        }
         store.updateTask(task.sessionId, {
           loading: false,
           streaming: false,
@@ -352,6 +377,11 @@ export default function ConsolePage({ mode }: Props) {
       }
       const handle = store.getTask(sessionId)?.streamRef;
       if (handle) syncStreamMeta(sessionId, handle);
+      // 回放流里的 start 事件是实时执行的生命周期重置（清 startedAt/
+      // 状态归位）——水合回放时跳过，否则会覆盖轮询写入的服务端耗时
+      if (event === 'start' && hydratingSessionsRef.current.has(sessionId)) {
+        return;
+      }
       handleStreamEvent(sessionId, event, data, store);
 
       // 历史回放门控：重放期间 HITL 弹窗延迟判定（静默 1.5s 视为回放结束，
