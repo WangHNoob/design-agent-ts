@@ -15,7 +15,7 @@ import type { ToolPort } from "../port/tool/ToolPort.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
 import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
-import { setSessionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
+import { setSessionRepositoryFactory, setExecutionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
 import { setHITLRouteDependencies } from "./routes/hitl.js";
 import { DurableHumanReviewGateway } from "../core/hitl/DurableHumanReviewGateway.js";
 import { LoggingHook } from "../core/hook/LoggingHook.js";
@@ -1008,6 +1008,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     versionStore: versionStoreAdapter,
   });
   setSessionRepositoryFactory(sessionRepositoryFactory);
+  setExecutionRepositoryFactory(executionRepositoryFactory);
   setWorkspaceManager(workspaceManager);
   setHITLRouteDependencies({
     repositoryFactory: hitlRepositoryFactory,

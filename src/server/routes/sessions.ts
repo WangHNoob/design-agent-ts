@@ -1,16 +1,23 @@
 import { Hono } from "hono";
 import type { WorkspaceManager } from "../../core/workspace/WorkspaceManager.js";
 import type { SessionRepository } from "../../port/session/SessionRepository.js";
+import type { ExecutionRepository } from "../../port/execution/ExecutionRepository.js";
 import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
 import JSZip from "jszip";
 
 export type SessionRepositoryFactory = (userId: string) => SessionRepository;
+export type ExecutionRepositoryFactory = (userId: string) => ExecutionRepository;
 
 let sessionRepositoryFactory: SessionRepositoryFactory | null = null;
+let executionRepositoryFactoryInjected: ExecutionRepositoryFactory | null = null;
 let workspaceManagerInstance: WorkspaceManager | null = null;
 
 export function setSessionRepositoryFactory(factory: SessionRepositoryFactory) {
   sessionRepositoryFactory = factory;
+}
+
+export function setExecutionRepositoryFactory(factory: ExecutionRepositoryFactory) {
+  executionRepositoryFactoryInjected = factory;
 }
 
 export function setWorkspaceManager(ws: WorkspaceManager) {
@@ -32,7 +39,29 @@ sessionsRoute.get("/", async (c) => {
   const limit = Number(c.req.query("limit") ?? "50");
   const offset = Number(c.req.query("offset") ?? "0");
   const sessions = await repository.list(limit, offset);
-  return c.json({ sessions, total: sessions.length });
+
+  // 附带每个会话最新执行的 executionId，供前端回放历史执行监控
+  let result = sessions;
+  if (executionRepositoryFactoryInjected) {
+    const executionRepository = executionRepositoryFactoryInjected(
+      (c.get("tenant") as TenantContext).userId
+    );
+    result = await Promise.all(
+      sessions.map(async (session) => {
+        try {
+          const [latest] = await executionRepository.list({
+            sessionId: session.id,
+            limit: 1,
+          });
+          return { ...session, executionId: latest?.id ?? null };
+        } catch {
+          return { ...session, executionId: null };
+        }
+      })
+    );
+  }
+
+  return c.json({ sessions: result, total: result.length });
 });
 
 sessionsRoute.get("/:id", async (c) => {

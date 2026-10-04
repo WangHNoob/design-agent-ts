@@ -37,6 +37,8 @@ export interface SessionMeta {
   output?: string;
   error?: string;
   hitlCheckpointId?: string;
+  /** 最新一次执行的 id，用于切换会话时回放执行监控 */
+  executionId?: string;
 }
 
 export interface HITLCheckpoint {

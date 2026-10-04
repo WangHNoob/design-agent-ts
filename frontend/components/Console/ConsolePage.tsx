@@ -237,6 +237,9 @@ export default function ConsolePage({ mode }: Props) {
 
   const onStreamEventRef = useRef<(sessionId: string, event: string, data: unknown) => void>(() => {});
 
+  // 会话历史回放进行中的任务（回放期间不弹 HITL 弹窗，结束后按最终状态决定）
+  const hydratingSessionsRef = useRef<Set<string>>(new Set());
+
   const tryResumeStream = useCallback((sessionId: string, reason: string) => {
     const current = store.getTask(sessionId);
     if (!current?.executionId) return false;
@@ -323,6 +326,26 @@ export default function ConsolePage({ mode }: Props) {
       if (handle) syncStreamMeta(sessionId, handle);
       handleStreamEvent(sessionId, event, data, store);
 
+      // 历史回放门控：重放期间 HITL 弹窗延迟判定（静默 1.5s 视为回放结束，
+      // 若最终状态是 waiting 才弹窗——说明该检查点确实还在等人工审阅）
+      if (hydratingSessionsRef.current.has(sessionId)) {
+        const finishHydration = () => {
+          hydratingSessionsRef.current.delete(sessionId);
+          const t = store.getTask(sessionId);
+          store.updateTask(sessionId, { loading: false, streaming: false });
+          if (t?.status === 'waiting') setHitlModalOpen(true);
+        };
+        if (event === 'complete' || event === 'error' || event === 'execution_terminal' || event === 'cancelled') {
+          finishHydration();
+        } else if (event === 'hitl' || event === 'execution_status') {
+          window.setTimeout(() => {
+            if (hydratingSessionsRef.current.has(sessionId) && store.getTask(sessionId)?.status === 'waiting') {
+              finishHydration();
+            }
+          }, 1500);
+        }
+      }
+
       // Scroll on chunk
       if (event === 'chunk') {
         if (!streamingRafRef.current) {
@@ -343,7 +366,7 @@ export default function ConsolePage({ mode }: Props) {
             setHitlFallbackContent(undefined);
           }
         }
-        setHitlModalOpen(true);
+        if (!hydratingSessionsRef.current.has(sessionId)) setHitlModalOpen(true);
       }
 
       if (event === 'execution_status') {
@@ -353,7 +376,7 @@ export default function ConsolePage({ mode }: Props) {
           if (checkpointId) {
             store.updateTask(sessionId, { hitlCheckpointId: checkpointId });
           }
-          setHitlModalOpen(true);
+          if (!hydratingSessionsRef.current.has(sessionId)) setHitlModalOpen(true);
         }
       }
 
@@ -560,38 +583,72 @@ export default function ConsolePage({ mode }: Props) {
     setRequirement('');
   };
 
-  const handleSelectSession = (session: SessionMeta) => {
-    // For simplicity, just show the session output as a read-only view
-    // In a full implementation we'd load the full task state
-    if (session.mode) {
-      router.push(`/${session.mode}`);
-      const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '');
-      store.setActiveSession(session.mode as TaskMode, sid);
-      if (session.requirement) {
-        store.appendMessage(sid, {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
-          type: 'user',
-          content: session.requirement,
-          timestamp: getCurrentTime(),
-        });
-      }
-      if (session.output) {
-        store.appendMessage(sid, {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
-          type: 'ai',
-          content: session.output,
-          timestamp: getCurrentTime(),
-        });
-      }
-      if (session.error) {
-        store.appendMessage(sid, {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
-          type: 'system',
-          content: `历史错误: ${session.error}`,
-          timestamp: getCurrentTime(),
-        });
-      }
+  const appendSessionSummary = (sid: string, session: SessionMeta) => {
+    // 无执行记录时的兜底：用会话摘要拼一个只读视图
+    if (session.requirement) {
+      store.appendMessage(sid, {
+        id: `msg_${Date.now()}_u_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'user',
+        content: session.requirement,
+        timestamp: getCurrentTime(),
+      });
     }
+    if (session.output) {
+      store.appendMessage(sid, {
+        id: `msg_${Date.now()}_a_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'ai',
+        content: session.output,
+        timestamp: getCurrentTime(),
+      });
+    }
+    if (session.error) {
+      store.appendMessage(sid, {
+        id: `msg_${Date.now()}_e_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'system',
+        content: `历史错误: ${session.error}`,
+        timestamp: getCurrentTime(),
+      });
+    }
+  };
+
+  const handleSelectSession = (session: SessionMeta) => {
+    if (!session.mode) return;
+    router.push(`/${session.mode}`);
+    const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '');
+    store.setActiveSession(session.mode as TaskMode, sid);
+    // 回填真实会话 id：取消/文件等接口依赖它
+    store.updateTask(sid, { sessionId: session.id });
+
+    if (session.executionId) {
+      // 历史回放：从执行事件存储重放全部事件，重建消息/时间线/日志/证据
+      hydratingSessionsRef.current.add(sid);
+      store.updateTask(sid, {
+        executionId: session.executionId,
+        loading: true,
+        statusText: '正在加载历史执行记录…',
+      });
+      const handle = resumeExecutionStream(
+        session.executionId,
+        null,
+        (event, data) => onStreamEventRef.current(sid, event, data),
+        () => {
+          // 回放失败：退回摘要展示
+          hydratingSessionsRef.current.delete(sid);
+          const status = store.getTask(sid)?.status;
+          store.updateTask(sid, {
+            loading: false,
+            streaming: false,
+            status: status === 'working' ? 'idle' : status,
+            statusText: '历史执行记录不可用',
+          });
+          appendSessionSummary(sid, session);
+        },
+      );
+      store.setStreamRef(sid, handle);
+      return;
+    }
+
+    appendSessionSummary(sid, session);
   };
 
   const handleInputKeydown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
