@@ -56,9 +56,9 @@ export default function RightPanel({
       {/* Session info */}
       {sessionId && (
         <div className="px-3 py-2 border-b border-ink/6 text-xs text-ink/70 flex items-center gap-3 shrink-0">
-          <span className="font-mono truncate">ID: {sessionId.slice(0, 8)}</span>
-          <span>消息: {messageCount}</span>
-          <span>耗时: {executionTime}</span>
+          <span className="font-mono truncate min-w-0 flex-1" title={sessionId}>ID: {sessionId}</span>
+          <span className="shrink-0">消息: {messageCount}</span>
+          <span className="shrink-0">耗时: {executionTime}</span>
         </div>
       )}
 
