@@ -82,7 +82,13 @@ export class PostgresHITLRepository implements HITLRepository {
          stage, status, content, content_type, agent_name, review_point,
          resume_cursor, resume_payload, fallback, created_at, updated_at
        )
-       SELECT $1::varchar, $2::varchar, s.id, $4::varchar, $5::varchar, $6::varchar, $7::varchar,
+       SELECT $1::varchar, $2::varchar, s.id, $4::varchar,
+              (SELECT t.id FROM execution_tasks t
+               WHERE (t.id = $5::varchar OR t.task_key = $5::varchar)
+                 AND t.user_id = $2::varchar
+                 AND ($4::varchar IS NULL OR t.execution_id = $4::varchar)
+               LIMIT 1),
+              $6::varchar, $7::varchar,
               'waiting_review', $8::text, $9::varchar, $10::varchar, $11::varchar, $12::varchar,
               $13::jsonb, false, $14::timestamptz, $14::timestamptz
        FROM sessions s
@@ -94,7 +100,7 @@ export class PostgresHITLRepository implements HITLRepository {
          AND ($5::varchar IS NULL OR EXISTS (
            SELECT 1
            FROM execution_tasks t
-           WHERE t.id = $5::varchar
+           WHERE (t.id = $5::varchar OR t.task_key = $5::varchar)
              AND t.user_id = $2::varchar
              AND ($4::varchar IS NULL OR t.execution_id = $4::varchar)
          ))
