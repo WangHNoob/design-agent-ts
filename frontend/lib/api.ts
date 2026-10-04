@@ -102,6 +102,7 @@ export interface ExecutionRecord {
 
 export async function getExecution(id: string): Promise<ExecutionRecord> {
   const res = await apiFetch(`${API_BASE}/api/console/executions/${id}`);
+  // 404 等非 2xx 不静默吞掉：调用方依赖错误信息区分「执行记录不存在」
   if (!res.ok) {
     const text = await res.text().catch(() => `HTTP ${res.status}`);
     throw new Error(`获取执行状态失败 (${res.status}): ${text}`);

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, MessageSquare, Clock, Zap, Trash2, Plus } from 'lucide-react';
 import { listSessions, deleteSession, type SessionMeta } from '@/lib/api';
+import { useTaskStore } from '@/lib/stores/taskStore';
 
 interface Props {
   selectedId: string | null;
@@ -37,6 +38,10 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
     try {
       await deleteSession(sessionId);
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      // 同步清理任务条目：否则右下角状态卡片在会话删除后仍然常驻
+      const store = useTaskStore.getState();
+      store.getTask(sessionId)?.streamRef?.close();
+      store.removeTask(sessionId);
     } catch {
       // ignore
     } finally {

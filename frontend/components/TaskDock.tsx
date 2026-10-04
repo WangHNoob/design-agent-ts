@@ -19,7 +19,10 @@ const MODE_COLORS: Record<TaskMode, string> = {
 export default function TaskDock() {
   const router = useRouter();
   const store = useTaskStore();
-  const runningTasks = store.getRunningTasks();
+  // 防御性按 sessionId 去重：历史条目残留时同一会话不渲染多张卡片
+  const runningTasks = Array.from(
+    new Map(store.getRunningTasks().map((t) => [t.sessionId, t])).values(),
+  );
 
   if (runningTasks.length === 0) return null;
 

@@ -73,7 +73,8 @@ export interface TaskStore {
   tasks: Map<string, TaskState>;
   activeSessionByMode: Record<TaskMode, string | null>;
 
-  createTask: (mode: TaskMode, role: string, requirement: string) => string;
+  /** sessionId 可选：会话历史回填时传入真实会话 id，保证 Map 键与 sessionId 一致 */
+  createTask: (mode: TaskMode, role: string, requirement: string, sessionId?: string) => string;
   updateTask: (sessionId: string, updates: Partial<TaskState>) => void;
   appendMessage: (sessionId: string, msg: ChatMessage) => void;
   appendTimeline: (sessionId: string, entry: TimelineEntry) => void;
@@ -124,8 +125,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: new Map(),
   activeSessionByMode: { design: null, query: null, table: null },
 
-  createTask: (mode, role, requirement) => {
+  createTask: (mode, role, requirement, sessionId) => {
     const task = createInitialTaskState(mode, role, requirement);
+    if (sessionId) task.sessionId = sessionId;
     set((state) => {
       const tasks = new Map(state.tasks);
       tasks.set(task.sessionId, task);
