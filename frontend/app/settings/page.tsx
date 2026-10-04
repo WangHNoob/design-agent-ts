@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import UserLlmCard from '@/components/Settings/UserLlmCard';
 import { motion } from 'framer-motion';
 import { Settings, Save, RotateCcw, Database, Cpu, MessageSquare, Globe, KeyRound, Link2 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
@@ -175,11 +176,14 @@ export default function SettingsPage() {
           transition={{ delay: 0.1 }}
           className="space-y-6"
         >
-          {/* LLM Config */}
+          {/* 用户 BYOK（所有登录用户） */}
+          <UserLlmCard />
+
+          {/* LLM Config（全局，仅管理员可保存） */}
           <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
             <div className="flex items-center gap-2 mb-5">
               <KeyRound size={18} className="text-coral" />
-              <h2 className="font-semibold text-ink">LLM 配置</h2>
+              <h2 className="font-semibold text-ink">LLM 配置（平台全局 · 管理员）</h2>
               <span className="ml-2 text-[11px] text-ink/30">修改后实时生效，无需重启</span>
             </div>
 

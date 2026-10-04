@@ -9,6 +9,12 @@ import { requireAdmin } from "../middleware/auth.js";
 import { redactSensitiveSettings } from "../../core/audit/redact.js";
 import { appendAudit } from "../security/auditHelpers.js";
 import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
+import { UserLlmSettingsStore, type UserLlmConfig } from "../UserLlmSettingsStore.js";
+
+let userLlmStore: UserLlmSettingsStore | null = null;
+export function setUserLlmSettingsStore(store: UserLlmSettingsStore): void {
+  userLlmStore = store;
+}
 
 let settingsManagerInstance: SettingsManager | null = null;
 let containerInstance: Container | null = null;
@@ -173,4 +179,79 @@ settingsRoute.get("/mcp/servers", async (c) => {
     servers: mcpStatusInstance.servers,
     enabled: mcpStatusInstance.enabled,
   });
+});
+
+// ── 访客 BYOK：按用户模型配置（体验后应删除 Key）──
+const LLM_PROVIDERS = new Set(["openai", "anthropic", "openai-compatible"]);
+
+function maskKey(key: string): string {
+  if (key.length <= 8) return "****";
+  return key.slice(0, 4) + "****" + key.slice(-4);
+}
+
+settingsRoute.get("/llm", async (c) => {
+  if (!userLlmStore) return c.json({ error: "not initialized" }, 503);
+  const tenant = c.get("tenant") as TenantContext | undefined;
+  if (!tenant) return c.json({ error: "Unauthorized" }, 401);
+  const cfg = await userLlmStore.get(tenant.userId);
+  if (!cfg) return c.json({ configured: false });
+  return c.json({
+    configured: true,
+    provider: cfg.provider,
+    modelName: cfg.modelName,
+    baseUrl: cfg.baseUrl ?? "",
+    apiKeyMasked: maskKey(cfg.apiKey),
+    updatedAt: cfg.updatedAt,
+  });
+});
+
+settingsRoute.put("/llm", async (c) => {
+  if (!userLlmStore) return c.json({ error: "not initialized" }, 503);
+  const tenant = c.get("tenant") as TenantContext | undefined;
+  if (!tenant) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json<Partial<UserLlmConfig>>();
+  const provider = String(body.provider ?? "openai-compatible");
+  const modelName = String(body.modelName ?? "").trim();
+  const apiKey = String(body.apiKey ?? "").trim();
+  const baseUrl = String(body.baseUrl ?? "").trim();
+  if (!LLM_PROVIDERS.has(provider)) return c.json({ error: "不支持的 provider" }, 400);
+  if (!modelName) return c.json({ error: "模型名不能为空" }, 400);
+  if (!apiKey) return c.json({ error: "API Key 不能为空" }, 400);
+  if (baseUrl && !/^https?:\/\//.test(baseUrl)) return c.json({ error: "Base URL 必须是 http(s) 地址" }, 400);
+  await userLlmStore.set(tenant.userId, {
+    provider: provider as UserLlmConfig["provider"],
+    modelName,
+    apiKey,
+    baseUrl: baseUrl || undefined,
+  });
+  await appendAudit({
+    userId: tenant.userId,
+    action: "config.change",
+    resourceType: "user_llm_settings",
+    resourceId: tenant.userId,
+    sessionId: tenant.sessionId,
+    outcome: "success",
+    detail: { provider, modelName, apiKeyMasked: maskKey(apiKey) },
+  });
+  return c.json({ success: true, apiKeyMasked: maskKey(apiKey) });
+});
+
+settingsRoute.delete("/llm", async (c) => {
+  if (!userLlmStore) return c.json({ error: "not initialized" }, 503);
+  const tenant = c.get("tenant") as TenantContext | undefined;
+  if (!tenant) return c.json({ error: "Unauthorized" }, 401);
+  const existed = await userLlmStore.get(tenant.userId);
+  await userLlmStore.remove(tenant.userId);
+  if (existed) {
+    await appendAudit({
+      userId: tenant.userId,
+      action: "config.change",
+      resourceType: "user_llm_settings",
+      resourceId: tenant.userId,
+      sessionId: tenant.sessionId,
+      outcome: "success",
+      detail: { deleted: true },
+    });
+  }
+  return c.json({ success: true, configured: false });
 });

@@ -17,6 +17,15 @@ export interface LangGraphModelAdapterOptions {
   failureThreshold?: number;
   cooldownMs?: number;
   tracer?: TracerPort;
+  /**
+   * 按用户 BYOK 覆盖：租户上下文携带 userId 且该用户配置了自己的模型时，
+   * generate/stream 委托给该用户专属的适配器实例（独立断路器，不与全局
+   * 回退链混用）。userId 取自 contextStorage，随执行栈自动传播。
+   */
+  userOverride?: {
+    getUserId(): string | null;
+    loadModelConfig(userId: string): Promise<ModelConfig | null>;
+  };
 }
 
 /**
@@ -35,12 +44,15 @@ export class LangGraphModelAdapter implements ChatModelPort {
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
   private tracer?: TracerPort;
+  private readonly userOverride?: LangGraphModelAdapterOptions["userOverride"];
+  private userAdapters = new Map<string, { adapter: LangGraphModelAdapter; key: string }>();
 
   constructor(config: ModelConfig, options: LangGraphModelAdapterOptions = {}) {
     this.chain = [config, ...(options.fallbacks ?? [])];
     this.failureThreshold = options.failureThreshold ?? 3;
     this.cooldownMs = options.cooldownMs ?? 60_000;
     this.tracer = options.tracer;
+    this.userOverride = options.userOverride;
     this.breakers = this.chain.map(
       () => new ModelCircuitBreaker({
         failureThreshold: this.failureThreshold,
@@ -80,6 +92,33 @@ export class LangGraphModelAdapter implements ChatModelPort {
     }
   }
 
+  /**
+   * 解析当前租户的 BYOK 适配器：无上下文/未配置返回 null（走全局链）。
+   * 实例按 (userId, 配置内容) 缓存；配置变更后 key 变化自动重建。
+   */
+  private async pickUserAdapter(): Promise<LangGraphModelAdapter | null> {
+    if (!this.userOverride) return null;
+    const userId = this.userOverride.getUserId();
+    if (!userId) return null;
+    let config: ModelConfig | null = null;
+    try {
+      config = await this.userOverride.loadModelConfig(userId);
+    } catch (err) {
+      console.warn(`[LangGraphModelAdapter] 用户模型配置加载失败，回退全局模型: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+    if (!config || !config.apiKey) return null;
+    const key = `${userId}:${config.provider}:${config.modelName}:${config.baseUrl ?? ""}:${config.apiKey.slice(-8)}`;
+    const cached = this.userAdapters.get(userId);
+    if (cached && cached.key === key) return cached.adapter;
+    const adapter = new LangGraphModelAdapter(
+      { ...config, maxTokens: config.maxTokens },
+      { tracer: this.tracer },
+    );
+    this.userAdapters.set(userId, { adapter, key });
+    return adapter;
+  }
+
   reconfigure(config: ModelConfig): void {
     const fallbacks = this.chain.slice(1);
     this.chain = [config, ...fallbacks];
@@ -98,7 +137,25 @@ export class LangGraphModelAdapter implements ChatModelPort {
   }
 
   getLangChainModel(): ChatOpenAI | ChatAnthropic {
+    // BYOK：租户上下文有 userId 且已预热的用户适配器优先。
+    // 注意必须同步读缓存——LangGraph 图直接绑这个原生实例。
+    if (this.userOverride) {
+      const userId = this.userOverride.getUserId();
+      if (userId) {
+        const cached = this.userAdapters.get(userId);
+        if (cached) return cached.adapter.getLangChainModel();
+      }
+    }
     return this.langchainModel;
+  }
+
+  /**
+   * 预热当前租户的 BYOK 适配器（异步加载用户配置并构建模型实例）。
+   * 在进入租户上下文后、首个 LLM 调用前调用一次，此后 getLangChainModel
+   * 同步命中缓存。
+   */
+  async preloadUserModel(): Promise<void> {
+    await this.pickUserAdapter();
   }
 
   getActiveModelName(): string {
@@ -135,6 +192,8 @@ export class LangGraphModelAdapter implements ChatModelPort {
   }
 
   async generate(messages: ChatMessage[], options?: ModelOptions, signal?: AbortSignal): Promise<ModelResponse> {
+    const userAdapter = await this.pickUserAdapter();
+    if (userAdapter) return userAdapter.generate(messages, options, signal);
     let lastError: unknown;
     const attempted = new Set<number>();
 
@@ -164,6 +223,8 @@ export class LangGraphModelAdapter implements ChatModelPort {
   }
 
   async *stream(messages: ChatMessage[], options?: ModelOptions, signal?: AbortSignal): AsyncIterable<ModelResponse> {
+    const userAdapter = await this.pickUserAdapter();
+    if (userAdapter) { yield* userAdapter.stream(messages, options, signal); return; }
     // Stream does not auto-replay mid-flight tokens across models; fail over before yield.
     let lastError: unknown;
     const attempted = new Set<number>();

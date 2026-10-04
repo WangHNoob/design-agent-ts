@@ -53,6 +53,8 @@ export interface ExecutionWorkerDependencies {
   sessionRepositoryFactory: (userId: string) => SessionRepository;
   userContextManager: UserContextManager;
   contextStorage: ContextStoragePort<TenantContext>;
+  /** BYOK 预热：进入租户上下文后调用，加载该用户自有模型（若有）。 */
+  preloadUserModel?: () => Promise<void>;
   idGenerator: IdGeneratorPort;
   inflightLimiter: InflightLimiter;
   maxConcurrentPerUser: number;
@@ -146,14 +148,17 @@ export class ExecutionWorker {
     };
     return this.deps.contextStorage.run(
       context,
-      () => this.runExecution(
+      async () => {
+        await this.deps.preloadUserModel?.().catch(() => {});
+        return await this.runExecution(
         message,
         execution,
         repository,
         sessionRepository,
         executionService,
         context,
-      ),
+      );
+      },
     );
   }
 
