@@ -32,7 +32,7 @@ export function useAuth() {
 
 async function fetchSession(): Promise<AuthUser | null> {
   try {
-    const res = await fetch("/api/auth/get-session", { credentials: "include" });
+    const res = await fetch("/design/api/auth/get-session", { credentials: "include" });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data || !data.user) return null;
@@ -65,9 +65,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const logout = useCallback(async () => {
-    await fetch("/api/auth/sign-out", { method: "POST", credentials: "include" });
+    await fetch("/design/api/auth/sign-out", { method: "POST", credentials: "include" });
     setUser(null);
-    window.location.href = "/login";
+    window.location.href = "/design/login";
   }, []);
 
   return (

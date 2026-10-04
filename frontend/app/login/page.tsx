@@ -10,8 +10,8 @@ type Mode = "login" | "register";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<Mode>("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("visitor@biaodev.site");
+  const [password, setPassword] = useState("visitor2026");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,7 +27,8 @@ export default function LoginPage() {
         await signUp(email, password, name);
       }
       await signIn(email, password);
-      router.push("/");
+      // 整页跳转：AuthProvider 仅在挂载时探测会话，软导航会因上下文状态未刷新被 AuthGuard 弹回
+      window.location.href = "/design";
     } catch (err) {
       setError(err instanceof Error ? err.message : "发生错误");
     } finally {
@@ -149,33 +150,19 @@ export default function LoginPage() {
                     </>
                   )}
                 </button>
+
+                {mode === "login" && (
+                  <p className="text-center text-xs text-ink/35">
+                    演示环境：已预填访客账号，直接点「登录」即可体验
+                  </p>
+                )}
               </form>
             </motion.div>
           </AnimatePresence>
 
-          {/* Toggle */}
-          <div className="mt-6 text-center text-sm text-ink/40">
-            {mode === "login" ? (
-              <>
-                还没有账号？{" "}
-                <button
-                  onClick={toggleMode}
-                  className="font-medium text-coral hover:underline"
-                >
-                  注册
-                </button>
-              </>
-            ) : (
-              <>
-                已有账号？{" "}
-                <button
-                  onClick={toggleMode}
-                  className="font-medium text-coral hover:underline"
-                >
-                  登录
-                </button>
-              </>
-            )}
+          {/* 注册已在 nginx 层关闭（演示环境） */}
+          <div className="mt-6 text-center text-xs text-ink/35">
+            演示环境未开放注册 · 请使用预填访客账号直接登录
           </div>
         </div>
       </motion.div>
