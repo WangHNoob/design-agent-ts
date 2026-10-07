@@ -44,9 +44,9 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
       store.removeTask(sessionId);
       // 清空指向已删会话的活动指针：否则下一条消息会复用僵尸 id，
       // appendMessage 全部无效（页面空白）且后端会复活已删会话
-      (['design', 'query', 'table'] as const).forEach((m) => {
-        if (store.activeSessionByMode[m] === sessionId) store.setActiveSession(m, null);
-      });
+      if (useTaskStore.getState().activeSessionId === sessionId) {
+        useTaskStore.getState().setActiveSession(null);
+      }
     } catch {
       // ignore
     } finally {

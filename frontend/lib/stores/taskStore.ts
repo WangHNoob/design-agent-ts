@@ -73,7 +73,8 @@ export interface TaskState {
 
 export interface TaskStore {
   tasks: Map<string, TaskState>;
-  activeSessionByMode: Record<TaskMode, string | null>;
+  /** 一会话三模式：活动会话全局唯一，mode 只是 TaskState 上的"末次执行策略"标签 */
+  activeSessionId: string | null;
 
   /** sessionId 可选：会话历史回填时传入真实会话 id，保证 Map 键与 sessionId 一致 */
   createTask: (mode: TaskMode, role: string, requirement: string, sessionId?: string) => string;
@@ -84,7 +85,7 @@ export interface TaskStore {
   updateTimelineEntry: (sessionId: string, entryId: string, updates: Partial<TimelineEntry>) => void;
   addToolToTask: (sessionId: string, taskId: string, tool: TimelineEntry) => void;
   setStreamRef: (sessionId: string, ref: StreamHandle | null) => void;
-  setActiveSession: (mode: TaskMode, sessionId: string | null) => void;
+  setActiveSession: (sessionId: string | null) => void;
   cancelTask: (sessionId: string) => void;
   removeTask: (sessionId: string) => void;
   getTask: (sessionId: string) => TaskState | undefined;
@@ -126,7 +127,7 @@ function createInitialTaskState(mode: TaskMode, role: string, requirement: strin
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: new Map(),
-  activeSessionByMode: { design: null, query: null, table: null },
+  activeSessionId: null,
 
   createTask: (mode, role, requirement, sessionId) => {
     const task = createInitialTaskState(mode, role, requirement);
@@ -134,8 +135,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set((state) => {
       const tasks = new Map(state.tasks);
       tasks.set(task.sessionId, task);
-      const activeSessionByMode = { ...state.activeSessionByMode, [mode]: task.sessionId };
-      return { tasks, activeSessionByMode };
+      return { tasks, activeSessionId: task.sessionId };
     });
     return task.sessionId;
   },
@@ -232,10 +232,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     });
   },
 
-  setActiveSession: (mode, sessionId) => {
-    set((state) => ({
-      activeSessionByMode: { ...state.activeSessionByMode, [mode]: sessionId },
-    }));
+  setActiveSession: (sessionId) => {
+    set({ activeSessionId: sessionId });
   },
 
   cancelTask: (sessionId) => {

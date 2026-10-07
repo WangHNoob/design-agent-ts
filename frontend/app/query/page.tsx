@@ -1,7 +1,13 @@
 'use client';
 
-import ConsolePage from '@/components/Console/ConsolePage';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
+/** /query 已并入统一控制台 /design（一会话三模式）：保书签/nginx 路径重定向 */
 export default function QueryPage() {
-  return <ConsolePage mode="query" />;
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/design?mode=query');
+  }, [router]);
+  return null;
 }
