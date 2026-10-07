@@ -27,18 +27,31 @@ const WAITING_EXECUTION_STATUSES = new Set([
 ]);
 
 interface Props {
-  mode: TaskMode;
+  initialMode?: TaskMode;
 }
 
 function getCurrentTime() {
   return new Date().toTimeString().split(' ')[0];
 }
 
-export default function ConsolePage({ mode }: Props) {
+/** ?mode= 查询参数合法值（/query、/table 旧路径重定向的落点） */
+function normalizeMode(value: string | null): TaskMode | null {
+  return value === 'design' || value === 'query' || value === 'table' ? value : null;
+}
+
+export default function ConsolePage({ initialMode }: Props) {
   const router = useRouter();
   const store = useTaskStore();
-  const activeSessionId = store.activeSessionByMode[mode];
+  const activeSessionId = store.activeSessionId;
   const task = activeSessionId ? store.getTask(activeSessionId) : undefined;
+
+  // 一会话三模式：mode 不再是路由身份，而是"下一条消息的执行策略"。
+  // 同页切换（setMode）不卸载组件、不断流。
+  const [mode, setMode] = useState<TaskMode>(
+    () => initialMode
+      ?? (typeof window !== 'undefined' ? normalizeMode(new URLSearchParams(window.location.search).get('mode')) : null)
+      ?? 'design',
+  );
 
   const mountedRef = useRef(true);
   const execTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -558,15 +571,28 @@ export default function ConsolePage({ mode }: Props) {
     if (!requirement.trim()) return;
     if (task?.loading) return;
 
-    // For query mode, reuse the active session so the conversation continues.
-    // For design/table mode, each run is a fresh task.
+    // 一会话三模式：所有模式都复用活动会话（查知识 → 出策划案 → 配表
+    // 在同一会话内延续上下文，后端做 SESSION_CONTEXT_MAX* 蒸馏注入）。
     // 指针可能指向已删除的会话（删除会话后 activeSessionId 未清空）：
     // 条目不存在时必须新建，否则 appendMessage 全部静默无效、页面空白
-    const sid = (mode === 'query' && activeSessionId && store.getTask(activeSessionId))
+    const sid = (activeSessionId && store.getTask(activeSessionId))
       ? activeSessionId
       : store.createTask(mode, effectiveRole, requirement.trim());
-    store.setActiveSession(mode, sid);
+    store.setActiveSession(sid);
+    // 同步"末次执行策略"标签：侧栏与 TaskDock 卡片按 task.mode 显示
+    store.updateTask(sid, { mode, role: effectiveRole });
     resetTaskTracking(sid);
+
+    // 全模式携带会话历史：后端 buildSessionContextBlock 有二次封顶
+    // （20 条 / 6000 字符），客户端沿用"末 10 条 user/ai"即可。
+    // 必须在 append 当前消息之前取快照——requirement 本身不进 history。
+    const history: Array<{ role: 'user' | 'assistant'; content: string }> = (store.getTask(sid)?.messages ?? [])
+      .filter((m) => m.type === 'user' || m.type === 'ai')
+      .slice(-10)
+      .map((m) => ({
+        role: m.type === 'user' ? ('user' as const) : ('assistant' as const),
+        content: m.content,
+      }));
 
     const msg = {
       id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
@@ -575,21 +601,6 @@ export default function ConsolePage({ mode }: Props) {
       timestamp: getCurrentTime(),
     };
     store.appendMessage(sid, msg);
-
-    // Build history for query mode
-    let history: Array<{ role: 'user' | 'assistant'; content: string }> | undefined;
-    if (mode === 'query') {
-      const existingTask = task;
-      if (existingTask) {
-        history = existingTask.messages
-          .filter((m) => m.type === 'user' || m.type === 'ai')
-          .slice(-10)
-          .map((m) => ({
-            role: m.type === 'user' ? ('user' as const) : ('assistant' as const),
-            content: m.content,
-          }));
-      }
-    }
 
     const reqText = requirement.trim();
     setRequirement('');
@@ -689,7 +700,7 @@ export default function ConsolePage({ mode }: Props) {
   };
 
   const handleNewChat = () => {
-    store.setActiveSession(mode, null);
+    store.setActiveSession(null);
     setRequirement('');
   };
 
@@ -723,17 +734,19 @@ export default function ConsolePage({ mode }: Props) {
 
   const handleSelectSession = (session: SessionMeta) => {
     if (!session.mode) return;
-    router.push(`/${session.mode}`);
+    // 一会话三模式：选会话 = 同页切换（不再跳路由），组件不卸载、
+    // 在播的流不中断；mode 仅表示该会话的末次执行策略。
+    setMode(session.mode as TaskMode);
     // 同一会话已有任务条目：直接激活，避免重复条目与重复回放流（状态卡片会重复）。
     // 但空壳条目（一条消息都没有且不在加载中）说明上次回放/渲染失败，删掉重新回放
     const existingTask = store.getTask(session.id);
     if (existingTask && (existingTask.messages.length > 0 || existingTask.loading)) {
-      store.setActiveSession(session.mode as TaskMode, session.id);
+      store.setActiveSession(session.id);
       return;
     }
     if (existingTask) store.removeTask(session.id);
     const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '', session.id);
-    store.setActiveSession(session.mode as TaskMode, sid);
+    store.setActiveSession(sid);
 
     // 用户消息：执行事件流里只有 agent 侧事件，回放不会重建用户气泡，
     // 用会话的 requirement 播种
@@ -748,10 +761,8 @@ export default function ConsolePage({ mode }: Props) {
 
     if (session.executionId) {
       pendingSessionMetaRef.current.set(sid, session);
-      // 历史回放：不在本页面直接开播——router.push 可能卸载本页面，
-      // 卸载后 onStreamEvent 的 mountedRef 守卫会丢弃全部回放事件，
-      // 目标页面看到的就是空会话（表现为"要点两次"）。改为打
-      // pendingHydration 标记，由挂载后的目标页面接手回放。
+      // 历史回放走 pendingHydration 标记：由挂载中的本页面的 consume-effect
+      // 接手开播（事件回调与 hydratingSessionsRef 门控保持同一套机制）。
       store.updateTask(sid, {
         executionId: session.executionId,
         loading: true,
@@ -794,7 +805,12 @@ export default function ConsolePage({ mode }: Props) {
     <div className="h-screen w-screen flex flex-col bg-paper overflow-hidden">
       <Header
         mode={mode}
-        onModeChange={(newMode) => router.push(`/${newMode}`)}
+        modeSwitchDisabled={task?.loading ?? false}
+        onModeChange={(newMode) => {
+          // 同页切换执行策略：不卸载组件、不断流；URL 仅作书签/刷新回显
+          setMode(newMode);
+          router.replace(`/design?mode=${newMode}`, { scroll: false });
+        }}
         role={effectiveRole}
         onRoleChange={setPendingRole}
         roleLocked={roleLocked}
@@ -1108,12 +1124,15 @@ const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick }
       <div className="mb-3 px-3 py-1 rounded-full bg-coral/10 text-coral text-xs font-medium">
         {roleNames[role] || role}
       </div>
-      <p className="text-sm text-ink/60 mb-6 max-w-sm">
+      <p className="text-sm text-ink/60 mb-1 max-w-sm">
         {mode === 'query'
           ? '输入您想查询的知识内容，AI 将为您检索游戏策划相关知识。'
           : mode === 'table'
           ? '输入配表需求，AI 将为您生成游戏配置表格。'
           : '输入您的游戏设计需求，AI 将为您生成完整的策划方案。'}
+      </p>
+      <p className="text-xs text-ink/40 mb-6 max-w-sm">
+        顶部可随时切换执行策略（策划生成 / 知识查询 / 配表工具），对下一条消息生效，会话上下文全程保留。
       </p>
 
       <div className="grid grid-cols-2 gap-2 w-full max-w-md">

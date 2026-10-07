@@ -1,10 +1,11 @@
 'use client';
 
-import Link from 'next/link';
-import { Gamepad2, Settings, Plus, PanelRight, LogOut } from 'lucide-react';
+import { Settings, Plus, PanelRight, LogOut } from 'lucide-react';
 
 interface Props {
   mode: 'design' | 'query' | 'table';
+  /** 任务执行中禁切：切换只影响下一条消息，执行期间切走会歧义 */
+  modeSwitchDisabled?: boolean;
   onModeChange: (mode: 'design' | 'query' | 'table') => void;
   role: string;
   onRoleChange: (role: string) => void;
@@ -35,6 +36,7 @@ const ROLES = [
 
 export default function Header({
   mode,
+  modeSwitchDisabled,
   onModeChange,
   role,
   onRoleChange,
@@ -66,21 +68,26 @@ export default function Header({
         </div>
       </div>
 
-      {/* Mode tabs */}
-      <div className="flex items-center bg-paper/50 border border-ink/6 rounded-lg p-0.5 gap-0.5 shrink-0">
+      {/* Mode tabs：执行策略选择器（一会话三模式，只对下一条消息生效）。
+          必须是 button——Link 整页导航会重挂载 ConsolePage、中断在播流 */}
+      <div
+        className="flex items-center bg-paper/50 border border-ink/6 rounded-lg p-0.5 gap-0.5 shrink-0"
+        title="执行策略（对下一条消息生效）"
+      >
         {MODES.map((m) => (
-          <Link
+          <button
             key={m.id}
-            href={`/${m.id}`}
+            type="button"
+            disabled={modeSwitchDisabled}
             onClick={() => onModeChange(m.id)}
-            className={`px-3 py-1.5 text-[11px] font-semibold rounded-md transition-all ${
+            className={`px-3 py-1.5 text-[11px] font-semibold rounded-md transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
               mode === m.id
                 ? 'bg-white text-ink shadow-sm'
                 : 'text-ink/40 hover:text-ink/70'
             }`}
           >
             {m.label}
-          </Link>
+          </button>
         ))}
       </div>
 

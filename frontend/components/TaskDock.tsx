@@ -33,8 +33,9 @@ export default function TaskDock() {
           key={task.sessionId}
           className="flex items-center gap-2 rounded-lg bg-white border border-ink/10 shadow-lg px-3 py-2 cursor-pointer hover:shadow-xl transition-shadow"
           onClick={() => {
-            store.setActiveSession(task.mode, task.sessionId);
-            router.push(`/${task.mode}`);
+            // 一会话三模式：统一控制台在 /design，卡片只激活会话
+            store.setActiveSession(task.sessionId);
+            router.push('/design');
           }}
         >
           <div className={`w-2 h-2 rounded-full ${MODE_COLORS[task.mode]} animate-pulse`} />
