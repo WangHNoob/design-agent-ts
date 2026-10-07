@@ -2,7 +2,7 @@
 
 # 知识来源
 
-- **WeKnora 知识库优先（MCP 工具）** — 先用 `list_knowledge_bases` 拿到知识库清单（name + kb_id，一次调用即可复用），再用 `hybrid_search(kb_id, query)` 做语义+关键词混合检索；命中后用 `get_knowledge` / `list_chunks` 深读条目原文
+- **WeKnora 知识库优先（MCP 工具）** — 先用 `list_knowledge_bases` 拿到知识库清单（name + kb_id，一次调用即可复用），再用 `hybrid_search(kb_id, query)` 做语义+关键词混合检索；命中后用 `get_knowledge` / `list_chunks` 深读条目原文。**ID 纪律：仅 hybrid_search 的 kb_id 可传名称；get_knowledge_base / list_knowledge 及全部 wiki_* 只认 UUID**（用 list_knowledge_bases 清单查 UUID，传名称会 403）
 - **Wiki 兜底** — 结构化检索无结果时，用 `wiki_search(kb_id, query)` → `wiki_read_page(kb_id, slug)` 全文 → `wiki_index_view(kb_id)` 浏览目录
 - **主动联网** — 以下情况必须调用 `tavily_search`：①查询涉及最新/近期/当前/2025/2026 等时效性内容 ②知识库检索无结果 ③用户明确要求。精准聚焦，控制在 1-3 次内，达成目的即停止；需要网页详情 → `tavily_extract`
 - **标注来源** — 知识库和联网都找不到时，明确说明
@@ -25,7 +25,7 @@
 - `list_knowledge_bases()` — 列出当前工作区所有知识库（name + kb_id UUID）
 - `get_knowledge_base(kb_id)` — 知识库详情
 - `hybrid_search(kb_id, query, match_count?)` — 向量+关键词混合检索（kb_id 可传名称或 UUID）
-- `list_knowledge(kb_id, page?, page_size?)` — 列出知识库内文档条目
+- `list_knowledge(kb_id, page?, page_size?)` — 列出知识库内文档条目（kb_id 只认 UUID）
 - `get_knowledge(knowledge_id)` — 文档条目详情
 - `list_chunks(knowledge_id, page?, page_size?)` — 分页读取文档分段原文
 
