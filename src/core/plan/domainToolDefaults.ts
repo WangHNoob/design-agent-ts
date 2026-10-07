@@ -16,30 +16,24 @@ export const DEFAULT_SESSION_TOOLS: readonly string[] = [
 /**
  * Common read / research tools shared across design domains.
  * Keep in sync with SubAgentFactory.DEFAULT_TOOL_NAMES + blackboard_*.
+ *
+ * Knowledge sources:
+ * - WeKnora MCP（现役）: hybrid_search / list_* / get_* / list_chunks / wiki_search|read_page|index_view
+ * - 本地文件知识库（MCP 不可用时的降级兜底，勿删——PLAN_HARD 开启时白名单同样约束降级路径）
+ * - tavily_* 联网兜底
  */
 export const DEFAULT_READ_TOOLS: readonly string[] = [
-  "kb_search",
-  "kb_resolve_topic",
-  "kb_get_page",
-  "kb_get_section",
-  "kb_list_pages",
-  "kb_get_page_tables",
-  "kb_get_entity",
-  "kb_get_neighbors",
-  "kb_list_entities",
-  "kb_get_relations",
-  "kb_list_tables",
-  "kb_get_table_schema",
-  "kb_query_table",
-  "kb_validate_table",
-  "kb_check_table_value",
-  "kb_get_quality",
-  "kb_get_evidence",
-  "kb_get_release",
-  "kb_report_gap",
-  "kb_report_bad_hit",
-  "kb_report_stale",
-  "kb_submit_attribution",
+  // WeKnora MCP 检索工具（与 .env MCP_DEFAULT_EXPOSE_PREFIXES 保持一致）
+  "hybrid_search",
+  "list_knowledge_bases",
+  "get_knowledge_base",
+  "list_knowledge",
+  "get_knowledge",
+  "list_chunks",
+  "wiki_search",
+  "wiki_read_page",
+  "wiki_index_view",
+  // 本地降级兜底（knowledge-hub 退役后通常未注册，注册名缺失会在工厂映射时静默剔除）
   "wiki_lookup",
   "wiki_read",
   "wiki_list",

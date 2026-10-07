@@ -313,10 +313,16 @@ export class ToolPlanResolver {
     ]);
 
     // 2) 透明缓存：联网类工具用 webTtl，其余用 defaultTtl
+    //    （联网/知识检索类结果易变且昂贵：tavily_*、WeKnora 检索（hybrid_search/wiki_*）与旧 kb_*）
     const cachedTools = new Set(cfg.cachedTools);
     const ttlOverrides = new Map<string, number>();
     for (const name of cfg.cachedTools) {
-      if (name.startsWith("tavily") || name.startsWith("kb_")) {
+      if (
+        name.startsWith("tavily")
+        || name.startsWith("kb_")
+        || name === "hybrid_search"
+        || name.startsWith("wiki_")
+      ) {
         ttlOverrides.set(name, cfg.webTtlSeconds);
       }
     }

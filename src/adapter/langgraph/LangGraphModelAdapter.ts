@@ -100,7 +100,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
     if (!this.userOverride) return null;
     const userId = this.userOverride.getUserId();
     if (!userId) return null;
-    let config: ModelConfig | null = null;
+    let config: ModelConfig | null;
     try {
       config = await this.userOverride.loadModelConfig(userId);
     } catch (err) {
