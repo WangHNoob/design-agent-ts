@@ -247,33 +247,39 @@ describe("PlanPipeline", () => {
     expect(events).toEqual(["start:A", "execute:A", "result:A"]);
   });
 
-  it("未知依赖应在构造时明确抛错", () => {
+  it("未知依赖应被净化丢弃而不中断执行", () => {
     const plan = createPlan([
       { id: "A", fragmentId: "F1", domain: "system_design", description: "A", dependencies: ["missing"], priority: 1 },
     ]);
 
-    expect(() => new PlanPipeline(plan, async (task) => ({
+    // f0b0fb2 起构造时净化而非抛错：未知依赖丢弃、任务提前执行（影响小于中断整条执行流）
+    const pipeline = new PlanPipeline(plan, async (task) => ({
       taskId: task.id,
       domain: task.domain,
       status: "success",
       output: "",
       errorMessage: null,
-    }))).toThrow("Task A has unknown dependencies: missing");
+    }));
+
+    expect(pipeline.getLayers()).toEqual([["A"]]);
   });
 
-  it("依赖环应在构造时抛错", () => {
+  it("依赖环应被净化拆解为可执行 DAG", () => {
     const plan = createPlan([
       { id: "A", fragmentId: "F1", domain: "system_design", description: "A", dependencies: ["B"], priority: 1 },
       { id: "B", fragmentId: "F2", domain: "combat_design", description: "B", dependencies: ["A"], priority: 1 },
     ]);
 
-    expect(() => new PlanPipeline(plan, async (task) => ({
+    // 净化必然拆环（环的首条前向边即"未知依赖"被丢弃）：A 提前到第 0 层，B 依赖 A 在第 1 层
+    const pipeline = new PlanPipeline(plan, async (task) => ({
       taskId: task.id,
       domain: task.domain,
       status: "success",
       output: "",
       errorMessage: null,
-    }))).toThrow("Dependency cycle detected");
+    }));
+
+    expect(pipeline.getLayers()).toEqual([["A"], ["B"]]);
   });
 
   it("in-flight 取消应尽量回收 partial output", async () => {
