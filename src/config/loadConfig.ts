@@ -208,6 +208,8 @@ export function loadConfig(): FrameworkConfig {
       blackboardEvictIntervalMs: Number(process.env.BLACKBOARD_EVICT_INTERVAL_MS ?? 60000),
       maxRequirementChars: Number(process.env.CONSOLE_MAX_REQUIREMENT_CHARS ?? 50000),
       sseReplayLimit: Number(process.env.SSE_REPLAY_LIMIT ?? 1000),
+      sessionContextMaxMessages: Number(process.env.SESSION_CONTEXT_MAX_MESSAGES ?? 20),
+      sessionContextMaxChars: Number(process.env.SESSION_CONTEXT_MAX_CHARS ?? 6000),
     },
     faq: {
       faqEnabled: process.env.FAQ_ENABLED === "true",

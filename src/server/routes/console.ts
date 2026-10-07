@@ -126,14 +126,31 @@ async function createExecution(
       versionSnapshotId = snapshot.id;
     }
     await sessionRepository.create(queuedSession(requestedSessionId, body, role, versionSnapshotId));
-  } else if (dependencies.config?.versioning?.enabled) {
-    await ensureSessionVersionSnapshot({
-      sessionRepository,
-      userId: tenant.userId,
-      sessionId: requestedSessionId,
-      config: dependencies.config,
-      versionStore: dependencies.versionStore ?? null,
-    });
+  } else {
+    if (dependencies.config?.versioning?.enabled) {
+      await ensureSessionVersionSnapshot({
+        sessionRepository,
+        userId: tenant.userId,
+        sessionId: requestedSessionId,
+        config: dependencies.config,
+        versionStore: dependencies.versionStore ?? null,
+      });
+    }
+    // 一会话三模式：会话的 mode/role/requirement 是纯展示元数据（侧栏与
+    // 策略选择器回显"末次策略"），执行路由按 execution 的 requestPayload.mode；
+    // 模式切换时同步，避免侧栏停留在旧模式。
+    const meta = queuedSession(requestedSessionId, body, role, undefined);
+    const changed =
+      existingSession.mode !== body.mode
+      || existingSession.role !== role
+      || existingSession.requirement !== body.requirement;
+    if (changed) {
+      await sessionRepository.update(requestedSessionId, {
+        mode: meta.mode,
+        role: meta.role,
+        requirement: meta.requirement,
+      });
+    }
   }
 
   const service = new ExecutionService(

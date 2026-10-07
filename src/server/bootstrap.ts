@@ -256,6 +256,10 @@ function buildDirectorDeps(params: {
     },
     blackboardStore,
     blackboardConfig: params.config.blackboard,
+    sessionContext: {
+      maxMessages: params.config.execution.sessionContextMaxMessages,
+      maxChars: params.config.execution.sessionContextMaxChars,
+    },
     tracer,
     resolveUserId,
     wrapTool: params.wrapTool ?? bootstrapState.wrapTool,

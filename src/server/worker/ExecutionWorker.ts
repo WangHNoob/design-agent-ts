@@ -287,6 +287,8 @@ export class ExecutionWorker {
           executionId: execution.id,
           userId: context.userId,
           executionOverrides,
+          // design/table 模式的会话上下文：query 模式仍走 executeStream 的 history 参数
+          sessionHistory: request.history,
         };
         const attempts = new Map<string, ExecutionAttempt>();
         let completedOutput = "";

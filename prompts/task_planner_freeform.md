@@ -3,6 +3,7 @@
 
 角色: {role}
 {skillHint}
+{sessionContext}
 
 分析需求涉及哪些领域：
 - system_design: 系统架构、模块划分、界面流程

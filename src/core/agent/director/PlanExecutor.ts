@@ -15,7 +15,7 @@ import { isToolHitlRequiredError, type ToolHitlRequiredError } from "../../tool/
 import { decideFaqHit } from "../../faq/decideFaqHit.js";
 import { PlanReplanner } from "../../plan/PlanReplanner.js";
 import { runPlanWithReplan } from "../../plan/runPlanWithReplan.js";
-import { AgentCallGuard, AGENT_INVOKE_TOOL_NAME, type CallContext, type HandoffLimits, type HandoffPayload, distillHandoff, isHandoffViolationError, isMultiAgentGuardError, seedHandoffsFromResults, validateHandoff } from "../../multiagent/index.js";
+import { AgentCallGuard, AGENT_INVOKE_TOOL_NAME, type CallContext, type HandoffLimits, type HandoffPayload, buildSessionContextBlock, distillHandoff, isHandoffViolationError, isMultiAgentGuardError, seedHandoffsFromResults, validateHandoff } from "../../multiagent/index.js";
 import type { DirectorDeps, DirectorMultiAgentConfig, DirectorPlanHardConfig, DirectorStreamOptions, StreamEvent } from "./DirectorAgent.js";
 import type { DirectorContext } from "./DirectorContext.js";
 import type { ToolPlanResolver } from "./ToolPlanResolver.js";
@@ -39,6 +39,7 @@ export interface PlanExecutorCtx {
     planHard(): DirectorPlanHardConfig;
     multiAgent(): DirectorMultiAgentConfig;
     handoffLimits(): HandoffLimits;
+    sessionContextLimits(): { maxMessages: number; maxChars: number };
   };
   state: {
     getCallGuard(): AgentCallGuard;
@@ -108,6 +109,33 @@ export class PlanExecutor {
       // Trace must never break plan execution.
     }
   }
+
+  /**
+   * 会话历史 → 背景块（纯启发式，零 LLM 成本）。空历史 / 功能关闭
+   * （SESSION_CONTEXT_MAX_MESSAGES=0）返回 ""，调用方按无上下文处理。
+   * 非空时记 span + log，作为 E2E 观察钩子（journalctl grep
+   * session.context_injected）。
+   */
+  private sessionContextBlock(
+    options?: DirectorStreamOptions,
+    phase: "planner" | "subagent" = "subagent",
+  ): string {
+    const history = options?.sessionHistory;
+    if (!history || history.length === 0) return "";
+    const limits = this.ctx.config.sessionContextLimits();
+    const block = buildSessionContextBlock(history, limits);
+    if (block) {
+      void this.safeRecordPlanSpan("session.context_injected", {
+        phase,
+        chars: block.length,
+        messages: history.length,
+      });
+      this.ctx.logger.info(
+        `[PlanExecutor] session context injected (${phase}): ${block.length} chars / ${history.length} messages`,
+      );
+    }
+    return block;
+  }
   async executeDesignFlow(
     requirement: string,
     sessionId: string,
@@ -128,7 +156,9 @@ export class PlanExecutor {
 
     const skill = this.ctx.skillCtx.skillRegistry(options).matchSkill(requirement, role);
     this.ctx.logger.info(`[DirectorAgent] Matched skill: ${skill?.getName() ?? "none"} for role=${role}`);
-    const plan = await this.ctx.skillCtx.getTaskPlanner(options).plan(requirement, role, skill);
+    const plan = await this.ctx.skillCtx
+      .getTaskPlanner(options)
+      .plan(requirement, role, skill, this.sessionContextBlock(options, "planner"));
 
     const reviewedPlan = await this.ctx.deps.humanReviewGateway.requestReview(
       sessionId,
@@ -477,7 +507,11 @@ export class PlanExecutor {
         hooks
       );
 
-      const enhancedAssignment = await this.ctx.planResolver.injectPredecessorContext(task, sessionId);
+      const enhancedAssignment = await this.ctx.planResolver.injectPredecessorContext(
+        task,
+        sessionId,
+        this.sessionContextBlock(options, "subagent"),
+      );
       const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
 
@@ -847,7 +881,9 @@ export class PlanExecutor {
           },
         };
         try {
-          plan = await this.ctx.skillCtx.getTaskPlanner(options).plan(requirement, role, skill);
+          plan = await this.ctx.skillCtx
+            .getTaskPlanner(options)
+            .plan(requirement, role, skill, this.sessionContextBlock(options, "planner"));
         } catch (err) {
           const detail = err instanceof Error ? err.message : String(err);
           yield {

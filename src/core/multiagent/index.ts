@@ -15,4 +15,6 @@ export { AgentInvokeTool, AGENT_INVOKE_TOOL_NAME } from "./AgentInvokeTool.js";
 export type { AgentInvokeToolOptions } from "./AgentInvokeTool.js";
 export { seedHandoffsFromResults } from "./seedHandoffs.js";
 export type { SeedHandoffViolation } from "./seedHandoffs.js";
+export { buildSessionContextBlock } from "./sessionContext.js";
+export type { SessionContextLimits, SessionHistoryMessage } from "./sessionContext.js";
 export type { HandoffPayload, HandoffLimits } from "../schema/HandoffPayload.js";

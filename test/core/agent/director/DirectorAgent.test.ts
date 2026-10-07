@@ -460,4 +460,168 @@ describe("DirectorAgent", () => {
     expect(response.success).toBe(false);
     expect(ChatMessage.textContent(response.message)).toContain("aborted partial");
   });
+
+  it("design 模式应把 sessionHistory 注入 TaskPlanner prompt 与子 Agent 输入", async () => {
+    const model = createMockModel();
+    (model.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      message: ChatMessage.text(
+        "assistant",
+        "bot",
+        JSON.stringify({
+          planId: "p1",
+          subTasks: [
+            { id: "T1", fragmentId: "F1", domain: "system_design", description: "设计战斗", dependencies: [], priority: 1 },
+          ],
+        }),
+      ),
+      inputTokenCount: 10,
+      outputTokenCount: 20,
+      finishReason: "stop",
+    });
+    const process = vi.fn().mockResolvedValue({
+      agentName: "SystemDesignerAgent",
+      message: ChatMessage.text("assistant", "SystemDesignerAgent", "完成"),
+      metadata: {},
+      success: true,
+      errorMessage: null,
+    });
+    const director = new DirectorAgent({
+      model,
+      agentFactory: {
+        createAgent: vi.fn((descriptor) => ({
+          getDescriptor: vi.fn(() => descriptor),
+          getName: vi.fn(() => descriptor.name),
+          process,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+      workspace: createMockWorkspace(),
+      sessionContext: { maxMessages: 20, maxChars: 6000 },
+    });
+
+    const history = [
+      { role: "user" as const, content: "用户早前消息：查询火系角色数值" },
+      { role: "assistant" as const, content: "助手已回答：H002 焰星·玲 rarity=5" },
+    ];
+    await director.execute("基于上面的讨论设计战斗系统", "sid-ctx", "design", "chief_designer", undefined, {
+      sessionHistory: history,
+    });
+
+    // TaskPlanner system prompt（首个 LLM 调用）应含蒸馏后的会话背景
+    const plannerPrompt = JSON.stringify((model.generate as ReturnType<typeof vi.fn>).mock.calls[0]);
+    expect(plannerPrompt).toContain("会话背景");
+    expect(plannerPrompt).toContain("用户早前消息");
+    // 子 Agent 输入（executeSingleTask 注入）应同样携带
+    expect(process).toHaveBeenCalled();
+    const taskInput = JSON.stringify(process.mock.calls[0]);
+    expect(taskInput).toContain("会话背景");
+    expect(taskInput).toContain("H002 焰星·玲");
+  });
+
+  it("table 模式带 sessionHistory 走 design 流并注入上下文", async () => {
+    const model = createMockModel();
+    (model.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      message: ChatMessage.text(
+        "assistant",
+        "bot",
+        JSON.stringify({
+          planId: "p1",
+          subTasks: [
+            { id: "T1", fragmentId: "F1", domain: "system_design", description: "配表", dependencies: [], priority: 1 },
+          ],
+        }),
+      ),
+      inputTokenCount: 10,
+      outputTokenCount: 20,
+      finishReason: "stop",
+    });
+    const process = vi.fn().mockResolvedValue({
+      agentName: "SystemDesignerAgent",
+      message: ChatMessage.text("assistant", "SystemDesignerAgent", "表完成"),
+      metadata: {},
+      success: true,
+      errorMessage: null,
+    });
+    const director = new DirectorAgent({
+      model,
+      agentFactory: {
+        createAgent: vi.fn((descriptor) => ({
+          getDescriptor: vi.fn(() => descriptor),
+          getName: vi.fn(() => descriptor.name),
+          process,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+      workspace: createMockWorkspace(),
+      sessionContext: { maxMessages: 20, maxChars: 6000 },
+    });
+
+    await director.execute("把上面的方案配成表", "sid-table-ctx", "table", "chief_designer", undefined, {
+      sessionHistory: [
+        { role: "user" as const, content: "之前讨论了武器强化方案" },
+      ],
+    });
+
+    const plannerPrompt = JSON.stringify((model.generate as ReturnType<typeof vi.fn>).mock.calls[0]);
+    expect(plannerPrompt).toContain("会话背景");
+    expect(plannerPrompt).toContain("武器强化方案");
+    expect(JSON.stringify(process.mock.calls[0])).toContain("武器强化方案");
+  });
+
+  it("sessionContext 关闭（缺省 maxMessages=0）时不应注入", async () => {
+    const model = createMockModel();
+    (model.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      message: ChatMessage.text(
+        "assistant",
+        "bot",
+        JSON.stringify({
+          planId: "p1",
+          subTasks: [
+            { id: "T1", fragmentId: "F1", domain: "system_design", description: "设计", dependencies: [], priority: 1 },
+          ],
+        }),
+      ),
+      inputTokenCount: 10,
+      outputTokenCount: 20,
+      finishReason: "stop",
+    });
+    const process = vi.fn().mockResolvedValue({
+      agentName: "SystemDesignerAgent",
+      message: ChatMessage.text("assistant", "SystemDesignerAgent", "完成"),
+      metadata: {},
+      success: true,
+      errorMessage: null,
+    });
+    const director = new DirectorAgent({
+      model,
+      agentFactory: {
+        createAgent: vi.fn((descriptor) => ({
+          getDescriptor: vi.fn(() => descriptor),
+          getName: vi.fn(() => descriptor.name),
+          process,
+        })),
+      },
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: createMockHITL(),
+      hooks: [],
+      workspace: createMockWorkspace(),
+      // 未配置 sessionContext → kill-switch
+    });
+
+    await director.execute("设计系统", "sid-no-ctx", "design", "chief_designer", undefined, {
+      sessionHistory: [{ role: "user", content: "不应出现的历史内容标记XYZ" }],
+    });
+
+    const plannerPrompt = JSON.stringify((model.generate as ReturnType<typeof vi.fn>).mock.calls[0]);
+    expect(plannerPrompt).not.toContain("会话背景");
+    expect(plannerPrompt).not.toContain("XYZ");
+    expect(JSON.stringify(process.mock.calls[0])).not.toContain("XYZ");
+  });
 });

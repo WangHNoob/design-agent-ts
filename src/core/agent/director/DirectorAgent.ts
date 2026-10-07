@@ -48,6 +48,12 @@ export interface DirectorStreamOptions {
    * When omitted, Director uses the design-run root (Director depth=0).
    */
   callParent?: CallContext;
+  /**
+   * 会话历史（客户端带来的多轮对话）。design/table 模式经
+   * buildSessionContextBlock 蒸馏后注入 TaskPlanner 与子 Agent；
+   * query 模式仍直接使用 executeStream 的 history 参数。
+   */
+  sessionHistory?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>;
 }
 
 export interface KnowledgeSource {
@@ -154,6 +160,14 @@ export interface DirectorDeps {
   };
   /** 会话级共享黑板仓库（缺省时禁用黑板）。 */
   blackboardStore?: BlackboardStorePort;
+  /**
+   * 会话上下文注入限值（composition root 来自 FrameworkConfig.execution）。
+   * 缺省视为关闭（maxMessages=0）。0 = kill-switch。
+   */
+  sessionContext?: {
+    maxMessages: number;
+    maxChars: number;
+  };
   /** 黑板行为配置（缺省或 enabled=false 时退回无缓存行为）。 */
   blackboardConfig?: {
     enabled: boolean;
@@ -212,6 +226,7 @@ export class DirectorAgent {
         planHard: () => this.planHardConfig(),
         multiAgent: () => this.multiAgentConfig(),
         handoffLimits: () => this.handoffLimits(),
+        sessionContextLimits: () => this.sessionContextLimits(),
       },
       state: {
         getCallGuard: () => this.callGuard,
@@ -232,6 +247,7 @@ export class DirectorAgent {
         planHard: () => this.planHardConfig(),
         multiAgent: () => this.multiAgentConfig(),
         handoffLimits: () => this.handoffLimits(),
+        sessionContextLimits: () => this.sessionContextLimits(),
       },
       state: {
         getCallGuard: () => this.callGuard,
@@ -272,6 +288,13 @@ export class DirectorAgent {
     return {
       maxChars: multi.handoffMaxChars,
       maxKeyPoints: multi.handoffMaxKeyPoints,
+    };
+  }
+
+  private sessionContextLimits(): { maxMessages: number; maxChars: number } {
+    return {
+      maxMessages: this.deps.sessionContext?.maxMessages ?? 0,
+      maxChars: this.deps.sessionContext?.maxChars ?? 0,
     };
   }
 
