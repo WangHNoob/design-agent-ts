@@ -12,7 +12,7 @@ import RightPanel from '@/components/Console/RightPanel';
 import { reportUserSignal } from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
-import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, type SessionMeta, type StreamHandle } from '@/lib/api';
+import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking } from '@/lib/streamHandler';
 
@@ -294,6 +294,8 @@ export default function ConsolePage({ initialMode }: Props) {
 
   // 会话历史回放进行中的任务（回放期间不弹 HITL 弹窗，结束后按最终状态决定）
   const hydratingSessionsRef = useRef<Set<string>>(new Set());
+  // 选会话后正在拉取历史轮次的会话（防双击期间重复重建条目/重复播种）
+  const selectInFlightRef = useRef<Set<string>>(new Set());
   // 待水合任务的会话元数据（供回放失败时的摘要兜底）
   const pendingSessionMetaRef = useRef<Map<string, SessionMeta>>(new Map());
 
@@ -728,7 +730,7 @@ export default function ConsolePage({ initialMode }: Props) {
     }
   };
 
-  const handleSelectSession = (session: SessionMeta) => {
+  const handleSelectSession = async (session: SessionMeta) => {
     if (!session.mode) return;
     // 一会话三模式：选会话 = 同页切换（不再跳路由），组件不卸载、
     // 在播的流不中断；mode 仅表示该会话的末次执行策略。
@@ -740,9 +742,62 @@ export default function ConsolePage({ initialMode }: Props) {
       store.setActiveSession(session.id);
       return;
     }
+    if (selectInFlightRef.current.has(session.id)) {
+      // 上一轮选择正在拉取历史轮次：直接激活其条目，避免并发重建出重复回放
+      store.setActiveSession(session.id);
+      return;
+    }
     if (existingTask) store.removeTask(session.id);
+    selectInFlightRef.current.add(session.id);
     const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '', session.id);
     store.setActiveSession(sid);
+
+    // 多轮回放：拉取更早轮次的用户/助手消息对并播种。最新一轮不在此播种——
+    // 它由下方 requirement 播种 + pendingHydration 事件流回放负责，二者拼成完整历史。
+    // 拉取失败只降级为旧的单轮回放，不阻断会话切换。
+    let earlierTurns: SessionTurn[] = [];
+    try {
+      const { turns } = await getSessionTurns(session.id);
+      earlierTurns = turns.filter((turn) => turn.executionId !== session.executionId);
+    } catch {
+      // 历史轮次接口不可用：退回单轮回放
+    }
+    selectInFlightRef.current.delete(session.id);
+    if (!store.getTask(sid)) return; // 等待期间条目被删（如会话被清），放弃播种
+    const turnTime = (iso: string) => {
+      const ms = Date.parse(iso);
+      return Number.isFinite(ms) ? new Date(ms).toTimeString().split(' ')[0] : getCurrentTime();
+    };
+    for (const turn of earlierTurns) {
+      store.appendMessage(sid, {
+        id: `msg_u_${turn.executionId}`,
+        type: 'user',
+        content: turn.requirement,
+        timestamp: turnTime(turn.createdAt),
+      });
+      if (turn.output) {
+        store.appendMessage(sid, {
+          id: `msg_a_${turn.executionId}`,
+          type: 'ai',
+          content: turn.output,
+          timestamp: turnTime(turn.createdAt),
+        });
+      } else if (turn.error) {
+        store.appendMessage(sid, {
+          id: `msg_e_${turn.executionId}`,
+          type: 'system',
+          content: `历史执行失败（${turn.status}）: ${turn.error.slice(0, 120)}`,
+          timestamp: turnTime(turn.createdAt),
+        });
+      } else {
+        store.appendMessage(sid, {
+          id: `msg_e_${turn.executionId}`,
+          type: 'system',
+          content: `该轮执行无产出记录（${turn.status}）`,
+          timestamp: turnTime(turn.createdAt),
+        });
+      }
+    }
 
     // 用户消息：执行事件流里只有 agent 侧事件，回放不会重建用户气泡，
     // 用会话的 requirement 播种

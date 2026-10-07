@@ -75,6 +75,53 @@ sessionsRoute.get("/:id", async (c) => {
   return c.json(session);
 });
 
+// 多轮回放：按时间正序重建会话历史轮次（每轮 = 用户需求 + 助手产出）。
+// 事件流只持久化最近一次执行的可回放监控，重选会话时更早轮次只能从
+// executions 的 requestPayload.requirement / resultPayload.output 还原。
+sessionsRoute.get("/:id/messages", async (c) => {
+  if (!executionRepositoryFactoryInjected) {
+    return c.json({ error: "ExecutionRepository not initialized" }, 503);
+  }
+  const factory = sessionRepositoryFactory;
+  if (!factory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
+  }
+  const sessionId = c.req.param("id");
+  if (!isValidSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
+  const userId = (c.get("tenant") as TenantContext).userId;
+  const session = await factory(userId).get(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
+
+  const limit = Number(c.req.query("limit") ?? "20");
+  const capped = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
+  // list 按 created_at DESC 返回，反转为时间正序
+  const executions = (
+    await executionRepositoryFactoryInjected(userId).list({ sessionId, limit: capped })
+  ).reverse();
+
+  const turns = executions
+    .map((execution) => ({
+      executionId: execution.id,
+      status: execution.status,
+      mode: execution.mode ?? null,
+      createdAt: execution.createdAt,
+      requirement:
+        typeof execution.requestPayload?.requirement === "string"
+          ? execution.requestPayload.requirement
+          : "",
+      output:
+        typeof execution.resultPayload?.output === "string"
+          ? execution.resultPayload.output
+          : "",
+      error: execution.errorMessage ?? null,
+    }))
+    .filter((turn) => turn.requirement.length > 0);
+
+  return c.json({ sessionId, turns });
+});
+
 sessionsRoute.delete("/:id", async (c) => {
   const factory = sessionRepositoryFactory;
   if (!factory) {
