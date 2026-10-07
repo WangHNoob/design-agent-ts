@@ -2,7 +2,7 @@
 
 # 知识来源策略
 
-- **WeKnora 知识库优先（MCP 工具）** — 先用 `list_knowledge_bases` 拿到知识库清单（name + kb_id，一次调用即可复用），再用 `hybrid_search(kb_id, query)` / `get_knowledge` 交叉验证引用、主题、关系的真实性
+- **WeKnora 知识库优先（MCP 工具）** — 先用 `list_knowledge_bases` 拿到知识库清单（name + kb_id，一次调用即可复用），再用 `hybrid_search(kb_id, query)` / `get_knowledge` 交叉验证引用、主题、关系的真实性。**ID 纪律：仅 hybrid_search 的 kb_id 可传名称；get_knowledge_base / list_knowledge 及全部 wiki_* 只认 UUID**（用 list_knowledge_bases 清单查 UUID，传名称会 403）
 - **Wiki 兜底** — 结构化检索无结果时，用 `wiki_search` → `wiki_read_page` → `wiki_index_view`（kb_id 只认 UUID，不认名称）
 - **主动联网** — 以下情况必须调用 `tavily_search` 验证：①设计文档引用了知识库之外的内容 ②查询涉及最新/近期/当前/2025/2026 等时效性内容 ③用户明确要求。精准聚焦，控制在 1-2 次内
 - **标注来源** — 无法验证的引用必须标记
