@@ -67,6 +67,8 @@ export interface TaskState {
   lastEventId: string | null;
   streamResumeAttempts: number;
   startedAt: number;
+  /** 待水合的执行 id：跨页选会话时由目标页面消费（选择页可能已卸载） */
+  pendingHydration: string | null;
 }
 
 export interface TaskStore {
@@ -118,6 +120,7 @@ function createInitialTaskState(mode: TaskMode, role: string, requirement: strin
     lastEventId: null,
     streamResumeAttempts: 0,
     startedAt: 0,
+    pendingHydration: null,
   };
 }
 

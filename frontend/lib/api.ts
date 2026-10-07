@@ -68,7 +68,10 @@ export interface HITLCheckpoint {
 export async function executeDesign(req: ExecuteRequest): Promise<ExecuteResponse> {
   const res = await apiFetch(`${API_BASE}/api/console/execute`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': crypto.randomUUID(),
+    },
     body: JSON.stringify(req),
   });
   return res.json();
@@ -180,7 +183,13 @@ export function executeDesignStream(
 
   apiFetch(`${API_BASE}/api/console/execute/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      // 幂等键的作用域是「一次用户动作」：query 模式复用同一 session 连续
+      // 对话，若缺省后端会以 sessionId 兜底为幂等键 → 第二条消息命中幂等
+      // 返回旧执行并回放旧回答（实测复现）。每次发送生成新键。
+      'Idempotency-Key': crypto.randomUUID(),
+    },
     body: JSON.stringify(body),
     signal: controller.signal,
   }).then(async (res) => {

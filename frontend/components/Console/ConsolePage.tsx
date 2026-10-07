@@ -285,6 +285,8 @@ export default function ConsolePage({ mode }: Props) {
 
   // 会话历史回放进行中的任务（回放期间不弹 HITL 弹窗，结束后按最终状态决定）
   const hydratingSessionsRef = useRef<Set<string>>(new Set());
+  // 待水合任务的会话元数据（供回放失败时的摘要兜底）
+  const pendingSessionMetaRef = useRef<Map<string, SessionMeta>>(new Map());
 
   const tryResumeStream = useCallback((sessionId: string, reason: string) => {
     const current = store.getTask(sessionId);
@@ -340,6 +342,41 @@ export default function ConsolePage({ mode }: Props) {
     attachStream(sessionId, resume);
     return true;
   }, [store, attachStream]);
+
+  // 消费待水合任务：跨页选会话时选择页可能已随路由卸载，由挂载中的
+  // 目标页面接手回放（事件回调保持存活，不会被 mountedRef 丢弃）
+  const hydrateTaskRef = task;
+  useEffect(() => {
+    const t = hydrateTaskRef;
+    if (!t?.pendingHydration || !t.executionId) return;
+    const sid = t.sessionId;
+    const execId = t.pendingHydration;
+    store.updateTask(sid, { pendingHydration: null });
+    hydratingSessionsRef.current.add(sid);
+    store.getTask(sid)?.streamRef?.close();
+    const handle = resumeExecutionStream(
+      execId,
+      null,
+      (event, data) => onStreamEventRef.current(sid, event, data),
+      () => {
+        // 回放失败：退回摘要展示
+        hydratingSessionsRef.current.delete(sid);
+        const status = store.getTask(sid)?.status;
+        store.updateTask(sid, {
+          loading: false,
+          streaming: false,
+          status: status === 'working' ? 'idle' : status,
+          statusText: '历史执行记录不可用',
+        });
+        const session = pendingSessionMetaRef.current.get(sid);
+        pendingSessionMetaRef.current.delete(sid);
+        if (session) {
+          appendSessionSummary(sid, session);
+        }
+      },
+    );
+    store.setStreamRef(sid, handle);
+  }, [hydrateTaskRef?.pendingHydration, hydrateTaskRef?.executionId, hydrateTaskRef, store]);
 
   // Timer for active task
   useEffect(() => {
@@ -698,32 +735,30 @@ export default function ConsolePage({ mode }: Props) {
     const sid = store.createTask(session.mode as TaskMode, session.role || 'chief_designer', session.requirement || '', session.id);
     store.setActiveSession(session.mode as TaskMode, sid);
 
+    // 用户消息：执行事件流里只有 agent 侧事件，回放不会重建用户气泡，
+    // 用会话的 requirement 播种
+    if (session.requirement) {
+      store.appendMessage(sid, {
+        id: `msg_u_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'user',
+        content: session.requirement,
+        timestamp: getCurrentTime(),
+      });
+    }
+
     if (session.executionId) {
-      // 历史回放：从执行事件存储重放全部事件，重建消息/时间线/日志/证据
-      hydratingSessionsRef.current.add(sid);
+      pendingSessionMetaRef.current.set(sid, session);
+      // 历史回放：不在本页面直接开播——router.push 可能卸载本页面，
+      // 卸载后 onStreamEvent 的 mountedRef 守卫会丢弃全部回放事件，
+      // 目标页面看到的就是空会话（表现为"要点两次"）。改为打
+      // pendingHydration 标记，由挂载后的目标页面接手回放。
       store.updateTask(sid, {
         executionId: session.executionId,
         loading: true,
         statusText: '正在加载历史执行记录…',
+        pendingHydration: session.executionId,
+        streamResumeAttempts: 0,
       });
-      const handle = resumeExecutionStream(
-        session.executionId,
-        null,
-        (event, data) => onStreamEventRef.current(sid, event, data),
-        () => {
-          // 回放失败：退回摘要展示
-          hydratingSessionsRef.current.delete(sid);
-          const status = store.getTask(sid)?.status;
-          store.updateTask(sid, {
-            loading: false,
-            streaming: false,
-            status: status === 'working' ? 'idle' : status,
-            statusText: '历史执行记录不可用',
-          });
-          appendSessionSummary(sid, session);
-        },
-      );
-      store.setStreamRef(sid, handle);
       return;
     }
 
