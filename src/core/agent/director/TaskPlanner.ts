@@ -18,7 +18,8 @@ import { ConsoleLogger } from "../../observability/ConsoleLogger.js";
 const DEFAULT_PROMPT_TEMPLATE = `Plan the following requirement into sub-tasks (JSON format).
 
 Role: {role}
-{skillHint}Requirement: {requirement}
+{skillHint}{sessionContext}
+Requirement: {requirement}
 
 Output format:
 {
@@ -160,7 +161,18 @@ export class TaskPlanner {
     this.logger = logger ?? new ConsoleLogger();
   }
 
-  async plan(requirement: string, role: string, skill: SkillPort | null): Promise<TaskPlan> {
+  /**
+   * @param sessionContext 可选的会话背景块（buildSessionContextBlock 产物）。
+   * 只注入 planning prompt（system 消息），不拼入 requirement——
+   * plan.requirement / 子任务描述会持久化进 planPayload 与工作区，拼入会
+   * 处处膨胀且泄漏历史。
+   */
+  async plan(
+    requirement: string,
+    role: string,
+    skill: SkillPort | null,
+    sessionContext?: string,
+  ): Promise<TaskPlan> {
     const workflowTasks = skill?.getWorkflowTasks() ?? [];
 
     if (workflowTasks.length > 0) {
@@ -170,7 +182,7 @@ export class TaskPlanner {
 
     // No workflow matched — fall back to LLM-generated plan.
     this.logger.info(`[TaskPlanner] No workflow matched, using LLM planning for role=${role}`);
-    return this.planFromLLM(requirement, role, skill);
+    return this.planFromLLM(requirement, role, skill, sessionContext);
   }
 
   // ---- Workflow-based planning ----
@@ -216,12 +228,17 @@ export class TaskPlanner {
   private async refineRequirements(
     workflowTasks: readonly WorkflowTask[],
     requirement: string,
+    sessionContext?: string,
   ): Promise<Map<string, string>> {
     const taskList = workflowTasks
       .map((t) => `- ${t.taskId} (${t.domain}): ${t.requirementTemplate.split("\n")[0]}`)
       .join("\n");
 
+    // 防御性占位符：当前 REFINE_PROMPT_TEMPLATE 不含 {sessionContext}
+    // （细化结果会写进子任务描述并持久化，注入历史会处处膨胀）；
+    // 未来模板若引入该占位符，此处保证可替换而非残留原文。
     const prompt = REFINE_PROMPT_TEMPLATE
+      .replace(/\{sessionContext\}/g, sessionContext ?? "")
       .replace(/\{requirement\}/g, requirement)
       .replace(/\{taskList\}/g, taskList);
 
@@ -274,11 +291,13 @@ export class TaskPlanner {
     requirement: string,
     role: string,
     skill: SkillPort | null,
+    sessionContext?: string,
   ): Promise<TaskPlan> {
     const skillHint = skill ? `参考技能: ${skill.getName()}\n` : "";
     const prompt = this.promptTemplate
       .replace(/\{role\}/g, role)
       .replace(/\{skillHint\}/g, skillHint)
+      .replace(/\{sessionContext\}/g, sessionContext ?? "")
       .replace(/\{requirement\}/g, requirement);
 
     const messages = [

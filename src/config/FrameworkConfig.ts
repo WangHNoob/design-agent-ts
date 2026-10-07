@@ -155,6 +155,14 @@ export interface FrameworkConfig {
     maxRequirementChars: number;
     /** SSE event replay limit per resume. Default 1000. */
     sseReplayLimit: number;
+    /**
+     * Session-context injection: how many trailing history messages from the
+     * client are distilled into the planner/sub-agent prompt. 0 disables the
+     * feature (kill-switch). Default 20.
+     */
+    sessionContextMaxMessages: number;
+    /** Session-context injection total char budget. Default 6000. */
+    sessionContextMaxChars: number;
   };
   /**
    * Query-mode FAQ fast-path: match high-confidence FAQ before invoking the LLM.

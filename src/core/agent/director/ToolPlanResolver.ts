@@ -36,6 +36,7 @@ export interface ToolPlanResolverCtx {
     planHard(): DirectorPlanHardConfig;
     multiAgent(): DirectorMultiAgentConfig;
     handoffLimits(): HandoffLimits;
+    sessionContextLimits(): { maxMessages: number; maxChars: number };
   };
   state: {
     getCallGuard(): AgentCallGuard;
@@ -329,11 +330,21 @@ export class ToolPlanResolver {
     return new CachingToolRegistry(withBbTools, bb, cachedTools, cfg.defaultTtlSeconds, ttlOverrides, agentType);
   }
 
-  async injectPredecessorContext(task: TaskAssignment, sessionId: string): Promise<string> {
+  /**
+   * 组装子任务最终输入：任务需求 → 会话背景（sessionContext，可空）→
+   * 团队黑板 → 前驱蒸馏 Handoff（具体 → 一般）。所有执行路径
+   * （DAG 流/非流、单角色）都经 executeSingleTask 汇入此处。
+   */
+  async injectPredecessorContext(
+    task: TaskAssignment,
+    sessionId: string,
+    sessionContext?: string,
+  ): Promise<string> {
     const blackboardBlock = this.buildBlackboardContext(sessionId);
+    const contextBlock = sessionContext ? `\n\n${sessionContext}` : "";
 
     if (!task.dependencies || task.dependencies.length === 0) {
-      return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
+      return `${task.assignment}${contextBlock}${blackboardBlock}`;
     }
 
     const multi = this.ctx.config.multiAgent();
@@ -392,7 +403,7 @@ export class ToolPlanResolver {
     }
 
     if (accepted.length === 0) {
-      return blackboardBlock ? `${task.assignment}${blackboardBlock}` : task.assignment;
+      return `${task.assignment}${contextBlock}${blackboardBlock}`;
     }
 
     const collected = collectHandoffsForPrompt(accepted, multi.handoffMaxTotalChars);
@@ -407,7 +418,7 @@ export class ToolPlanResolver {
       });
     }
 
-    return `${task.assignment}${blackboardBlock}\n\n---\n## 前驱任务 Handoff（蒸馏结论）\n\n${collected.sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
+    return `${task.assignment}${contextBlock}${blackboardBlock}\n\n---\n## 前驱任务 Handoff（蒸馏结论）\n\n${collected.sections.join("\n\n")}\n\n> 如需完整内容，使用 workspace_read(task_id="<TASK_ID>", file_name="output.md")`;
   }
 
   /**
