@@ -279,6 +279,26 @@ export async function getSession(id: string): Promise<SessionMeta> {
   return res.json();
 }
 
+/** 历史轮次（GET /sessions/:id/messages 的元素）：由 executions 的请求/产出还原。 */
+export interface SessionTurn {
+  executionId: string;
+  status: string;
+  mode?: 'design' | 'query' | 'table' | null;
+  createdAt: string;
+  requirement: string;
+  output: string;
+  error?: string | null;
+}
+
+/** 多轮回放：按时间正序取会话的全部历史轮次（每轮 = 用户需求 + 助手产出）。 */
+export async function getSessionTurns(sessionId: string, limit = 50): Promise<{ sessionId: string; turns: SessionTurn[] }> {
+  const res = await apiFetch(`${API_BASE}/api/sessions/${sessionId}/messages?limit=${limit}`);
+  if (!res.ok) {
+    throw new Error(`获取会话历史失败 (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function deleteSession(id: string): Promise<void> {
   await apiFetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
 }
