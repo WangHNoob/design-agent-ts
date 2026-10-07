@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, MessageSquare, Clock, Zap, Trash2, Plus } from 'lucide-react';
+import { Search, MessageSquare, Clock, Trash2, Plus } from 'lucide-react';
 import { listSessions, deleteSession, type SessionMeta } from '@/lib/api';
 import { useTaskStore } from '@/lib/stores/taskStore';
 
@@ -31,7 +31,7 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
       .finally(() => setLoading(false));
   }, [refreshTick]);
 
-  const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
+  const handleDelete = async (e: React.MouseEvent | React.KeyboardEvent, sessionId: string) => {
     e.stopPropagation();
     if (deleting) return;
     setDeleting(sessionId);
@@ -125,7 +125,7 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
                       role="button"
                       tabIndex={0}
                       onClick={(e) => handleDelete(e, s.id)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleDelete(e as any, s.id); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleDelete(e, s.id); }}
                       className="shrink-0 opacity-0 group-hover/item:opacity-100 text-ink/40 hover:text-coral transition-all cursor-pointer"
                       title="删除会话"
                     >

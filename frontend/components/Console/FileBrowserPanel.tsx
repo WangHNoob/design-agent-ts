@@ -32,8 +32,10 @@ export default function FileBrowserPanel({ sessionId }: Props) {
       if (!isMountedRef.current) return;
       setError(err instanceof Error ? err.message : '加载失败');
     } finally {
-      if (!isMountedRef.current) return;
-      setLoading(false);
+      // finally 中不可 return（eslint no-unsafe-finally），用条件跳过代替
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [sessionId]);
 

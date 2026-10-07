@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import UserLlmCard from '@/components/Settings/UserLlmCard';
 import { motion } from 'framer-motion';
-import { Settings, Save, RotateCcw, Database, Cpu, MessageSquare, Globe, KeyRound, Link2 } from 'lucide-react';
+import { Settings, Save, RotateCcw, Database, MessageSquare, Globe, KeyRound, Link2 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
 import SettingsNav from '@/components/SettingsNav';

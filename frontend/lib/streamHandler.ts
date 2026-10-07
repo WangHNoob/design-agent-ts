@@ -1,5 +1,4 @@
 import type { TimelineEntry } from '@/components/Console/StepsTimeline';
-import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import type { TaskStore, ChatMessage } from '@/lib/stores/taskStore';
 
 function getCurrentTime() {
@@ -22,7 +21,7 @@ function summarizeToolArgs(args: Record<string, unknown>): string {
   const entries = Object.entries(args);
   if (entries.length === 0) return '';
   if (entries.length === 1) {
-    const [key, value] = entries[0];
+    const [, value] = entries[0];
     const strValue = typeof value === 'string' ? value : JSON.stringify(value);
     return strValue.length > 120 ? `${strValue.substring(0, 120)}...` : strValue;
   }
@@ -35,8 +34,8 @@ function summarizeToolArgs(args: Record<string, unknown>): string {
   return parts.join(', ');
 }
 
-let activeTaskRef = new Map<string, string | null>();
-let taskEntriesRef = new Map<string, Map<string, TimelineEntry>>();
+const activeTaskRef = new Map<string, string | null>();
+const taskEntriesRef = new Map<string, Map<string, TimelineEntry>>();
 
 export function resetTaskTracking(sessionId: string) {
   activeTaskRef.set(sessionId, null);
@@ -328,7 +327,6 @@ export function handleStreamEvent(
     case 'tool_start': {
       const taskId = d.taskId as string;
       const toolName = d.toolName as string;
-      const agentName = d.agentName as string;
       const args = d.args as Record<string, unknown>;
 
       const toolEntry: TimelineEntry = {

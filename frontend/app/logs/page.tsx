@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { ScrollText, Search, Download, Trash2, ChevronDown, ChevronRight, Filter } from 'lucide-react';
+import { ScrollText, Search, Download, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import { logStore, type StoredSession } from '@/lib/logStore';
-import type { DetailedLog } from '@/components/Console/DetailedLogs';
 
 export default function LogsPage() {
   const [sessions, setSessions] = useState<StoredSession[]>([]);
