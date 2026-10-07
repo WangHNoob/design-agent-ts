@@ -5,6 +5,7 @@ import type { LoggerPort } from "../../../port/infra/LoggerPort.js";
 import type { AgentHook } from "../../../port/hook/AgentHook.js";
 import type { AgentDescriptor } from "../../../port/agent/AgentDescriptor.js";
 import { ErrorClassifier } from "../../execution/ErrorClassifier.js";
+import { isTaskTimeoutSignal, taskTimeoutMessage } from "../../execution/taskTimeout.js";
 import { buildCancellationPayload, isCancellationScenario } from "../../execution/CancellationPayload.js";
 import type { TaskAssignment } from "../../schema/TaskAssignment.js";
 import type { TaskResult } from "../../schema/TaskResult.js";
@@ -223,6 +224,7 @@ export class PlanExecutor {
       plan: mergedPlan,
       enabled: planHard.enabled,
       maxReplans: planHard.maxReplans,
+      replanTimeoutMs: planHard.replanTimeoutMs,
       replanner,
       initialResults: options?.initialTaskResults,
       onAudit: (name, attributes) => this.safeRecordPlanSpan(name, attributes),
@@ -475,6 +477,19 @@ export class PlanExecutor {
     signal?: AbortSignal,
     options?: DirectorStreamOptions,
   ): Promise<TaskResult> {
+    if (signal?.aborted && isTaskTimeoutSignal(signal)) {
+      // Internal task timeout (PlanPipeline / deadline), not a user cancel —
+      // surface as a timeout error so the DAG failure path (replan or fail)
+      // runs instead of silently marking the task cancelled.
+      return {
+        taskId: task.taskId,
+        domain: task.domain,
+        status: "error",
+        output: "",
+        errorMessage: taskTimeoutMessage(signal),
+        errorClass: "timeout",
+      };
+    }
     if (signal?.aborted) {
       return {
         taskId: task.taskId,
@@ -514,6 +529,19 @@ export class PlanExecutor {
       );
       const input = ChatMessage.text("user", "director", enhancedAssignment);
       const response = await agent.process(sessionId, [input], signal ? { signal } : undefined);
+
+      if (signal?.aborted && isTaskTimeoutSignal(signal)) {
+        // The adapter returns gracefully on abort; a timeout abort must still
+        // classify as a timeout error, not "cancelled by user".
+        return {
+          taskId: task.taskId,
+          domain: task.domain,
+          status: "error",
+          output: AR.getTextContent(response) ?? "",
+          errorMessage: taskTimeoutMessage(signal),
+          errorClass: "timeout",
+        };
+      }
 
       if (signal?.aborted || response.metadata?.aborted) {
         const output = AR.getTextContent(response) ?? "";
@@ -999,6 +1027,7 @@ export class PlanExecutor {
         plan: mergedPlan,
         enabled: planHard.enabled,
         maxReplans: planHard.maxReplans,
+        replanTimeoutMs: planHard.replanTimeoutMs,
         replanner,
         initialResults: options?.initialTaskResults,
         onAudit: (name, attributes) => this.safeRecordPlanSpan(name, attributes),
@@ -1133,13 +1162,19 @@ export class PlanExecutor {
       }
 
       if (runResult.exhausted) {
+        // 与非流路径一致：区分重规划预算耗尽与重规划器自身失败/超时。
+        const exhaustedError = runResult.replanFailed
+          ? `重规划调用失败（${runResult.replanErrorMessage ?? "未知原因"}）`
+          : `重规划次数耗尽（已重规划 ${runResult.replanCount}/${planHard.maxReplans} 次）`;
         yield {
           type: "error",
           data: {
-            error: `重规划次数耗尽（已重规划 ${runResult.replanCount}/${planHard.maxReplans} 次）`,
+            error: exhaustedError,
             taskId: failedResult?.taskId,
             errorClass: "permanent",
-            replanExhausted: true,
+            replanExhausted: !runResult.replanFailed,
+            replanFailed: runResult.replanFailed === true,
+            replanErrorMessage: runResult.replanErrorMessage,
             replanCount: runResult.replanCount,
           },
         };

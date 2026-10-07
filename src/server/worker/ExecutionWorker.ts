@@ -60,6 +60,13 @@ export interface ExecutionWorkerDependencies {
   maxConcurrentPerUser: number;
   pollIntervalMs: number;
   taskTimeoutMs: number;
+  /**
+   * Stream watchdog: if a running execution produces no stream event for this
+   * long, force it to timed_out and bail out of the stream loop. Covers
+   * signal-dead hangs (provider/appender stuck without honoring abort). 0
+   * disables. Default 900000.
+   */
+  streamWatchdogMs?: number;
   /** Short sleep before defer return to avoid claim/requeue/xadd spin when a lane is full (ms). Default 75. */
   deferBackoffMs?: number;
   now?: () => Date;
@@ -296,54 +303,97 @@ export class ExecutionWorker {
         let sawCancelled = false;
         let sawHitl = false;
 
-        for await (const event of this.director!.executeStream(
-          request.requirement,
-          execution.sessionId,
-          request.mode,
-          request.role,
-          request.history,
-          options,
-        )) {
-          await this.append(execution, event);
-          if (event.type === "plan") {
-            await this.persistPlan(repository, execution, event);
-          } else if (event.type === "hitl") {
-            sawHitl = true;
-            const checkpoint = typeof event.data.reviewPoint === "string"
-              ? event.data.reviewPoint
-              : typeof event.data.checkpointId === "string"
-                ? event.data.checkpointId
-                : "";
-            if (checkpoint && !hitlCheckpoints.includes(checkpoint)) {
-              hitlCheckpoints.push(checkpoint);
+        // Stream watchdog: races the event consumption with a staleness timer.
+        // A dead loop (generator hung on a call that ignores abort, or an
+        // appender stuck on a dead connection) would otherwise hold the lane
+        // forever — the watchdog forces a terminal state and abandons the loop.
+        const watchdogMs = this.deps.streamWatchdogMs ?? 900_000;
+        let lastActivityAt = this.now().getTime();
+        let abandoned = false;
+        let watchdogTimer: ReturnType<typeof setInterval> | undefined;
+        const watchdog = new Promise<never>((_, reject) => {
+          if (watchdogMs <= 0) return;
+          watchdogTimer = setInterval(() => {
+            if (this.now().getTime() - lastActivityAt > watchdogMs) {
+              const err = new Error(
+                `Execution stalled: no stream activity for ${Math.round(watchdogMs / 1000)}s`,
+              );
+              err.name = "TimeoutError";
+              reject(err);
             }
-            await this.pauseForHitl(
-              repository,
-              sessionRepository,
-              service,
-              execution,
-              event,
-            );
-          } else if (event.type === "task_start") {
-            await this.startTask(repository, execution, event, attempts);
-          } else if (event.type === "task_complete") {
-            await this.completeTask(repository, execution, event, attempts);
-          } else if (event.type === "complete") {
-            sawComplete = true;
-            completedOutput = typeof event.data.output === "string" ? event.data.output : "";
-          } else if (event.type === "cancelled") {
-            sawCancelled = true;
-            completedOutput = typeof event.data.partialOutput === "string"
-              ? event.data.partialOutput
-              : completedOutput;
-          } else if (event.type === "error") {
-            sawError = true;
-            const streamError = new Error(
-              typeof event.data.error === "string" ? event.data.error : "Director execution failed",
-            ) as Error & { errorClass?: unknown };
-            streamError.errorClass = event.data.errorClass;
-            throw streamError;
+          }, Math.max(50, Math.min(30_000, watchdogMs / 4)));
+          watchdogTimer.unref?.();
+        });
+
+        const consume = async (): Promise<void> => {
+          for await (const event of this.director!.executeStream(
+            request.requirement,
+            execution.sessionId,
+            request.mode,
+            request.role,
+            request.history,
+            options,
+          )) {
+            if (abandoned) break;
+            lastActivityAt = this.now().getTime();
+            await this.append(execution, event);
+            if (event.type === "plan") {
+              await this.persistPlan(repository, execution, event);
+            } else if (event.type === "hitl") {
+              sawHitl = true;
+              const checkpoint = typeof event.data.reviewPoint === "string"
+                ? event.data.reviewPoint
+                : typeof event.data.checkpointId === "string"
+                  ? event.data.checkpointId
+                  : "";
+              if (checkpoint && !hitlCheckpoints.includes(checkpoint)) {
+                hitlCheckpoints.push(checkpoint);
+              }
+              await this.pauseForHitl(
+                repository,
+                sessionRepository,
+                service,
+                execution,
+                event,
+              );
+            } else if (event.type === "task_start") {
+              await this.startTask(repository, execution, event, attempts);
+            } else if (event.type === "task_complete") {
+              await this.completeTask(repository, execution, event, attempts);
+            } else if (event.type === "complete") {
+              sawComplete = true;
+              completedOutput = typeof event.data.output === "string" ? event.data.output : "";
+            } else if (event.type === "cancelled") {
+              sawCancelled = true;
+              completedOutput = typeof event.data.partialOutput === "string"
+                ? event.data.partialOutput
+                : completedOutput;
+            } else if (event.type === "error") {
+              sawError = true;
+              const streamError = new Error(
+                typeof event.data.error === "string" ? event.data.error : "Director execution failed",
+              ) as Error & { errorClass?: unknown };
+              streamError.errorClass = event.data.errorClass;
+              throw streamError;
+            }
           }
+        };
+
+        try {
+          await Promise.race([consume(), watchdog]);
+        } catch (error) {
+          if ((error as Error | undefined)?.name === "TimeoutError") {
+            // Watchdog fired (or a genuine timeout surfaced): force the terminal
+            // state so the lane is released even though the stream is dead. The
+            // abandoned consume() keeps running in the background; its later
+            // appends are inert once the execution is terminal.
+            abandoned = true;
+            await service.timeout(execution.id, ErrorClassifier.message(error)).catch(() => {});
+          }
+          throw error;
+        } finally {
+          if (watchdogTimer !== undefined) clearInterval(watchdogTimer);
+          abandoned = true;
         }
 
         const latest = await repository.get(execution.id);

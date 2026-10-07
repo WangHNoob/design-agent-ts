@@ -90,6 +90,17 @@ export function validateConfig(config: FrameworkConfig, _options: ConfigValidati
   if (!Number.isInteger(config.execution.taskTimeoutMs) || config.execution.taskTimeoutMs <= 0) {
     issues.push("EXECUTION_TASK_TIMEOUT_MS must be a positive integer.");
   }
+  if (!Number.isInteger(config.execution.replanTimeoutMs) || config.execution.replanTimeoutMs <= 0) {
+    issues.push("EXECUTION_REPLAN_TIMEOUT_MS must be a positive integer.");
+  }
+  if (
+    !Number.isInteger(config.execution.streamWatchdogMs) || config.execution.streamWatchdogMs < 0
+  ) {
+    issues.push("EXECUTION_STREAM_WATCHDOG_MS must be a non-negative integer (0 disables).");
+  }
+  if (!Number.isInteger(config.model.callTimeoutMs) || config.model.callTimeoutMs <= 0) {
+    issues.push("LLM_CALL_TIMEOUT_MS must be a positive integer.");
+  }
   if (
     !Number.isInteger(config.execution.pollIntervalMs)
     || config.execution.pollIntervalMs < 500

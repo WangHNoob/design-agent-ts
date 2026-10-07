@@ -43,6 +43,11 @@ export interface FrameworkConfig {
     fallbackFailureThreshold: number;
     /** Cooldown before a failed model slot is probed again (ms). */
     fallbackCooldownMs: number;
+    /**
+     * Hard ceiling for a single non-streaming LLM call (generateOnce), guarding
+     * query/planner/replan lanes that carry no external timeout. Default 300000.
+     */
+    callTimeoutMs: number;
   };
   hitl: {
     enabled: boolean;
@@ -163,6 +168,17 @@ export interface FrameworkConfig {
     sessionContextMaxMessages: number;
     /** Session-context injection total char budget. Default 6000. */
     sessionContextMaxChars: number;
+    /**
+     * Ceiling for one replan round (PlanReplanner LLM call). On expiry the plan
+     * run terminates with a replan failure instead of hanging forever. Default 120000.
+     */
+    replanTimeoutMs: number;
+    /**
+     * ExecutionWorker stream watchdog: if a running execution produces no stream
+     * event for this long, force it to timed_out (covers signal-dead LLM/appender
+     * hangs). 0 disables. Default 900000.
+     */
+    streamWatchdogMs: number;
   };
   /**
    * Query-mode FAQ fast-path: match high-confidence FAQ before invoking the LLM.

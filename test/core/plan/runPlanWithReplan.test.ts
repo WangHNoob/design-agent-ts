@@ -329,3 +329,48 @@ describe("PlanReplanner normalize", () => {
     expect(remaining[0]?.allowedTools).toBeUndefined();
   });
 });
+
+describe("runPlanWithReplan replan timeout", () => {
+  it("重规划调用挂死时按 replanTimeoutMs 终止（replan_failed 而非永久挂起）", async () => {
+    const plan: TaskPlan = {
+      planId: "p",
+      requirement: "r",
+      subTasks: [
+        {
+          id: "A",
+          fragmentId: "A",
+          domain: "system_design",
+          description: "fail then trigger replan",
+          dependencies: [],
+          priority: 1,
+        },
+      ],
+    };
+
+    const audits: string[] = [];
+    const replanner = new PlanReplanner(mockReplanModel(["[]"]));
+    // 模拟 provider 挂死：replan 的 LLM 调用永不返回（信号失灵的僵尸场景）
+    replanner.replanRemaining = () => new Promise(() => {});
+
+    const result = await runPlanWithReplan({
+      plan,
+      enabled: true,
+      maxReplans: 2,
+      replanner,
+      replanTimeoutMs: 30,
+      onAudit: async (name) => { audits.push(name); },
+      executor: async (task) => ({
+        taskId: task.id,
+        domain: task.domain,
+        status: "error",
+        output: "",
+        errorMessage: "boom",
+      }),
+    });
+
+    expect(result.exhausted).toBe(true);
+    expect(result.replanFailed).toBe(true);
+    expect(result.replanErrorMessage).toContain("timed out");
+    expect(audits).toContain("plan.replan_timeout");
+  });
+});

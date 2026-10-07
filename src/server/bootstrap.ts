@@ -266,6 +266,7 @@ function buildDirectorDeps(params: {
     planHard: {
       enabled: params.config.guards.planHardEnabled,
       maxReplans: params.config.guards.planMaxReplans,
+      replanTimeoutMs: params.config.execution.replanTimeoutMs,
       rejectUnauthorizedTools: params.config.guards.planRejectUnauthorizedTools,
       domainToolDefaults: params.config.guards.planDomainToolDefaults,
     },
@@ -954,6 +955,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     maxConcurrentPerUser: config.userSystem.maxConcurrentPerUser,
     pollIntervalMs: config.execution.pollIntervalMs,
     taskTimeoutMs: config.execution.taskTimeoutMs,
+    streamWatchdogMs: config.execution.streamWatchdogMs,
     deferBackoffMs: config.messageQueue.deferBackoffMs,
     executionOverridesFactory: async (session, userId) => {
       if (!config.versioning.enabled || !versionStoreAdapter) {

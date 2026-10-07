@@ -128,6 +128,7 @@ export function loadConfig(): FrameworkConfig {
         : [],
       fallbackFailureThreshold: Number(process.env.LLM_FALLBACK_FAILURE_THRESHOLD ?? 3),
       fallbackCooldownMs: Number(process.env.LLM_FALLBACK_COOLDOWN_MS ?? 60000),
+      callTimeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 300000),
     },
     hitl: {
       enabled: hitlEnabled,
@@ -210,6 +211,8 @@ export function loadConfig(): FrameworkConfig {
       sseReplayLimit: Number(process.env.SSE_REPLAY_LIMIT ?? 1000),
       sessionContextMaxMessages: Number(process.env.SESSION_CONTEXT_MAX_MESSAGES ?? 20),
       sessionContextMaxChars: Number(process.env.SESSION_CONTEXT_MAX_CHARS ?? 6000),
+      replanTimeoutMs: Number(process.env.EXECUTION_REPLAN_TIMEOUT_MS ?? 120000),
+      streamWatchdogMs: Number(process.env.EXECUTION_STREAM_WATCHDOG_MS ?? 900000),
     },
     faq: {
       faqEnabled: process.env.FAQ_ENABLED === "true",

@@ -50,6 +50,7 @@ export class Container {
           fallbacks,
           failureThreshold: config.model.fallbackFailureThreshold,
           cooldownMs: config.model.fallbackCooldownMs,
+          callTimeoutMs: config.model.callTimeoutMs,
           userOverride: runtimeDeps.userModelOverride,
         });
         this.model = model;

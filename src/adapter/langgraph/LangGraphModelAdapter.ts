@@ -16,6 +16,12 @@ export interface LangGraphModelAdapterOptions {
   fallbacks?: readonly ModelConfig[];
   failureThreshold?: number;
   cooldownMs?: number;
+  /**
+   * Hard ceiling for a single non-streaming LLM call (generateOnce), ms.
+   * Injected from FrameworkConfig.model.callTimeoutMs (LLM_CALL_TIMEOUT_MS);
+   * fallback default keeps legacy behavior for adapters built without config.
+   */
+  callTimeoutMs?: number;
   tracer?: TracerPort;
   /**
    * 按用户 BYOK 覆盖：租户上下文携带 userId 且该用户配置了自己的模型时，
@@ -43,6 +49,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
   private modelName!: string;
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
+  private readonly callTimeoutMs: number;
   private tracer?: TracerPort;
   private readonly userOverride?: LangGraphModelAdapterOptions["userOverride"];
   private userAdapters = new Map<string, { adapter: LangGraphModelAdapter; key: string }>();
@@ -51,6 +58,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
     this.chain = [config, ...(options.fallbacks ?? [])];
     this.failureThreshold = options.failureThreshold ?? 3;
     this.cooldownMs = options.cooldownMs ?? 60_000;
+    this.callTimeoutMs = options.callTimeoutMs ?? 300_000;
     this.tracer = options.tracer;
     this.userOverride = options.userOverride;
     this.breakers = this.chain.map(
@@ -113,7 +121,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
     if (cached && cached.key === key) return cached.adapter;
     const adapter = new LangGraphModelAdapter(
       { ...config, maxTokens: config.maxTokens },
-      { tracer: this.tracer },
+      { tracer: this.tracer, callTimeoutMs: this.callTimeoutMs },
     );
     this.userAdapters.set(userId, { adapter, key });
     return adapter;
@@ -311,8 +319,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
     const lgMessages = this.messageMapper.toLangGraphList(messages);
     const lcOptions = this.mapOptions(options);
 
-    const LLM_TIMEOUT_MS = 300_000;
-    const timeoutSignal = AbortSignal.timeout(LLM_TIMEOUT_MS);
+    const timeoutSignal = AbortSignal.timeout(this.callTimeoutMs);
     const combinedSignal = signal
       ? AbortSignal.any([signal, timeoutSignal])
       : timeoutSignal;
