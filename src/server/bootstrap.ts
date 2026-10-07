@@ -545,11 +545,14 @@ export async function lateBootstrapDirector(): Promise<void> {
     });
   }
 
-  const mcpKnowledgeHealthy = mcpToolNames.some((name) => /(^|_)kb_search$/.test(name) || name.includes("kb_search"));
+  // MCP knowledge health: WeKnora exposes hybrid_search as the anchor retrieval
+  // tool; keep the legacy knowledge-hub kb_search match so a rollback to the old
+  // server still counts as healthy.
+  const mcpKnowledgeHealthy = mcpToolNames.some((name) => name === "hybrid_search" || name.includes("kb_search"));
   const skipLocalKnowledge =
     config.mcp.disableLocalKnowledgeWhenHealthy && mcpKnowledgeHealthy;
 
-  // Register knowledge tools (group: "knowledge") — skipped when MCP kb_* is healthy.
+  // Register knowledge tools (group: "knowledge") — skipped when MCP knowledge tools are healthy.
   if (shouldRegisterGroup("knowledge") && !skipLocalKnowledge) {
     toolRegistry.registerToGroup(new DelegatingTool("wiki_lookup", "在 Wiki 索引中查找主题对应的页面路径。参数: topic (string)", wikiTool, { action: "lookup" }), "knowledge");
     toolRegistry.registerToGroup(new DelegatingTool("wiki_read", "读取指定 Wiki 页面的完整内容。参数: pagePath (string)", wikiTool, { action: "read" }), "knowledge");
@@ -560,7 +563,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     toolRegistry.registerToGroup(new DelegatingTool("kg_list_nodes", "列出知识图谱中指定类型的所有节点。参数: node_type (string, optional)", kgTool, { action: "list_nodes" }), "knowledge");
     console.log(`[Bootstrap] Tool group "knowledge" enabled: ${toolRegistry.getGroupToolNames("knowledge").length} tools`);
   } else if (skipLocalKnowledge) {
-    console.log(`[Bootstrap] Tool group "knowledge" skipped — MCP kb_* healthy (set MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY=false to keep dual sources)`);
+    console.log(`[Bootstrap] Tool group "knowledge" skipped — MCP knowledge tools (hybrid_search) healthy (set MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY=false to keep dual sources)`);
   } else {
     console.log(`[Bootstrap] Tool group "knowledge" disabled (not in ENABLED_TOOL_GROUPS)`);
   }
