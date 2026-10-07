@@ -96,6 +96,8 @@ export interface DirectorPrompts {
 export interface DirectorPlanHardConfig {
   enabled: boolean;
   maxReplans: number;
+  /** Ceiling for one replan round (replanner LLM call), ms. 0/undefined disables. */
+  replanTimeoutMs?: number;
   rejectUnauthorizedTools: boolean;
   domainToolDefaults: Record<string, string[]>;
 }

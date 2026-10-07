@@ -15,6 +15,7 @@ function config(
       fallbackModels: [],
       fallbackFailureThreshold: 3,
       fallbackCooldownMs: 60000,
+      callTimeoutMs: 300000,
     },
     hitl: {
       enabled: false,
@@ -63,6 +64,8 @@ function config(
     },
     execution: {
       taskTimeoutMs: 300000,
+      replanTimeoutMs: 120000,
+      streamWatchdogMs: 900000,
       pollIntervalMs: 1000,
       eventMaxLength: 10000,
       sseHeartbeatMs: 15000,

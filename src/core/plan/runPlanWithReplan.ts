@@ -15,6 +15,13 @@ export interface RunPlanWithReplanOptions {
   enabled: boolean;
   maxReplans: number;
   replanner: PlanReplanner;
+  /**
+   * Ceiling for one replan round (the replanner's LLM call), ms. Replan is the
+   * only step after a task timeout with no external timeout bound — without it
+   * a hung provider call keeps the whole plan run pending forever. 0/undefined
+   * disables the bound (tests).
+   */
+  replanTimeoutMs?: number;
   /** Optional audit callback (Trace spans). Must not throw. */
   onAudit?: (name: string, attributes: Record<string, unknown>) => void | Promise<void>;
   onReplan?: (info: {
@@ -47,6 +54,33 @@ function mergeResultMaps(
 
 function firstErrorResult(results: readonly TaskResult[]): TaskResult | undefined {
   return results.find((r) => r.status === "error");
+}
+
+class ReplanTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Replan round timed out after ${timeoutMs}ms`);
+    this.name = "TimeoutError";
+  }
+}
+
+async function replanWithTimeout(
+  pending: Promise<readonly SubTask[]>,
+  timeoutMs: number | undefined,
+): Promise<SubTask[]> {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return await pending as SubTask[];
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ReplanTimeoutError(timeoutMs)), timeoutMs);
+      }),
+    ]) as SubTask[];
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function isCancelled(results: readonly TaskResult[], signal?: AbortSignal): boolean {
@@ -146,14 +180,15 @@ export async function runPlanWithReplan(
 
     let remaining: SubTask[];
     try {
-      remaining = await options.replanner.replanRemaining(replanInput);
+      remaining = await replanWithTimeout(options.replanner.replanRemaining(replanInput), options.replanTimeoutMs);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await options.onAudit?.("plan.replan_failed", {
+      const timedOut = err instanceof ReplanTimeoutError;
+      await options.onAudit?.(timedOut ? "plan.replan_timeout" : "plan.replan_failed", {
         failedTaskId: failed.taskId,
         replanCount,
         reason: message,
-        code: isPlanViolationError(err) ? err.code : "replan_error",
+        code: timedOut ? "replan_timeout" : isPlanViolationError(err) ? err.code : "replan_error",
       });
       return {
         results: accumulated,
