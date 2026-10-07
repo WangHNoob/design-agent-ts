@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { signIn, signUp } from "@/lib/auth";
-import { useRouter } from "next/navigation";
 import { Gamepad2, Mail, Lock, User, ArrowRight, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -15,7 +14,6 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,12 +33,6 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
-
-  const toggleMode = () => {
-    setMode(mode === "login" ? "register" : "login");
-    setError("");
-  };
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-paper dot-grid">
       <motion.div

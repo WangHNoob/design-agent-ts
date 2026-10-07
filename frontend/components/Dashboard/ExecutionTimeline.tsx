@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Route, ListChecks, Users, Merge, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { ListChecks, Users, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import type { SessionMeta } from '@/lib/api';
 
 interface Props {

@@ -9,9 +9,7 @@ import { useRouter } from 'next/navigation';
 import Header from '@/components/Console/Header';
 import SessionSidebar from '@/components/Console/SessionSidebar';
 import RightPanel from '@/components/Console/RightPanel';
-import type { TimelineEntry } from '@/components/Console/StepsTimeline';
-import type { DetailedLog } from '@/components/Console/DetailedLogs';
-import ResultPanel, { reportUserSignal } from '@/components/Console/ResultPanel';
+import { reportUserSignal } from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
 import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, type SessionMeta, type StreamHandle } from '@/lib/api';
@@ -137,7 +135,6 @@ export default function ConsolePage({ initialMode }: Props) {
   // Refresh: if we have an executionId and task still looks in-flight, pull terminal/waiting state.
   useEffect(() => {
     if (!task?.executionId || (!task.loading && task.status !== 'waiting')) return;
-    let cancelled = false;
 
     const applyExecution = (execution: Awaited<ReturnType<typeof getExecution>>) => {
       // 注意只挡组件卸载：loading 翻转会让本 effect 重跑并把在途响应标记
@@ -264,7 +261,6 @@ export default function ConsolePage({ initialMode }: Props) {
         }, 4000)
       : null;
     return () => {
-      cancelled = true;
       if (timer) clearInterval(timer);
     };
   }, [task?.executionId, task?.sessionId, task?.loading, task?.status]);

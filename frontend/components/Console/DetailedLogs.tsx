@@ -24,7 +24,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
 
   const handleExport = () => {
-    const data = logs.map(({ id, ...rest }) => rest);
+    const data = logs.map(({ id: _id, ...rest }) => rest);
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
