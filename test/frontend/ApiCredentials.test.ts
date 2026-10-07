@@ -33,7 +33,11 @@ describe("frontend API credentials", () => {
       expect.objectContaining({
         credentials: "include",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          // 幂等键防重放（fix(console) c1d23cc）
+          "Idempotency-Key": expect.any(String),
+        }),
       }),
     );
   });
@@ -48,7 +52,10 @@ describe("frontend API credentials", () => {
       expect.objectContaining({
         credentials: "include",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "Idempotency-Key": expect.any(String),
+        }),
       }),
     );
   });
