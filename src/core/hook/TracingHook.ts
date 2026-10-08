@@ -78,22 +78,14 @@ function compactValue(value: unknown, maxValue: number): unknown {
 }
 
 /**
- * knowledge-hub 工具返回 knowledge-envelope/v1 协议包（contract/release/
- * result/qualityFlags/trust/trace）。观测只关心核心内容：提取 result，
- * 附带 trust（可信度）与 qualityFlags（质量标记），丢弃协议噪音，
- * 并对值做结构保持的紧凑化（截断后仍是合法 JSON，便于观测台渲染）。
+ * 工具结果入 span 前的紧凑化：JSON 结果做结构保持的值级截断
+ * （截断后仍是合法 JSON，便于观测台渲染），非 JSON 原样截断。
  */
 function extractToolResult(value: string, max: number): string {
   const parsed = parseJsonWithPrefix(value);
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    const env = parsed as Record<string, unknown>;
-    if (env.result !== undefined && typeof env.result === "object") {
-      const maxValue = Math.max(Math.floor(max / 10), 40);
-      const core: Record<string, unknown> = { result: compactValue(env.result, maxValue) };
-      if (env.trust !== undefined) core.trust = compactValue(env.trust, maxValue);
-      if (env.qualityFlags !== undefined) core.qualityFlags = env.qualityFlags;
-      return truncate(JSON.stringify(core), max);
-    }
+  if (parsed !== null && parsed !== undefined && typeof parsed === "object") {
+    const maxValue = Math.max(Math.floor(max / 10), 40);
+    return truncate(JSON.stringify(compactValue(parsed, maxValue)), max);
   }
   return truncate(value, max);
 }

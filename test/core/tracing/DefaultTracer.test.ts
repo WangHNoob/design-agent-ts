@@ -293,27 +293,33 @@ describe("DefaultTracer + TracingHook", () => {
     expect(postReasoning?.["outputTokens"]).toBe(20);
   });
 
-  test("toolResult strips envelope noise, tolerates cache prefix, keeps JSON parseable", async () => {
+  test("toolResult compacts structured JSON whole, tolerates cache prefix, keeps JSON parseable", async () => {
     const store = new InMemoryTraceStore();
     const context = new MemoryContext<TraceRuntimeState>();
     const tracer = new DefaultTracer(store, new FakeIds(), context);
     const hook = new TracingHook(tracer, { maxAttrChars: 1500 }); // 值级截断阈值 = 1500/10 = 150
 
     const envelope = JSON.stringify({
-      contract: { schemaVersion: "knowledge-envelope/v1", toolName: "kb_get_page" },
-      release: { releaseId: "rel_x", version: "2026.08.08.001" },
-      trace: { componentId: "cmp_xxx" },
-      result: {
-        page: "03-技能系统设计.md",
-        found: true,
-        title: "技能系统",
-        rows: [
-          { skillId: "SK001", name: "烈焰斩", note: "注".repeat(700) },
-          { skillId: "SK002", name: "炎龙突刺", note: "x" },
+      success: true,
+      toolName: "hybrid_search",
+      data: {
+        results: [
+          {
+            knowledge_title: "03-技能系统设计.md",
+            knowledge_id: "kn_001",
+            chunk_index: 0,
+            score: 0.87,
+            content: "注".repeat(700),
+          },
+          {
+            knowledge_title: "04-数值规则.md",
+            knowledge_id: "kn_002",
+            chunk_index: 3,
+            score: 0.71,
+            content: "x",
+          },
         ],
       },
-      trust: { score: 0.938, status: "trusted" },
-      qualityFlags: { stale: false },
     });
     // 黑板缓存包装器会加前缀
     const prefixed = `[来自黑板缓存]\n${envelope}`;
@@ -324,11 +330,11 @@ describe("DefaultTracer + TracingHook", () => {
     await tracer.withTrace(handle, async () => {
       await hook.onEvent(
         "post_tool_execution",
-        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "kb_get_page", toolResult: prefixed }),
+        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "hybrid_search", toolResult: prefixed }),
       );
       await hook.onEvent(
         "post_tool_execution",
-        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "kb_query_table", toolResult: doubleEncoded }),
+        HookContext.create({ agentName: "QueryAgent", sessionId: "s", toolName: "hybrid_search", toolResult: doubleEncoded }),
       );
       await tracer.endTrace(handle.traceId, "ok");
     });
@@ -336,22 +342,18 @@ describe("DefaultTracer + TracingHook", () => {
     const detail = await store.getTrace("u", handle.traceId);
     const spans = detail!.spans.filter((s) => s.name === "QueryAgent.post_tool_execution");
     const raw = String(spans[0]!.attributes["toolResult"]);
-    expect(raw).toContain('"result"');
-    expect(raw).toContain("03-技能系统设计.md");
-    expect(raw).toContain('"trust"');
-    expect(raw).not.toContain("knowledge-envelope/v1");
-    expect(raw).not.toContain("releaseId");
-    expect(raw).not.toContain("componentId");
-    expect(raw).not.toContain("来自黑板缓存");
-    // 结构保持：截断后仍可 JSON.parse
+    // 结构保持：整包值级紧凑化，截断后仍可 JSON.parse（不再做 KH 协议字段挑选）
     expect(() => JSON.parse(raw)).not.toThrow();
-    expect(JSON.parse(raw).result.rows).toHaveLength(2);
-    // 值级截断生效
-    expect(JSON.parse(raw).result.rows[0].note).toContain("…[+");
-    // 双重编码路径同样提取成功
+    const parsed = JSON.parse(raw);
+    expect(parsed.data.results).toHaveLength(2);
+    expect(JSON.stringify(parsed)).toContain("03-技能系统设计.md");
+    // 值级截断生效（长字符串 → …[+N chars]）
+    expect(parsed.data.results[0].content).toContain("…[+");
+    // 黑板缓存前缀被剥掉
+    expect(raw).not.toContain("来自黑板缓存");
+    // 双重编码路径同样紧凑化成功
     const raw2 = String(spans[1]!.attributes["toolResult"]);
-    expect(raw2).toContain('"result"');
     expect(() => JSON.parse(raw2)).not.toThrow();
-    expect(JSON.parse(raw2).result.rows).toHaveLength(2);
+    expect(JSON.parse(raw2).data.results).toHaveLength(2);
   });
 });

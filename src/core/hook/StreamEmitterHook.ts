@@ -3,7 +3,7 @@ import type { HookPoint } from "../../port/hook/HookPoint.js";
 import type { HookContext } from "../../port/hook/HookContext.js";
 import type { EventBus } from "../agent/director/EventBus.js";
 import type { KnowledgeSource } from "../agent/director/DirectorAgent.js";
-import { parseKnowledgeHubMetadata } from "../agent/director/KnowledgeSource.js";
+import { parseWeKnoraMetadata } from "../agent/director/KnowledgeSource.js";
 
 /**
  * Hook that emits fine-grained execution events to an EventBus for real-time SSE streaming.
@@ -145,7 +145,10 @@ export class StreamEmitterHook implements AgentHook {
   }
 
   private getSourceType(toolName: string): string {
-    if (toolName.startsWith("kb_")) return "knowledge_hub";
+    // WeKnora 检索工具（现役知识源）
+    if (toolName === "hybrid_search") return "weknora";
+    if (toolName === "wiki_search") return "weknora";
+    if (toolName === "get_knowledge" || toolName === "list_chunks") return "weknora";
     if (toolName.startsWith("wiki_")) return "wiki";
     if (toolName.startsWith("kg_")) return "kg";
     if (toolName === "grep_search") return "grep";
@@ -158,9 +161,9 @@ export class StreamEmitterHook implements AgentHook {
     result: string,
     metadata?: Record<string, unknown>
   ): KnowledgeSource[] {
-    // kb_* 工具：从 structuredContent 解析知识来源
-    if (toolName.startsWith("kb_")) {
-      return parseKnowledgeHubMetadata(toolName, metadata || {});
+    // WeKnora 检索工具：解析 { success, data: SearchResult[] } 信封
+    if (toolName === "hybrid_search" || toolName === "wiki_search") {
+      return parseWeKnoraMetadata(toolName, metadata || {}, result);
     }
 
     const sources: KnowledgeSource[] = [];

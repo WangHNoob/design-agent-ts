@@ -56,35 +56,7 @@ export interface DirectorStreamOptions {
   sessionHistory?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>;
 }
 
-export interface KnowledgeSource {
-  type: 'kb_component' | 'wiki_page' | 'kg_node' | 'grep_match' | 'web_result';
-  id: string;
-  title?: string;
-  relevance?: string;
-  trust?: {
-    score: number;
-    status: 'trusted' | 'usable_with_risk' | 'needs_review' | 'blocked';
-    breakdown?: {
-      evidence?: number;
-      completeness?: number;
-      auditFreshness?: number;
-      consistency?: number;
-    };
-  };
-  evidence?: {
-    count: number;
-    evidenceIds?: string[];
-    hasEvidence: boolean;
-  };
-  release?: {
-    releaseId: string;
-    version: string;
-    publishedAt: string;
-  };
-  qualityFlags?: string[];
-  componentKind?: string;
-  artifactId?: string;
-}
+export type { KnowledgeSource } from "./KnowledgeSource.js";
 
 export interface DirectorPrompts {
   querySystem?: string;

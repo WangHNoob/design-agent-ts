@@ -38,7 +38,6 @@ import type { ChatModelPort } from "../port/model/ChatModelPort.js";
 import type { CostStorePort } from "../port/cost/CostStorePort.js";
 import type { RateLimitPort } from "../port/cost/RateLimitPort.js";
 import { ToolLoopDetectorHook } from "../core/hook/ToolLoopDetectorHook.js";
-import { KnowledgeFlywheelHook } from "../core/hook/KnowledgeFlywheelHook.js";
 import { DefaultTracer, NoOpTracer } from "../core/tracing/DefaultTracer.js";
 import { ConsoleTraceExporter } from "../core/tracing/ConsoleTraceExporter.js";
 import { PostgresTraceStoreAdapter } from "../adapter/postgres/PostgresTraceStoreAdapter.js";
@@ -469,13 +468,6 @@ export async function lateBootstrapDirector(): Promise<void> {
   const mcpToolNames: string[] = [];
   if (config.mcp.enabled) {
     const defaultArgs: Record<string, unknown> = {};
-    if (config.mcp.defaultProjectId) {
-      defaultArgs.projectId = config.mcp.defaultProjectId;
-    } else {
-      console.warn(
-        "[Bootstrap] MCP_PROJECT_ID is empty — kb_* calls rely on Knowledge Hub JWT currentProjectId. Set MCP_PROJECT_ID explicitly for multi-project agents.",
-      );
-    }
     const entries: McpClientEntry[] = [];
     for (const server of config.mcp.servers) {
       if (!server.enabled) continue;
@@ -496,9 +488,6 @@ export async function lateBootstrapDirector(): Promise<void> {
       }
       mcpToolNames.push(...toolNames);
       console.log(`[Bootstrap] MCP enabled: registered ${tools.length} tools from ${entries.length - failedServers.length}/${entries.length} servers`);
-      if (config.mcp.defaultProjectId) {
-        console.log(`[Bootstrap] MCP default projectId=${config.mcp.defaultProjectId}`);
-      }
       for (const failed of failedServers) {
         console.warn(`[Bootstrap] MCP server "${failed.serverName}" failed to load: ${failed.error}`);
       }
@@ -551,9 +540,8 @@ export async function lateBootstrapDirector(): Promise<void> {
   }
 
   // MCP knowledge health: WeKnora exposes hybrid_search as the anchor retrieval
-  // tool; keep the legacy knowledge-hub kb_search match so a rollback to the old
-  // server still counts as healthy.
-  const mcpKnowledgeHealthy = mcpToolNames.some((name) => name === "hybrid_search" || name.includes("kb_search"));
+  // tool.
+  const mcpKnowledgeHealthy = mcpToolNames.some((name) => name === "hybrid_search");
   const skipLocalKnowledge =
     config.mcp.disableLocalKnowledgeWhenHealthy && mcpKnowledgeHealthy;
 
@@ -628,7 +616,7 @@ export async function lateBootstrapDirector(): Promise<void> {
   // Grant shared-blackboard tools to all sub-agents when enabled.
   if (config.blackboard.enabled) {
     subAgentToolNames.push("blackboard_write", "blackboard_read", "blackboard_search", "blackboard_recent");
-    // MCP knowledge-hub tools (kb_*) are external/expensive → cache them too.
+    // MCP retrieval tools (WeKnora hybrid_search etc.) are external/expensive → cache them too.
     for (const name of mcpToolNames) {
       if (!config.blackboard.cachedTools.includes(name)) {
         config.blackboard.cachedTools.push(name);
@@ -669,10 +657,6 @@ export async function lateBootstrapDirector(): Promise<void> {
       logger: runtimeLogger,
     }),
   ];
-  if (config.mcp.enabled) {
-    hooks.push(new KnowledgeFlywheelHook(toolRegistry, runtimeLogger));
-    console.log("[Bootstrap] Knowledge flywheel hook enabled (auto report/attribution)");
-  }
 
   // Trace context (separate ALS from tenant) + store/tracer
   const traceContextStorage = new NodeContextStorageAdapter<TraceRuntimeState>();

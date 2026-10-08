@@ -21,29 +21,10 @@ export interface KnowledgeSource {
   id: string;
   title?: string;
   relevance?: string;
-  trust?: {
-    score: number;
-    status: 'trusted' | 'usable_with_risk' | 'needs_review' | 'blocked';
-    breakdown?: {
-      evidence?: number;
-      completeness?: number;
-      auditFreshness?: number;
-      consistency?: number;
-    };
-  };
-  evidence?: {
-    count: number;
-    evidenceIds?: string[];
-    hasEvidence: boolean;
-  };
-  release?: {
-    releaseId: string;
-    version: string;
-    publishedAt: string;
-  };
-  qualityFlags?: string[];
-  componentKind?: string;
-  artifactId?: string;
+  /** 检索得分（WeKnora hybrid_search / wiki_search 返回） */
+  score?: number;
+  /** 命中片段预览（截断） */
+  snippet?: string;
 }
 
 export interface TaskState {
