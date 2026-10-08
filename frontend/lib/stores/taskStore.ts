@@ -12,6 +12,8 @@ export interface ChatMessage {
   type: 'user' | 'ai' | 'system';
   content: string;
   timestamp: string;
+  /** 该消息所属执行的策略（一会话三模式）；旧消息与系统消息无此字段 */
+  mode?: TaskMode;
 }
 
 export interface KnowledgeSource {
