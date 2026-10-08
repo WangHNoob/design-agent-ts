@@ -896,7 +896,10 @@ export default function ConsolePage({ initialMode }: Props) {
               <WelcomeScreen
                 mode={mode}
                 role={effectiveRole}
-                onExampleClick={(text) => setRequirement(text)}
+                onExampleClick={(text, m) => {
+                  handleModeChange(m);
+                  setRequirement(text);
+                }}
                 onModeChange={handleModeChange}
               />
             ) : (
@@ -963,10 +966,10 @@ export default function ConsolePage({ initialMode }: Props) {
                   onKeyDown={handleInputKeydown}
                   placeholder={
                     mode === 'query'
-                      ? '输入您想查询的知识内容，如：什么是角色养成系统？'
+                      ? '询问游戏规则或文档内容，如：核心战斗规则是什么？'
                       : mode === 'table'
-                      ? '输入配表需求，如：根据策划案完成配表...'
-                      : '输入您的游戏设计需求，按 Enter 发送，Shift+Enter 换行...'
+                      ? '输入配表需求，如：参考现有结构为新玩法完成配表...'
+                      : '描述玩法需求，AI 将结合知识库产出初版策划案...'
                   }
                   rows={1}
                   disabled={loading}
@@ -1163,17 +1166,19 @@ const ChatBubble = React.memo(function ChatBubble({
 });
 ChatBubble.displayName = 'ChatBubble';
 
-const EXAMPLES = [
-  { emoji: '🃏', title: '卡牌对战游戏', text: '设计一个卡牌对战游戏，包含英雄系统、卡牌系统、战斗系统、成长系统和PVP对战。' },
-  { emoji: '🌱', title: '放置养成游戏', text: '设计一个放置养成类游戏，包含角色养成、挂机系统、关卡推进、资源系统和社交系统。' },
-  { emoji: '⚔️', title: 'MOBA竞技游戏', text: '设计一个5v5 MOBA竞技游戏，包含英雄系统、技能系统、装备系统、地图系统和匹配系统。' },
-  { emoji: '🔍', title: '查询知识库', text: '什么是角色养成系统？' },
+// 示例卡：面向既有游戏产品的策划工作流（新人上手查规则 → 出初版策划案 → 配表），
+// 不是从 0 构建新游戏。点击 = 切到对应执行策略 + 填入需求。
+const EXAMPLES: Array<{ emoji: string; title: string; text: string; mode: TaskMode }> = [
+  { emoji: '📘', title: '快速了解核心规则', text: '这个游戏的核心战斗规则和核心玩法循环是什么？', mode: 'query' },
+  { emoji: '🌿', title: '梳理养成系统', text: '角色养成线包含哪些系统？各自的成长节奏和产出途径是怎样的？', mode: 'query' },
+  { emoji: '📝', title: '出一份初版策划案', text: '结合知识库中的现有系统，为「好友助战」玩法输出一份初版策划案（目标、规则、系统框架）。', mode: 'design' },
+  { emoji: '📊', title: '为新玩法配表', text: '参考知识库中的现有配表结构，为「好友助战」玩法完成配置表。', mode: 'table' },
 ];
 
 const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick, onModeChange }: {
   mode: TaskMode;
   role: string;
-  onExampleClick: (text: string) => void;
+  onExampleClick: (text: string, mode: TaskMode) => void;
   onModeChange: (mode: TaskMode) => void;
 }) {
   const roleNames: Record<string, string> = {
@@ -1224,26 +1229,35 @@ const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick, 
       </div>
       <p className="text-sm text-ink/60 mb-1 max-w-sm">
         {mode === 'query'
-          ? '输入您想查询的知识内容，AI 将为您检索游戏策划相关知识。'
+          ? '询问游戏规则、系统或文档内容，AI 基于知识库直接回答，帮新策划快速上手。'
           : mode === 'table'
-          ? '输入配表需求，AI 将为您生成游戏配置表格。'
-          : '输入您的游戏设计需求，AI 将为您生成完整的策划方案。'}
+          ? '描述配表需求，AI 参考知识库与现有表结构生成配置表。'
+          : '描述玩法需求，AI 结合知识库中既有系统为您产出初版策划案。'}
       </p>
       <p className="text-xs text-ink/40 mb-6 max-w-sm">
         同一会话内可随时切换执行策略（输入框左下角），对下一条消息生效，会话上下文全程保留。
       </p>
 
       <div className="grid grid-cols-2 gap-2 w-full max-w-md">
-        {EXAMPLES.map((ex) => (
-          <button
-            key={ex.title}
-            onClick={() => onExampleClick(ex.text)}
-            className="flex items-center gap-2 rounded-xl border border-ink/6 bg-white px-3 py-2.5 text-left hover:border-coral/20 hover:shadow-sm transition-all"
-          >
-            <span className="text-lg">{ex.emoji}</span>
-            <span className="text-xs font-medium text-ink">{ex.title}</span>
-          </button>
-        ))}
+        {EXAMPLES.map((ex) => {
+          const meta = MODE_META[ex.mode];
+          return (
+            <button
+              key={ex.title}
+              onClick={() => onExampleClick(ex.text, ex.mode)}
+              className="flex items-center gap-2 rounded-xl border border-ink/6 bg-white px-3 py-2.5 text-left hover:border-coral/20 hover:shadow-sm transition-all"
+            >
+              <span className="text-lg">{ex.emoji}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium text-ink">{ex.title}</span>
+                <span className={`mt-0.5 inline-flex items-center gap-0.5 text-[9px] font-medium ${meta.textClass}`}>
+                  <meta.icon size={9} />
+                  {meta.label}
+                </span>
+              </span>
+            </button>
+          );
+        })}
       </div>
     </motion.div>
   );
