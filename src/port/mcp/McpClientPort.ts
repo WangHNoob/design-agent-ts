@@ -3,8 +3,8 @@
  * and exposes their tools to the agent system.
  *
  * Used for:
- * - Consuming tools published by external MCP servers (e.g. the Knowledge Hub
- *   knowledge base, which exposes `kb_*` tools for reading published releases)
+ * - Consuming tools published by external MCP servers (e.g. the WeKnora
+ *   knowledge base, which exposes retrieval tools such as `hybrid_search`)
  * - Keeping the core framework-agnostic: the agent system never imports an MCP
  *   SDK directly; it only depends on this port
  *

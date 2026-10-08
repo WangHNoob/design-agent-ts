@@ -234,9 +234,16 @@ export function loadConfig(): FrameworkConfig {
       exposeMode: process.env.MCP_EXPOSE_MODE === "all" ? "all" : "on_demand",
       defaultExposePrefixes: process.env.MCP_DEFAULT_EXPOSE_PREFIXES !== undefined
         ? process.env.MCP_DEFAULT_EXPOSE_PREFIXES.split(",").map((s) => s.trim()).filter(Boolean)
-        : ["kb_"],
+        : [
+            "hybrid_search",
+            "list_knowledge_bases",
+            "get_knowledge_base",
+            "list_knowledge",
+            "get_knowledge",
+            "list_chunks",
+            "wiki_",
+          ],
       skillToolAllowlist: parseSkillToolAllowlist(process.env.MCP_SKILL_TOOL_ALLOWLIST),
-      defaultProjectId: (process.env.MCP_PROJECT_ID ?? "").trim(),
       disableLocalKnowledgeWhenHealthy: process.env.MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY !== "false",
     },
     enabledToolGroups: process.env.ENABLED_TOOL_GROUPS

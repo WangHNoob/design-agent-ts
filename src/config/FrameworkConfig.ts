@@ -13,7 +13,7 @@ export interface McpServerConfig {
   transport: McpTransport;
   /** Whether to connect to this server on startup. */
   enabled: boolean;
-  /** Optional prefix applied to every tool name from this server (e.g. "kb_"). */
+  /** Optional prefix applied to every tool name from this server. */
   toolPrefix?: string;
   /** stdio: executable to spawn. */
   command?: string;
@@ -228,7 +228,7 @@ export interface FrameworkConfig {
      */
     exposeMode: "all" | "on_demand";
     /**
-     * Prefixes / patterns always exposed in on_demand mode (e.g. ["kb_"]).
+     * Prefixes / patterns always exposed in on_demand mode (e.g. ["hybrid_search"]).
      * Supports exact names, prefixes ending with `_`, or `prefix*`.
      */
     defaultExposePrefixes: string[];
@@ -238,13 +238,9 @@ export interface FrameworkConfig {
      */
     skillToolAllowlist: Record<string, string[]>;
     /**
-     * Explicit Knowledge Hub projectId injected into every kb_* tool call.
-     * Empty = do not inject (server falls back to JWT user currentProjectId).
-     */
-    defaultProjectId: string;
-    /**
      * When true (default), skip registering local wiki/kg/grep knowledge tools
-     * if MCP connected and exposed at least one kb_* tool — avoid dual sources.
+     * if MCP connected and exposed at least one retrieval tool (hybrid_search)
+     * — avoid dual sources.
      */
     disableLocalKnowledgeWhenHealthy: boolean;
   };
@@ -277,11 +273,11 @@ export interface FrameworkConfig {
     enabled: boolean;
     /** 默认 TTL（秒），用于检索类工具与 blackboard_write。 */
     defaultTtlSeconds: number;
-    /** 联网类工具（tavily / kb_*）的 TTL（秒）。 */
+    /** 联网类工具（tavily）的 TTL（秒）。 */
     webTtlSeconds: number;
     /** 每个子任务启动时注入的近期黑板要点条数。 */
     recentInjectCount: number;
-    /** 启用透明缓存的工具名白名单（kb_* MCP 工具在 bootstrap 运行时追加）。 */
+    /** 启用透明缓存的工具名白名单（WeKnora 检索等 MCP 工具在 bootstrap 运行时追加）。 */
     cachedTools: string[];
   };
   /**
@@ -321,7 +317,7 @@ export interface FrameworkConfig {
     toolTimeoutMs: number;
     /**
      * 单条工具结果进入模型上下文的最大字符数（0=不截断）。
-     * 长 KB envelope 撑爆上下文的兜底；与 knowledge-hub 侧精简输出配合。
+     * 超长检索结果撑爆上下文的兜底。
      */
     toolResultMaxChars: number;
     /**

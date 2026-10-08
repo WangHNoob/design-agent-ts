@@ -33,7 +33,7 @@ export const DEFAULT_READ_TOOLS: readonly string[] = [
   "wiki_search",
   "wiki_read_page",
   "wiki_index_view",
-  // 本地降级兜底（knowledge-hub 退役后通常未注册，注册名缺失会在工厂映射时静默剔除）
+  // 本地降级兜底（WeKnora MCP 健康时通常未注册，注册名缺失会在工厂映射时静默剔除）
   "wiki_lookup",
   "wiki_read",
   "wiki_list",

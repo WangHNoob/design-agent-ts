@@ -105,7 +105,7 @@
 - **MCP**：默认 `on_demand` 按前缀/Skill/任务白名单暴露；与进程内工具同一韧性与安全包装
 - **SSE**：心跳 comment；按 `executionId` 续订（不新建 execution）；断连只停订阅不杀 Worker
 - **版本**：Prompt/Skill/Workflow 会话快照 MVCC；灰度/回滚不改写已绑定会话
-- **知识库**：Wiki/RAG/向量索引归独立项目 `knowledge-hub`；本仓只保留工具适配点
+- **知识库**：现役知识源为 **WeKnora**（MCP stdio，`hybrid_search` 等检索工具）；本仓只保留工具适配点。旧 `knowledge-hub` 已于 2026-10-07 退役，勿再引用其接口/协议
 
 ### 消息序列与往返保真（查询链路硬约束，勿静默拆除）
 - **重复调用守卫**：`LangGraphAgentAdapter` 在 `wrappedToolNode` 执行前统计历史中同一 `(tool, 规范化参数)` 出现次数，`>= REPEAT_CANCEL_THRESHOLD(2)` 直接取消调用并回填取消说明 ToolMessage；hash 必须走 `normalizeToolArgs`（数字字符串折叠），**禁止**绕过归一化直接 `stableStringify`（`"40"` vs `40` 会绕过 `ToolLoopDetectorHook`）
@@ -135,12 +135,16 @@
 
 ---
 
-## 六·五、查询链路评测门禁（knowledge-hub 黄金集）
+## 六·五、查询链路评测门禁（黄金集；原 knowledge-hub 侧）
+
+> 2026-10-08 注：knowledge-hub 已退役（WeKnora 接管知识源），评测脚本仍在 KH 目录
+> `knowledge-hub/evals/`（目录保留、服务已停）。黄金集打分纪律不变；重建 runner 前按
+> 下述口径人工回放，勿跳过评测直接上线 query / 知识库 / 消息链路改动。
 
 query 模式 / 知识库 / 消息链路的改动，除上述五项外还需过评测门禁：
 
-- **评测集**：`knowledge-hub/evals/golden_evals.json`（78 题 = 30 回归 + 48 新增，7 个能力分组）
-- **跑法**：`cd knowledge-hub && python evals/run_query_mode_eval.py`（串行打 13000 `/api/console/execute`，带 TPM 退避与连接重试；eval 进程长跑后可能出现 WinError 10061 进程级异常，遇持续失败改用 `127.0.0.1` 重跑，勿直接判定服务故障）
+- **评测集**：`knowledge-hub/evals/golden_evals.json`（78 题 = 30 回归 + 48 新增，7 个能力分组；目标端口 13000 为本仓 console 服务，不依赖 KH 服务）
+- **跑法**：`python knowledge-hub/evals/run_query_mode_eval.py`（串行打 13000 `/api/console/execute`，带 TPM 退避与连接重试；eval 进程长跑后可能出现 WinError 10061 进程级异常，遇持续失败改用 `127.0.0.1` 重跑，勿直接判定服务故障）
 - **打分**：`python evals/run_eval.py --answers ...`（v3：数值精确匹配，表达形式兼容内联/Markdown 表格，存在性匹配；**禁止**为凑分放宽数值断言）
 - **数值审计**：`python evals/audit_evals.py --kb-dir ... --evals evals/golden_evals.json` 必须 48/48 通过——golden 期望与配表程序化重算一致，**golden 过时与数据更新必须同步**（实测 EV-027 曾因 SK033 扩展注册而断言过时，模型答对反被判 FAIL）
 - **回归对比**：改动前后同一 answers 回放打分，确认无"旧 PASS → 新 FAIL"回归；`TOOL_RESULT_MAX_CHARS` / 重复调用守卫 / `sanitizeToolSequence` / `additional_kwargs` 往返为现役护栏，评测结果变化先归因再改护栏

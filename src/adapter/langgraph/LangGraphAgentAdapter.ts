@@ -604,7 +604,7 @@ export class LangGraphAgentAdapter implements AgentPort {
         throw err;
       }
 
-      // 模型上下文预算兜底：超长工具结果截断（knowledge-hub 精简后少触发）。
+      // 模型上下文预算兜底：超长工具结果截断（检索类结果的主要防线）。
       const truncateLimit = this.descriptor.toolResultMaxChars ?? 0;
       if (truncateLimit > 0) {
         result.messages = result.messages.map((m) =>

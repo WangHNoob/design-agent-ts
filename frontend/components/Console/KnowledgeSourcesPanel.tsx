@@ -10,7 +10,7 @@ export default function KnowledgeSourcesPanel({ sources }: Props) {
   if (sources.length === 0) {
     return (
       <div className="text-xs text-ink/50 py-6 text-center">
-        尚未引用 Knowledge Hub 证据。Agent 调用 kb_* 工具后会显示在这里。
+        尚未引用知识库证据。Agent 调用 WeKnora 检索工具（hybrid_search / wiki_search）后会显示在这里。
       </div>
     );
   }
@@ -26,28 +26,16 @@ export default function KnowledgeSourcesPanel({ sources }: Props) {
               <div className="text-xs font-medium text-ink truncate">{source.title || source.id}</div>
               <div className="text-[10px] text-ink/50 font-mono truncate">{source.id}</div>
             </div>
-            {source.trust && (
-              <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded ${trustClass(source.trust.status)}`}>
-                {Math.round(source.trust.score * 100)}% · {trustLabel(source.trust.status)}
+            {typeof source.score === 'number' && (
+              <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded ${scoreClass(source.score)}`}>
+                {source.score.toFixed(2)}
               </span>
             )}
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink/60">
-            {source.release?.version && <span>发布 {source.release.version}</span>}
-            {source.release?.releaseId && <span className="font-mono">rel:{source.release.releaseId.slice(0, 10)}</span>}
-            {source.evidence && (
-              <span>
-                证据 {source.evidence.count}
-                {source.evidence.hasEvidence ? '' : '（缺失）'}
-              </span>
-            )}
-            {source.componentKind && <span>{source.componentKind}</span>}
-          </div>
-          {source.qualityFlags && source.qualityFlags.length > 0 && (
-            <div className="mt-1 text-[10px] text-amber-700/80 truncate">
-              flags: {source.qualityFlags.join(', ')}
-            </div>
+          {source.snippet && (
+            <p className="mt-1.5 text-[10px] leading-relaxed text-ink/60 line-clamp-2">{source.snippet}</p>
           )}
+          {source.relevance && <div className="mt-1 text-[10px] text-ink/50 truncate">{source.relevance}</div>}
         </div>
       ))}
     </div>
@@ -62,22 +50,9 @@ function dedupeSources(sources: KnowledgeSource[]): KnowledgeSource[] {
   return [...map.values()];
 }
 
-function trustLabel(status: string): string {
-  switch (status) {
-    case 'trusted': return '可信';
-    case 'usable_with_risk': return '可用有风险';
-    case 'needs_review': return '待复核';
-    case 'blocked': return '阻断';
-    default: return status;
-  }
-}
-
-function trustClass(status: string): string {
-  switch (status) {
-    case 'trusted': return 'bg-emerald-50 text-emerald-700';
-    case 'usable_with_risk': return 'bg-amber-50 text-amber-700';
-    case 'needs_review': return 'bg-orange-50 text-orange-700';
-    case 'blocked': return 'bg-red-50 text-red-700';
-    default: return 'bg-ink/5 text-ink/60';
-  }
+/** 检索得分着色：高分离命中越近，低分提示弱相关 */
+function scoreClass(score: number): string {
+  if (score >= 0.8) return 'bg-emerald-50 text-emerald-700';
+  if (score >= 0.5) return 'bg-ink/5 text-ink/70';
+  return 'bg-amber-50 text-amber-700';
 }
