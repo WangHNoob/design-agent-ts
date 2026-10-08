@@ -102,21 +102,31 @@ sessionsRoute.get("/:id/messages", async (c) => {
   ).reverse();
 
   const turns = executions
-    .map((execution) => ({
-      executionId: execution.id,
-      status: execution.status,
-      mode: execution.mode ?? null,
-      createdAt: execution.createdAt,
-      requirement:
-        typeof execution.requestPayload?.requirement === "string"
-          ? execution.requestPayload.requirement
-          : "",
-      output:
-        typeof execution.resultPayload?.output === "string"
-          ? execution.resultPayload.output
-          : "",
-      error: execution.errorMessage ?? null,
-    }))
+    .map((execution) => {
+      const rawSources = execution.resultPayload?.knowledgeSources;
+      return {
+        executionId: execution.id,
+        status: execution.status,
+        mode: execution.mode ?? null,
+        createdAt: execution.createdAt,
+        requirement:
+          typeof execution.requestPayload?.requirement === "string"
+            ? execution.requestPayload.requirement
+            : "",
+        output:
+          typeof execution.resultPayload?.output === "string"
+            ? execution.resultPayload.output
+            : "",
+        // 本轮引用的知识库证据（resultPayload 持久化；旧执行无此字段）
+        knowledgeSources: Array.isArray(rawSources)
+          ? rawSources.filter(
+              (s): s is Record<string, unknown> =>
+                typeof s === "object" && s !== null && typeof (s as { id?: unknown }).id === "string",
+            )
+          : [],
+        error: execution.errorMessage ?? null,
+      };
+    })
     .filter((turn) => turn.requirement.length > 0);
 
   return c.json({ sessionId, turns });

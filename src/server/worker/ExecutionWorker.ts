@@ -310,6 +310,9 @@ export class ExecutionWorker {
         const watchdogMs = this.deps.streamWatchdogMs ?? 900_000;
         let lastActivityAt = this.now().getTime();
         let abandoned = false;
+        // 本轮检索证据（consume 内填充），完成时随 resultPayload 持久化供回放
+        const knowledgeSources: Array<Record<string, unknown>> = [];
+        const seenSourceKeys = new Set<string>();
         let watchdogTimer: ReturnType<typeof setInterval> | undefined;
         const watchdog = new Promise<never>((_, reject) => {
           if (watchdogMs <= 0) return;
@@ -337,7 +340,19 @@ export class ExecutionWorker {
             if (abandoned) break;
             lastActivityAt = this.now().getTime();
             await this.append(execution, event);
-            if (event.type === "plan") {
+            if (event.type === "knowledge_used") {
+              const sources = (event.data as { sources?: unknown }).sources;
+              if (Array.isArray(sources)) {
+                for (const source of sources) {
+                  if (typeof source !== "object" || source === null) continue;
+                  const record = source as Record<string, unknown>;
+                  const key = `${String(record.type ?? "")}:${String(record.id ?? "")}`;
+                  if (!record.id || seenSourceKeys.has(key)) continue;
+                  seenSourceKeys.add(key);
+                  if (knowledgeSources.length < 50) knowledgeSources.push(record);
+                }
+              }
+            } else if (event.type === "plan") {
               await this.persistPlan(repository, execution, event);
             } else if (event.type === "hitl") {
               sawHitl = true;
@@ -438,7 +453,9 @@ export class ExecutionWorker {
         }
 
         const completed = await service.complete(execution.id, {
-          resultPayload: { output: completedOutput },
+          resultPayload: knowledgeSources.length > 0
+            ? { output: completedOutput, knowledgeSources }
+            : { output: completedOutput },
         });
         await sessionRepository.update(execution.sessionId, {
           status: "completed",

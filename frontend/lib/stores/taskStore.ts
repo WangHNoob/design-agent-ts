@@ -14,6 +14,8 @@ export interface ChatMessage {
   timestamp: string;
   /** 该消息所属执行的策略（一会话三模式）；旧消息与系统消息无此字段 */
   mode?: TaskMode;
+  /** 本条回答引用的知识库证据（WeKnora 检索）；无检索为空 */
+  sources?: KnowledgeSource[];
 }
 
 export interface KnowledgeSource {
@@ -52,6 +54,8 @@ export interface TaskState {
   startedAt: number;
   /** 待水合的执行 id：跨页选会话时由目标页面消费（选择页可能已卸载） */
   pendingHydration: string | null;
+  /** 本轮执行累计的证据（complete 时附加到回答消息并清空；跨轮不累计） */
+  pendingSources: KnowledgeSource[];
 }
 
 export interface TaskStore {
@@ -92,6 +96,7 @@ function createInitialTaskState(mode: TaskMode, role: string, requirement: strin
     timeline: [],
     logs: [],
     knowledgeSources: [],
+    pendingSources: [],
     executionTime: '0:00',
     status: 'idle',
     statusText: '就绪',
