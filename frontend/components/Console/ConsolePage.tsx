@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download, Copy, Check } from 'lucide-react';
+import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download, Copy, Check, BookOpen } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useRouter } from 'next/navigation';
@@ -13,8 +13,8 @@ import { reportUserSignal } from '@/components/Console/ResultPanel';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
 import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
-import { useTaskStore, type TaskMode, type ChatMessage } from '@/lib/stores/taskStore';
-import { handleStreamEvent, resetTaskTracking } from '@/lib/streamHandler';
+import { useTaskStore, type TaskMode, type ChatMessage, type KnowledgeSource } from '@/lib/stores/taskStore';
+import { handleStreamEvent, resetTaskTracking, dedupeSources } from '@/lib/streamHandler';
 import ModePicker from '@/components/Console/ModePicker';
 import { MODE_META, MODE_ORDER, normalizeMode } from '@/lib/modes';
 
@@ -778,6 +778,8 @@ export default function ConsolePage({ initialMode }: Props) {
       const ms = Date.parse(iso);
       return Number.isFinite(ms) ? new Date(ms).toTimeString().split(' ')[0] : getCurrentTime();
     };
+    // 历史轮次的证据并入任务（证据面板去重展示），并随消息记录本轮来源
+    const replaySources: KnowledgeSource[] = [];
     for (const turn of earlierTurns) {
       store.appendMessage(sid, {
         id: `msg_u_${turn.executionId}`,
@@ -787,12 +789,15 @@ export default function ConsolePage({ initialMode }: Props) {
         mode: turn.mode ?? undefined,
       });
       if (turn.output) {
+        const turnSources = dedupeSources(turn.knowledgeSources ?? []);
+        if (turnSources.length > 0) replaySources.push(...turnSources);
         store.appendMessage(sid, {
           id: `msg_a_${turn.executionId}`,
           type: 'ai',
           content: turn.output,
           timestamp: turnTime(turn.createdAt),
           mode: turn.mode ?? undefined,
+          sources: turnSources.length > 0 ? turnSources : undefined,
         });
       } else if (turn.error) {
         store.appendMessage(sid, {
@@ -809,6 +814,14 @@ export default function ConsolePage({ initialMode }: Props) {
           timestamp: turnTime(turn.createdAt),
         });
       }
+    }
+
+    // 历史证据并入任务级列表（证据面板按 type:id 去重展示）
+    if (replaySources.length > 0) {
+      const task = store.getTask(sid);
+      store.updateTask(sid, {
+        knowledgeSources: dedupeSources([...(task?.knowledgeSources ?? []), ...replaySources]),
+      });
     }
 
     // 用户消息：执行事件流里只有 agent 侧事件，回放不会重建用户气泡，
@@ -905,7 +918,7 @@ export default function ConsolePage({ initialMode }: Props) {
             ) : (
               <div className="space-y-4">
                 {messages.map((msg) => (
-                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} executionId={task?.executionId ?? null} />
+                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} executionId={task?.executionId ?? null} onOpenEvidence={() => setRightPanelTab('knowledge')} />
                 ))}
                 {streaming && (
                   streamingText ? (
@@ -1072,11 +1085,14 @@ const ChatBubble = React.memo(function ChatBubble({
   sessionId,
   role,
   executionId,
+  onOpenEvidence,
 }: {
   msg: ChatMessage;
   sessionId: string | null;
   role: string;
   executionId: string | null;
+  /** 点击引用徽标时切换右侧面板到「证据」tab */
+  onOpenEvidence?: () => void;
 }) {
   if (msg.type === 'system') {
     return (
@@ -1132,6 +1148,18 @@ const ChatBubble = React.memo(function ChatBubble({
                 <span className={`w-1 h-1 rounded-full ${MODE_META[msg.mode].dotClass}`} />
                 {MODE_META[msg.mode].label}
               </span>
+            )}
+            {/* 引用证据徽标：本轮 WeKnora 检索命中的文档数；点击跳右侧「证据」面板 */}
+            {!isUser && msg.sources && msg.sources.length > 0 && (
+              <button
+                type="button"
+                onClick={onOpenEvidence}
+                title={msg.sources.map((s) => s.title || s.id).join('\n')}
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-teal-700 bg-teal-500/10 hover:bg-teal-500/20"
+              >
+                <BookOpen size={10} />
+                引用 {msg.sources.length} 篇知识库文档
+              </button>
             )}
             <span className={`text-[10px] ${isUser ? 'text-white/60' : 'text-ink/50'}`}>
               {msg.timestamp}

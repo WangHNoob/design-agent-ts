@@ -287,6 +287,8 @@ export interface SessionTurn {
   createdAt: string;
   requirement: string;
   output: string;
+  /** 本轮引用的知识库证据（旧执行无此字段） */
+  knowledgeSources?: Array<import('@/lib/stores/taskStore').KnowledgeSource>;
   error?: string | null;
 }
 

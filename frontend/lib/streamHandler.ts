@@ -58,6 +58,7 @@ export function handleStreamEvent(
         status: 'working',
         statusText: '处理中',
         startedAt: Date.now(),
+        pendingSources: [],
       });
       resetTaskTracking(sessionId);
       const entry: TimelineEntry = {
@@ -422,6 +423,8 @@ export function handleStreamEvent(
       if (task) {
         store.updateTask(sessionId, {
           knowledgeSources: [...task.knowledgeSources, ...sources],
+          // 本轮证据单独累计：complete 时附加到回答消息
+          pendingSources: [...(task.pendingSources ?? []), ...sources],
         });
       }
       store.appendLog(sessionId, {
@@ -504,14 +507,18 @@ export function handleStreamEvent(
     }
 
     case 'complete': {
-      const output = (d.output as string) || store.getTask(sessionId)?.streamingText || '';
+      const task = store.getTask(sessionId);
+      const output = (d.output as string) || task?.streamingText || '';
+      // 本轮引用的知识库证据附加到回答消息（去重后随消息展示）
+      const roundSources = dedupeSources(task?.pendingSources ?? []);
       const msg: ChatMessage = {
         id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
         type: output ? 'ai' : 'system',
         content: output || '执行完成，但 Agent 未返回任何输出内容。',
         timestamp: getCurrentTime(),
         // 执行期间禁切策略，task.mode 即本次执行的策略（历史回放时 createTask 已播种 session.mode）
-        mode: output ? store.getTask(sessionId)?.mode : undefined,
+        mode: output ? task?.mode : undefined,
+        sources: output && roundSources.length > 0 ? roundSources : undefined,
       };
       store.appendMessage(sessionId, msg);
 
@@ -521,6 +528,7 @@ export function handleStreamEvent(
         status: 'idle',
         statusText: '就绪',
         streamingText: '',
+        pendingSources: [],
       });
 
       store.appendTimeline(sessionId, {
@@ -641,4 +649,13 @@ export function handleStreamEvent(
       break;
     }
   }
+}
+
+/** 按 type:id 去重知识来源（多次检索命中同一文档片段时只保留一条） */
+export function dedupeSources(sources: Array<import('@/lib/stores/taskStore').KnowledgeSource>): Array<import('@/lib/stores/taskStore').KnowledgeSource> {
+  const map = new Map<string, import('@/lib/stores/taskStore').KnowledgeSource>();
+  for (const source of sources) {
+    map.set(`${source.type}:${source.id}`, source);
+  }
+  return [...map.values()];
 }
