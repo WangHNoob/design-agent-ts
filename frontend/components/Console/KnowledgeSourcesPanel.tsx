@@ -6,15 +6,8 @@ interface Props {
   sources: KnowledgeSource[];
 }
 
+// 仅在有证据时由 RightPanel 渲染（空 tab 不出现），故无需空态分支
 export default function KnowledgeSourcesPanel({ sources }: Props) {
-  if (sources.length === 0) {
-    return (
-      <div className="text-xs text-ink/50 py-6 text-center">
-        尚未引用知识库证据。Agent 调用 WeKnora 检索工具（hybrid_search / wiki_search）后会显示在这里。
-      </div>
-    );
-  }
-
   const deduped = dedupeSources(sources);
 
   return (
