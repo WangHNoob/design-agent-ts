@@ -78,14 +78,15 @@ function readEnvelope(
   let current: unknown = rawResult;
   for (let depth = 0; depth < 3; depth += 1) {
     if (typeof current !== 'string' || current.trim() === '') break;
+    const text = current;
     try {
-      current = JSON.parse(current);
+      current = JSON.parse(text);
     } catch {
       // 容忍黑板缓存包装器加在 JSON 前的标记行
-      const brace = current.indexOf('{');
+      const brace = text.indexOf('{');
       if (brace <= 0) break;
       try {
-        current = JSON.parse(current.slice(brace));
+        current = JSON.parse(text.slice(brace));
       } catch {
         break;
       }
