@@ -15,6 +15,8 @@ import HitlReviewModal from '@/components/Console/HitlReviewModal';
 import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking } from '@/lib/streamHandler';
+import ModePicker from '@/components/Console/ModePicker';
+import { MODE_META, MODE_ORDER, normalizeMode } from '@/lib/modes';
 
 const MAX_STREAM_RESUMES = 2;
 const TERMINAL_EXECUTION_STATUSES = new Set([
@@ -30,11 +32,6 @@ interface Props {
 
 function getCurrentTime() {
   return new Date().toTimeString().split(' ')[0];
-}
-
-/** ?mode= 查询参数合法值（/query、/table 旧路径重定向的落点） */
-function normalizeMode(value: string | null): TaskMode | null {
-  return value === 'design' || value === 'query' || value === 'table' ? value : null;
 }
 
 export default function ConsolePage({ initialMode }: Props) {
@@ -200,6 +197,7 @@ export default function ConsolePage({ initialMode }: Props) {
           type: 'ai',
           content: output,
           timestamp: getCurrentTime(),
+          mode: task.mode,
         });
       }
       if (execution.errorMessage) {
@@ -597,6 +595,7 @@ export default function ConsolePage({ initialMode }: Props) {
       type: 'user' as const,
       content: requirement.trim(),
       timestamp: getCurrentTime(),
+      mode,
     };
     store.appendMessage(sid, msg);
 
@@ -663,6 +662,7 @@ export default function ConsolePage({ initialMode }: Props) {
               type: 'ai',
               content: res.output,
               timestamp: getCurrentTime(),
+              mode,
             });
             store.updateTask(sid, { status: 'idle', statusText: '就绪', loading: false });
           } else if (res.error) {
@@ -702,6 +702,12 @@ export default function ConsolePage({ initialMode }: Props) {
     setRequirement('');
   };
 
+  const handleModeChange = (newMode: TaskMode) => {
+    // 同页切换执行策略：不卸载组件、不断流；URL 仅作书签/刷新回显
+    setMode(newMode);
+    router.replace(`/design?mode=${newMode}`, { scroll: false });
+  };
+
   const appendSessionSummary = (sid: string, session: SessionMeta) => {
     // 无执行记录时的兜底：用会话摘要拼一个只读视图
     if (session.requirement) {
@@ -710,6 +716,7 @@ export default function ConsolePage({ initialMode }: Props) {
         type: 'user',
         content: session.requirement,
         timestamp: getCurrentTime(),
+        mode: session.mode,
       });
     }
     if (session.output) {
@@ -718,6 +725,7 @@ export default function ConsolePage({ initialMode }: Props) {
         type: 'ai',
         content: session.output,
         timestamp: getCurrentTime(),
+        mode: session.mode,
       });
     }
     if (session.error) {
@@ -735,6 +743,8 @@ export default function ConsolePage({ initialMode }: Props) {
     // 一会话三模式：选会话 = 同页切换（不再跳路由），组件不卸载、
     // 在播的流不中断；mode 仅表示该会话的末次执行策略。
     setMode(session.mode as TaskMode);
+    // URL 书签与手动切换行为一致（replace 不产生历史记录）
+    router.replace(`/design?mode=${session.mode}`, { scroll: false });
     // 同一会话已有任务条目：直接激活，避免重复条目与重复回放流（状态卡片会重复）。
     // 但空壳条目（一条消息都没有且不在加载中）说明上次回放/渲染失败，删掉重新回放
     const existingTask = store.getTask(session.id);
@@ -774,6 +784,7 @@ export default function ConsolePage({ initialMode }: Props) {
         type: 'user',
         content: turn.requirement,
         timestamp: turnTime(turn.createdAt),
+        mode: turn.mode ?? undefined,
       });
       if (turn.output) {
         store.appendMessage(sid, {
@@ -781,6 +792,7 @@ export default function ConsolePage({ initialMode }: Props) {
           type: 'ai',
           content: turn.output,
           timestamp: turnTime(turn.createdAt),
+          mode: turn.mode ?? undefined,
         });
       } else if (turn.error) {
         store.appendMessage(sid, {
@@ -807,6 +819,7 @@ export default function ConsolePage({ initialMode }: Props) {
         type: 'user',
         content: session.requirement,
         timestamp: getCurrentTime(),
+        mode: session.mode,
       });
     }
 
@@ -855,13 +868,6 @@ export default function ConsolePage({ initialMode }: Props) {
   return (
     <div className="h-screen w-screen flex flex-col bg-paper overflow-hidden">
       <Header
-        mode={mode}
-        modeSwitchDisabled={task?.loading ?? false}
-        onModeChange={(newMode) => {
-          // 同页切换执行策略：不卸载组件、不断流；URL 仅作书签/刷新回显
-          setMode(newMode);
-          router.replace(`/design?mode=${newMode}`, { scroll: false });
-        }}
         role={effectiveRole}
         onRoleChange={setPendingRole}
         roleLocked={roleLocked}
@@ -887,7 +893,12 @@ export default function ConsolePage({ initialMode }: Props) {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-4">
             {messages.length === 0 ? (
-              <WelcomeScreen mode={mode} role={effectiveRole} onExampleClick={(text) => setRequirement(text)} />
+              <WelcomeScreen
+                mode={mode}
+                role={effectiveRole}
+                onExampleClick={(text) => setRequirement(text)}
+                onModeChange={handleModeChange}
+              />
             ) : (
               <div className="space-y-4">
                 {messages.map((msg) => (
@@ -963,6 +974,7 @@ export default function ConsolePage({ initialMode }: Props) {
                 />
                 <div className="flex items-center justify-between px-3 pb-2">
                   <div className="flex items-center gap-2">
+                    <ModePicker mode={mode} disabled={loading} onChange={handleModeChange} />
                     <button
                       onClick={() => setUseStream(!useStream)}
                       className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
@@ -972,7 +984,7 @@ export default function ConsolePage({ initialMode }: Props) {
                       <Zap size={10} />
                       {useStream ? '流式' : '非流式'}
                     </button>
-                    <span className="text-[10px] text-ink/40 hidden sm:inline">Enter 发送，Shift+Enter 换行</span>
+                    <span className="text-[10px] text-ink/40 hidden lg:inline">Enter 发送，Shift+Enter 换行</span>
                   </div>
                   {loading ? (
                     <button
@@ -1108,8 +1120,19 @@ const ChatBubble = React.memo(function ChatBubble({
           </div>
         )}
         <div className="flex items-center justify-between mt-1">
-          <div className={`text-[10px] ${isUser ? 'text-white/60' : 'text-ink/50'}`}>
-            {msg.timestamp}
+          <div className="flex items-center gap-2">
+            {/* 产出模式徽标：会话内混用策略的直接证据；旧消息无 mode 不渲染 */}
+            {!isUser && msg.mode && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${MODE_META[msg.mode].chipClass}`}
+              >
+                <span className={`w-1 h-1 rounded-full ${MODE_META[msg.mode].dotClass}`} />
+                {MODE_META[msg.mode].label}
+              </span>
+            )}
+            <span className={`text-[10px] ${isUser ? 'text-white/60' : 'text-ink/50'}`}>
+              {msg.timestamp}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             {!isUser && (
@@ -1147,10 +1170,11 @@ const EXAMPLES = [
   { emoji: '🔍', title: '查询知识库', text: '什么是角色养成系统？' },
 ];
 
-const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick }: {
-  mode: string;
+const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick, onModeChange }: {
+  mode: TaskMode;
   role: string;
   onExampleClick: (text: string) => void;
+  onModeChange: (mode: TaskMode) => void;
 }) {
   const roleNames: Record<string, string> = {
     chief_designer: '主策划',
@@ -1175,6 +1199,29 @@ const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick }
       <div className="mb-3 px-3 py-1 rounded-full bg-coral/10 text-coral text-xs font-medium">
         {roleNames[role] || role}
       </div>
+      {/* 三模式 pill：空状态即第一次触达点，点击直接切换执行策略 */}
+      <div className="mb-3 flex items-center gap-2">
+        {MODE_ORDER.map((id) => {
+          const meta = MODE_META[id];
+          const active = id === mode;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onModeChange(id)}
+              title={meta.description}
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                active
+                  ? `${meta.chipClass} border-transparent`
+                  : 'border-ink/8 bg-white text-ink/50 hover:border-ink/20'
+              }`}
+            >
+              <meta.icon size={12} />
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
       <p className="text-sm text-ink/60 mb-1 max-w-sm">
         {mode === 'query'
           ? '输入您想查询的知识内容，AI 将为您检索游戏策划相关知识。'
@@ -1183,7 +1230,7 @@ const WelcomeScreen = memo(function WelcomeScreen({ mode, role, onExampleClick }
           : '输入您的游戏设计需求，AI 将为您生成完整的策划方案。'}
       </p>
       <p className="text-xs text-ink/40 mb-6 max-w-sm">
-        顶部可随时切换执行策略（策划生成 / 知识查询 / 配表工具），对下一条消息生效，会话上下文全程保留。
+        同一会话内可随时切换执行策略（输入框左下角），对下一条消息生效，会话上下文全程保留。
       </p>
 
       <div className="grid grid-cols-2 gap-2 w-full max-w-md">

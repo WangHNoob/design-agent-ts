@@ -2,19 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { X, Loader2 } from 'lucide-react';
-import { useTaskStore, type TaskMode } from '@/lib/stores/taskStore';
-
-const MODE_LABELS: Record<TaskMode, string> = {
-  design: '策划生成',
-  query: '知识查询',
-  table: '配表工具',
-};
-
-const MODE_COLORS: Record<TaskMode, string> = {
-  design: 'bg-coral',
-  query: 'bg-indigo',
-  table: 'bg-emerald-500',
-};
+import { useTaskStore } from '@/lib/stores/taskStore';
+import { MODE_META } from '@/lib/modes';
 
 export default function TaskDock() {
   const router = useRouter();
@@ -38,10 +27,10 @@ export default function TaskDock() {
             router.push('/design');
           }}
         >
-          <div className={`w-2 h-2 rounded-full ${MODE_COLORS[task.mode]} animate-pulse`} />
+          <div className={`w-2 h-2 rounded-full ${MODE_META[task.mode].dotClass} animate-pulse`} />
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-medium text-ink/70">{MODE_LABELS[task.mode]}</span>
+              <span className="text-[10px] font-medium text-ink/70">{MODE_META[task.mode].label}</span>
               <Loader2 size={10} className="animate-spin text-ink/40" />
             </div>
             <span className="text-[10px] text-ink/50 truncate max-w-[180px]">

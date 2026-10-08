@@ -3,10 +3,6 @@
 import { Settings, Plus, PanelRight, LogOut } from 'lucide-react';
 
 interface Props {
-  mode: 'design' | 'query' | 'table';
-  /** 任务执行中禁切：切换只影响下一条消息，执行期间切走会歧义 */
-  modeSwitchDisabled?: boolean;
-  onModeChange: (mode: 'design' | 'query' | 'table') => void;
   role: string;
   onRoleChange: (role: string) => void;
   roleLocked?: boolean;
@@ -17,12 +13,6 @@ interface Props {
   rightPanelOpen: boolean;
   onOpenSettings?: () => void;
 }
-
-const MODES: { id: 'design' | 'query' | 'table'; label: string }[] = [
-  { id: 'design', label: '策划生成' },
-  { id: 'query', label: '知识查询' },
-  { id: 'table', label: '配表工具' },
-];
 
 const ROLES = [
   { value: 'chief_designer', label: '主策划' },
@@ -35,9 +25,6 @@ const ROLES = [
 ];
 
 export default function Header({
-  mode,
-  modeSwitchDisabled,
-  onModeChange,
   role,
   onRoleChange,
   roleLocked,
@@ -66,29 +53,6 @@ export default function Header({
           <h1 className="text-sm font-bold text-ink leading-tight">游戏策划 AI</h1>
           <span className="text-[10px] text-ink/40 leading-none">对话式设计助手</span>
         </div>
-      </div>
-
-      {/* Mode tabs：执行策略选择器（一会话三模式，只对下一条消息生效）。
-          必须是 button——Link 整页导航会重挂载 ConsolePage、中断在播流 */}
-      <div
-        className="flex items-center bg-paper/50 border border-ink/6 rounded-lg p-0.5 gap-0.5 shrink-0"
-        title="执行策略（对下一条消息生效）"
-      >
-        {MODES.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            disabled={modeSwitchDisabled}
-            onClick={() => onModeChange(m.id)}
-            className={`px-3 py-1.5 text-[11px] font-semibold rounded-md transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
-              mode === m.id
-                ? 'bg-white text-ink shadow-sm'
-                : 'text-ink/40 hover:text-ink/70'
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
       </div>
 
       {/* Role selector */}

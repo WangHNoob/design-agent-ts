@@ -510,6 +510,8 @@ export function handleStreamEvent(
         type: output ? 'ai' : 'system',
         content: output || '执行完成，但 Agent 未返回任何输出内容。',
         timestamp: getCurrentTime(),
+        // 执行期间禁切策略，task.mode 即本次执行的策略（历史回放时 createTask 已播种 session.mode）
+        mode: output ? store.getTask(sessionId)?.mode : undefined,
       };
       store.appendMessage(sessionId, msg);
 
