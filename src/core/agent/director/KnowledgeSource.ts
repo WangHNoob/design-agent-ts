@@ -81,7 +81,14 @@ function readEnvelope(
     try {
       current = JSON.parse(current);
     } catch {
-      break;
+      // 容忍黑板缓存包装器加在 JSON 前的标记行
+      const brace = current.indexOf('{');
+      if (brace <= 0) break;
+      try {
+        current = JSON.parse(current.slice(brace));
+      } catch {
+        break;
+      }
     }
     if (isPlainObject(current)) return current;
   }

@@ -45,6 +45,13 @@ describe("parseWeKnoraMetadata", () => {
     expect(sources[1].id).toBe("kn_001#chunk_5");
   });
 
+  test("容忍黑板缓存前缀标记行", () => {
+    const raw = JSON.stringify(`[来自黑板缓存]\n${JSON.stringify(ENVELOPE)}`);
+    const sources = parseWeKnoraMetadata("hybrid_search", {}, raw);
+    expect(sources).toHaveLength(2);
+    expect(sources[0].title).toBe("03-战斗规则.md");
+  });
+
   test("非检索工具 / 非法信封返回空数组", () => {
     expect(parseWeKnoraMetadata("get_knowledge", { structuredContent: ENVELOPE }, "")).toEqual([]);
     expect(parseWeKnoraMetadata("hybrid_search", {}, "not json")).toEqual([]);
