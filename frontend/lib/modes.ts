@@ -22,7 +22,7 @@ export const MODE_ORDER: readonly TaskMode[] = ['design', 'query', 'table'];
 export const MODE_META: Record<TaskMode, ModeMeta> = {
   design: {
     label: '策划生成',
-    description: '多智能体协作生成完整策划方案',
+    description: '结合知识库产出初版策划案',
     icon: Sparkles,
     dotClass: 'bg-coral',
     textClass: 'text-coral',
@@ -30,7 +30,7 @@ export const MODE_META: Record<TaskMode, ModeMeta> = {
   },
   query: {
     label: '知识查询',
-    description: '检索游戏策划知识库直接回答',
+    description: '查规则文档，帮新人快速上手',
     icon: Search,
     dotClass: 'bg-indigo',
     textClass: 'text-indigo',
@@ -38,7 +38,7 @@ export const MODE_META: Record<TaskMode, ModeMeta> = {
   },
   table: {
     label: '配表工具',
-    description: '根据策划案生成游戏配置表',
+    description: '按现有结构完成配置表',
     icon: ListChecks,
     dotClass: 'bg-emerald-500',
     textClass: 'text-emerald-600',
