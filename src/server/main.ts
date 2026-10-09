@@ -2,6 +2,8 @@ import { serve } from "@hono/node-server";
 import { bootstrap, getBootstrapState } from "./bootstrap.js";
 
 const port = Number(process.env.PORT ?? 3000);
+// 默认只绑回环：线上由 nginx 反代，避免 API 绕过网关限流直接暴露
+const hostname = process.env.HOST ?? "127.0.0.1";
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 // 演示部署兜底：未捕获的异步异常只记录不退出（默认行为是整进程崩溃，
@@ -17,6 +19,7 @@ bootstrap().then(({ app }) => {
   serve({
     fetch: app.fetch,
     port,
+    hostname,
   });
   console.log(`Server is running on http://localhost:${port}`);
 
