@@ -50,23 +50,47 @@ function demoteNonLeadingSystemMessages(msgs: BaseMessage[]): BaseMessage[] {
 
 /**
  * 重复调用守卫（循环防护）：
- * - 签名 = toolName + 规范化参数（数字字符串折叠为数字，键排序），
- *   模型交替 `"40"`/`40` 无法绕过（评测 EV-021 实证原 hash 被躲过）；
- * - 同一签名在历史中已出现 >= REPEAT_CANCEL_THRESHOLD 次 → 取消执行并提示。
+ * - 签名 = agentName + toolName + 规范化参数（数字字符串折叠为数字，键排序），
+ *   模型交替 `"40"`/`40` 无法绕过（评测 EV-021 实证原 hash 被躲过）。
+ *   agentName 参与 key：线程历史不携带 agent 归属，跨 agent 隔离由
+ *   轮次切片（findCurrentTurnStart）保证；签名带 agent 名让各 agent 的
+ *   守卫 key 空间互不干扰（日志可读，也为将来按 agent 分线程预留）；
+ * - 同一签名在**本 agent 当前轮次**内已出现 >= REPEAT_CANCEL_THRESHOLD 次
+ *   → 取消执行并提示（跨轮重跑如 HITL 批准后的流水线重放不受影响）。
  */
 export const REPEAT_CANCEL_THRESHOLD = 2;
 
-export function toolCallSignature(toolName: string, args?: Record<string, unknown>): string {
-  return hashString(`${toolName}:${stableStringify(normalizeToolArgs(args ?? {}))}`);
+export function toolCallSignature(
+  toolName: string,
+  args?: Record<string, unknown>,
+  agentName?: string,
+): string {
+  return hashString(`${agentName ?? ""}#${toolName}:${stableStringify(normalizeToolArgs(args ?? {}))}`);
+}
+
+/**
+ * 当前轮次起点：线程中最后一条 HumanMessage 之后。每个 agent 轮次以任务
+ * prompt 的 HumanMessage 开始，pre_reasoning 注入的系统提示不落线程。
+ * 找不到 HumanMessage 时返回 0（退回全历史计数）。
+ */
+export function findCurrentTurnStart(messages: BaseMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i] instanceof HumanMessage) return i + 1;
+  }
+  return 0;
 }
 
 /** 统计历史消息中同一签名工具调用的出现次数（含未执行被取消的调用，保守计数）。 */
-export function countToolCallOccurrences(messages: BaseMessage[], signature: string): number {
+export function countToolCallOccurrences(
+  messages: BaseMessage[],
+  signature: string,
+  agentName?: string,
+): number {
   let count = 0;
   for (const m of messages) {
     if (m instanceof AIMessage) {
       for (const tc of (m as AIMessage).tool_calls ?? []) {
-        if (toolCallSignature(tc.name, tc.args as Record<string, unknown>) === signature) {
+        if (toolCallSignature(tc.name, tc.args as Record<string, unknown>, agentName) === signature) {
           count += 1;
         }
       }
@@ -76,12 +100,15 @@ export function countToolCallOccurrences(messages: BaseMessage[], signature: str
 }
 
 /** 收集历史中重复执行 >=2 次的 (toolName, count) 列表，用于注入提示。 */
-export function collectRepeatedToolCalls(messages: BaseMessage[]): Array<[string, number]> {
+export function collectRepeatedToolCalls(
+  messages: BaseMessage[],
+  agentName?: string,
+): Array<[string, number]> {
   const counts = new Map<string, { name: string; count: number }>();
   for (const m of messages) {
     if (!(m instanceof AIMessage)) continue;
     for (const tc of (m as AIMessage).tool_calls ?? []) {
-      const sig = toolCallSignature(tc.name, tc.args as Record<string, unknown>);
+      const sig = toolCallSignature(tc.name, tc.args as Record<string, unknown>, agentName);
       const entry = counts.get(sig);
       if (entry) {
         entry.count += 1;
@@ -392,6 +419,9 @@ export class LangGraphAgentAdapter implements AgentPort {
         // allows system messages as the first message in the conversation.
         const remaining = descriptor.maxIterations - state.iteration;
         const injectedMessages = demoteNonLeadingSystemMessages(effectiveMessages);
+        // 本轮起点必须在注入预算提示前计算：末尾追加的提示也是 HumanMessage，
+        // 会污染"最后一条 HumanMessage"的定位。
+        const currentTurnMessages = injectedMessages.slice(findCurrentTurnStart(injectedMessages));
         if (remaining === 1) {
           injectedMessages.push(
             new HumanMessage({ content: "【系统提示】这是最后一次推理机会。你必须立即输出完整的文本结果，禁止发起任何工具调用。" })
@@ -402,9 +432,10 @@ export class LangGraphAgentAdapter implements AgentPort {
           );
         }
 
-        // 重复调用守卫：历史中同一 (tool, 规范化参数) 已执行 >=2 次 → 提示模型
+        // 重复调用守卫：本轮内同一 (tool, 规范化参数) 已执行 >=2 次 → 提示模型
         // 停止重复（评测 EV-021：模型对同一表连续 5 次重复查询烧穿 500k token 预算）。
-        const repeated = collectRepeatedToolCalls(injectedMessages);
+        // 只统计当前轮次：跨 agent 共享线程的历史不算本 agent 的重复。
+        const repeated = collectRepeatedToolCalls(currentTurnMessages, descriptor.name);
         if (repeated.length > 0) {
           const summary = repeated.map(([name, n]) => `${name}(${n} 次)`).join("、");
           injectedMessages.push(
@@ -528,14 +559,18 @@ export class LangGraphAgentAdapter implements AgentPort {
       const lastMessage = state.messages.at(-1) as AIMessageType | undefined;
       const toolCalls = lastMessage?.tool_calls ?? [];
 
-      // 重复调用守卫：同一 (tool, 规范化参数) 历史中已执行 >=2 次 → 本次取消执行，
-      // 用取消说明代替真实结果，防止模型空转烧 token（评测 6 题 token 风暴根因）。
+      // 重复调用守卫：同一 (agent, tool, 规范化参数) 在本轮推理中已执行 >=2 次
+      // → 本次取消执行，用取消说明代替真实结果，防止模型空转烧 token
+      // （评测 6 题 token 风暴根因）。计数范围限定"本 agent 当前轮次"：
+      // 按整条线程计数会把同 session 其他 agent 的同参调用误判为重复
+      // （实测 QA 首次 workspace_list 被取消），也会误伤 HITL 批准后的合法重跑。
       const priorMessages = state.messages.slice(0, -1);
+      const turnMessages = priorMessages.slice(findCurrentTurnStart(priorMessages));
       const callIdOf = (tc: { id?: string }): string => tc.id ?? "";
       const cancelledById = new Set<string>();
       for (const tc of toolCalls) {
-        const sig = toolCallSignature(tc.name, tc.args as Record<string, unknown>);
-        const prior = countToolCallOccurrences(priorMessages, sig);
+        const sig = toolCallSignature(tc.name, tc.args as Record<string, unknown>, descriptor.name);
+        const prior = countToolCallOccurrences(turnMessages, sig, descriptor.name);
         if (prior >= REPEAT_CANCEL_THRESHOLD) {
           cancelledById.add(callIdOf(tc));
           console.warn(
@@ -547,7 +582,7 @@ export class LangGraphAgentAdapter implements AgentPort {
       const cancelledMessages: BaseMessage[] = toolCalls
         .filter((tc) => cancelledById.has(callIdOf(tc)))
         .map((tc) => new ToolMessage({
-          content: `【系统】该调用 (${tc.name}) 与历史完全相同（已执行过），已由重复调用守卫取消。请基于已有信息直接作答，或换一种完全不同的查询方式。`,
+          content: `【系统】该调用 (${tc.name}) 与本轮已执行过的调用完全相同，已由重复调用守卫取消。请基于已有信息直接作答，或换一种完全不同的查询方式。`,
           tool_call_id: callIdOf(tc),
           name: tc.name,
         }));
@@ -618,13 +653,22 @@ export class LangGraphAgentAdapter implements AgentPort {
         );
       }
 
+      // 事件归因：批量并行调用时每个 post hook 必须拿到自己那个调用的结果。
+      // 此前统一取 result.messages.at(-1)，同批其他调用的观测事件全显示
+      // 最后一个调用的结果（实测 QA 三次 workspace_read 的事件全显示 F6 的）。
+      const resultContentByCallId = new Map<string, unknown>();
+      for (const m of result.messages) {
+        if (m instanceof ToolMessage) {
+          resultContentByCallId.set(m.tool_call_id, m.content);
+        }
+      }
       for (const tc of executeCalls) {
         const metadata = this.toolAdapter.lastToolMetadata.get(tc.name) || {};
         const postCtx = HookContext.create({
           agentName: descriptor.name,
           sessionId: state.sessionId,
           toolName: tc.name,
-          toolResult: JSON.stringify(result.messages.at(-1)?.content ?? ""),
+          toolResult: JSON.stringify(resultContentByCallId.get(callIdOf(tc)) ?? ""),
           metadata: { abortSignal: config?.signal, toolResultMetadata: metadata },
         });
         const afterPost = await runHooks("post_tool_execution", postCtx);

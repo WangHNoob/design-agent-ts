@@ -4,6 +4,7 @@ import { ToolResult } from "../../port/tool/ToolResult.js";
 import type { ToolRegistry } from "../../port/tool/ToolRegistry.js";
 
 export class ToolManager implements ToolRegistry {
+  readonly sessionScoped = false;
   private tools = new Map<string, ToolPort>();
   private toolGroups = new Map<string, Set<string>>();
 

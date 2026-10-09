@@ -18,7 +18,7 @@ export class WorkspaceReadTool implements ToolPort {
         task_id: {
           name: "task_id",
           type: "string",
-          description: "要读取的任务 ID（如 TASK-001）",
+          description: "要读取的任务 ID，使用规划/路由中的原始任务 ID（如 F1_combat_design，不要加 TASK- 前缀）",
           required: true,
         },
         file_name: {

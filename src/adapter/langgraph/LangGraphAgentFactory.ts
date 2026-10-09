@@ -8,7 +8,6 @@ import type { ToolPort } from "../../port/tool/ToolPort.js";
 import { ContextManagementHook } from "../../core/hook/ContextManagementHook.js";
 import { LangGraphAgentAdapter, type LangGraphSagaOptions } from "./LangGraphAgentAdapter.js";
 import { LangGraphModelAdapter } from "./LangGraphModelAdapter.js";
-import { SessionToolRegistry } from "../../core/tool/SessionToolRegistry.js";
 import { MemorySaver } from "@langchain/langgraph";
 
 export class LangGraphAgentFactory implements AgentFactory {
@@ -31,8 +30,11 @@ export class LangGraphAgentFactory implements AgentFactory {
   ): AgentPort {
     const boundHooks = this.bindMemoryHooks(hooks, memory);
 
-    // Session-scoped tools differ per call — never cache.
-    if (toolRegistry instanceof SessionToolRegistry) {
+    // Session-scoped tools differ per call — never cache. 判据用 registry
+    // 自述的 sessionScoped 标志而不是 instanceof：黑板开启时 session registry
+    // 会被 CachingToolRegistry 包一层，instanceof 检查会被击穿，导致缓存
+    // 实例带着上一个会话的 workspace/blackboard 工具跨会话复用（读错工作区）。
+    if (toolRegistry.sessionScoped) {
       return this.buildAgent(descriptor, toolRegistry, boundHooks, memory);
     }
 
