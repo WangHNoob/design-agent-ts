@@ -5,6 +5,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
+// reportUserSignal 已上移到 lib/userSignals：本组件目前无人引用，
+// 不应让使用方为工具函数把 react-markdown 拖进 bundle（bundle-barrel 同理）
+import { reportUserSignal } from '@/lib/userSignals';
 
 interface Props {
   output: string | null;
@@ -14,24 +17,6 @@ interface Props {
   sessionId?: string | null;
   executionId?: string | null;
   traceId?: string | null;
-}
-
-/** 上报用户侧信号（fire-and-forget；失败静默，不影响主流程）。 */
-export function reportUserSignal(input: {
-  kind: 'copied' | 'rated';
-  sessionId?: string | null;
-  executionId?: string | null;
-  traceId?: string | null;
-  rating?: number;
-}) {
-  const { kind, sessionId, executionId, traceId, rating } = input;
-  if (!sessionId && !executionId) return;
-  void fetch('/api/user-signals', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind, sessionId, executionId, traceId, rating }),
-    credentials: 'include',
-  }).catch(() => {});
 }
 
 export default function ResultPanel({ output, error, loading, sessionId, executionId, traceId }: Props) {

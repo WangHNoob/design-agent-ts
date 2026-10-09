@@ -143,7 +143,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
           return (
             <div
               key={log.id}
-              className="rounded-md border border-transparent hover:border-ink/6 hover:bg-paper/30 transition-colors"
+              className="rounded-md border border-transparent hover:border-ink/6 hover:bg-paper/30 transition-colors [content-visibility:auto] [contain-intrinsic-size:auto_36px]"
             >
               <div className="flex items-start gap-1.5 px-1.5 py-1">
                 {/* Time */}

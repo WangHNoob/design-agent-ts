@@ -5,6 +5,9 @@ import type { TimelineEntry } from '@/components/Console/StepsTimeline';
 import type { DetailedLog } from '@/components/Console/DetailedLogs';
 import { cancelExecution, type StreamHandle } from '@/lib/api';
 
+/** 单个会话在内存中保留的活动日志上限（与 logStore 持久化上限一致）。 */
+const MAX_LIVE_LOGS = 500;
+
 export type TaskMode = 'design' | 'query' | 'table';
 
 export interface ChatMessage {
@@ -166,8 +169,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set((state) => {
       const task = state.tasks.get(sessionId);
       if (!task) return state;
+      // 活动会话的日志随执行无限增长（每次工具调用至少 2 条），渲染端
+      // DetailedLogs 会全量 map——与 logStore 的持久化上限对齐，只保留
+      // 最近 MAX_LIVE_LOGS 条，避免长任务把内存与重渲染拖垮
+      const logs = task.logs.length >= MAX_LIVE_LOGS
+        ? [...task.logs.slice(-(MAX_LIVE_LOGS - 1)), log]
+        : [...task.logs, log];
       const tasks = new Map(state.tasks);
-      tasks.set(sessionId, { ...task, logs: [...task.logs, log] });
+      tasks.set(sessionId, { ...task, logs });
       return { tasks };
     });
   },

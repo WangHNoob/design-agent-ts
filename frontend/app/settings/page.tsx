@@ -39,6 +39,53 @@ const defaultSettings: AppSettings = {
   tavilyApiKey: '',
 };
 
+// 版本化 key（client-localstorage-schema）：字段结构演进时升 vN 做迁移，
+// 旧 key 直接作废，避免旧结构污染新默认值
+const SETTINGS_STORAGE_KEY = 'game-designer-settings:v1';
+
+/** localStorage 可用性不可靠（Safari 隐私模式/配额超限），本页所有访问都在
+ *  降级路径上——抛异常会把优雅降级变成崩溃，全部兜 try/catch（client-localstorage-schema）。 */
+const safeGetItem = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const safeSetItem = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore：降级路径下写不进就不写
+  }
+};
+const safeRemoveItem = (key: string): void => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+};
+
+/** 模块级组件（rerender-no-inline-components）：定义在页面组件内部会让
+ *  每次输入框按键都生成新组件类型，四个开关全部卸载重挂、动画重建。 */
+function Switch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!value)}
+      className={`relative flex h-6 w-11 items-center rounded-full transition-colors ${
+        value ? 'bg-coral' : 'bg-ink/15'
+      }`}
+    >
+      <motion.div
+        className="h-4 w-4 rounded-full bg-white shadow-sm"
+        animate={{ x: value ? 22 : 4 }}
+        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+      />
+    </button>
+  );
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
@@ -69,7 +116,7 @@ export default function SettingsPage() {
           tavilyApiKey: '', // never prefill sensitive keys
         }));
       } catch {
-        const stored = localStorage.getItem('game-designer-settings');
+        const stored = safeGetItem(SETTINGS_STORAGE_KEY);
         if (stored) {
           try {
             setSettings({ ...defaultSettings, ...JSON.parse(stored) });
@@ -109,7 +156,7 @@ export default function SettingsPage() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
-      localStorage.setItem('game-designer-settings', JSON.stringify(settings));
+      safeSetItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }
@@ -117,27 +164,12 @@ export default function SettingsPage() {
 
   const handleReset = () => {
     setSettings(defaultSettings);
-    localStorage.removeItem('game-designer-settings');
+    safeRemoveItem(SETTINGS_STORAGE_KEY);
   };
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
-
-  const Switch = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
-    <button
-      onClick={() => onChange(!value)}
-      className={`relative flex h-6 w-11 items-center rounded-full transition-colors ${
-        value ? 'bg-coral' : 'bg-ink/15'
-      }`}
-    >
-      <motion.div
-        className="h-4 w-4 rounded-full bg-white shadow-sm"
-        animate={{ x: value ? 22 : 4 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-      />
-    </button>
-  );
 
   if (loading) {
     return (

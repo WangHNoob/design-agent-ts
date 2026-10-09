@@ -2,16 +2,29 @@
 
 import { useRouter } from 'next/navigation';
 import { X, Loader2 } from 'lucide-react';
-import { useTaskStore } from '@/lib/stores/taskStore';
+import { useTaskStore, type TaskState } from '@/lib/stores/taskStore';
 import { MODE_META } from '@/lib/modes';
+
+/** 运行中卡片的展示签名：基元字符串让 zustand 用 Object.is 去重——
+ *  只有运行任务的关键字段（含每秒计时）变化才重渲染，其余任意 store
+ *  更新（日志、流式文本等）不再波及这个挂在根布局里的组件
+ *  （rerender-defer-reads：不要订阅渲染之外才消费的状态）。 */
+function runningTasksSignature(tasks: TaskState[]) {
+  return tasks
+    .map((t) => `${t.sessionId}|${t.mode}|${t.requirement}|${t.executionTime}`)
+    .join('\n');
+}
 
 export default function TaskDock() {
   const router = useRouter();
-  const store = useTaskStore();
+  const signature = useTaskStore((s) => runningTasksSignature(s.getRunningTasks()));
+  // 渲染期直接读快照：签名变化必然伴随重渲染，读到的就是最新数据
   // 防御性按 sessionId 去重：历史条目残留时同一会话不渲染多张卡片
-  const runningTasks = Array.from(
-    new Map(store.getRunningTasks().map((t) => [t.sessionId, t])).values(),
-  );
+  const runningTasks = signature
+    ? Array.from(
+        new Map(useTaskStore.getState().getRunningTasks().map((t) => [t.sessionId, t])).values(),
+      )
+    : [];
 
   if (runningTasks.length === 0) return null;
 
@@ -23,7 +36,7 @@ export default function TaskDock() {
           className="flex items-center gap-2 rounded-lg bg-white border border-ink/10 shadow-lg px-3 py-2 cursor-pointer hover:shadow-xl transition-shadow"
           onClick={() => {
             // 一会话三模式：统一控制台在 /design，卡片只激活会话
-            store.setActiveSession(task.sessionId);
+            useTaskStore.getState().setActiveSession(task.sessionId);
             router.push('/design');
           }}
         >
@@ -42,7 +55,7 @@ export default function TaskDock() {
             className="ml-1 p-0.5 rounded hover:bg-ink/5 text-ink/30 hover:text-red-500 transition-colors"
             onClick={(e) => {
               e.stopPropagation();
-              store.cancelTask(task.sessionId);
+              useTaskStore.getState().cancelTask(task.sessionId);
             }}
           >
             <X size={12} />
