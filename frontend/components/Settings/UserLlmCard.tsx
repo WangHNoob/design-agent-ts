@@ -38,6 +38,29 @@ const REASONING_LEVELS: Array<{ value: 'minimal' | 'low' | 'medium' | 'high'; la
   { value: 'high', label: '高' },
 ];
 
+/** 注册表 effort 原值 → 中文标签；未收录的值原样显示 */
+const EFFORT_LABELS: Record<string, string> = {
+  none: '关闭',
+  minimal: '最轻',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '超高',
+  max: '最大',
+};
+
+function effortLabel(value: string): string {
+  return EFFORT_LABELS[value] ?? value;
+}
+
+/** 精确档位 → 统一五档（存入 reasoning.mode，供无元数据回退/预算换算） */
+function effortToMode(value: string): 'minimal' | 'low' | 'medium' | 'high' {
+  if (value === 'minimal' || value === 'none') return 'minimal';
+  if (value === 'low') return 'low';
+  if (value === 'medium') return 'medium';
+  return 'high'; // high / xhigh / max 及未知高强度的兜底
+}
+
 const BUILTIN_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Claude (Anthropic)',
@@ -63,6 +86,8 @@ export default function UserLlmCard() {
   const [apiKeyMasked, setApiKeyMasked] = useState('');
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   const [reasoningMode, setReasoningMode] = useState<'minimal' | 'low' | 'medium' | 'high'>('medium');
+  /** 精确思考档位（注册表 effort 原值，如 max/xhigh/none）；仅 effort 型模型使用 */
+  const [effortValue, setEffortValue] = useState<string | null>(null);
   const [budgetTokens, setBudgetTokens] = useState('');
   const [registry, setRegistry] = useState<ModelsResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,6 +108,7 @@ export default function UserLlmCard() {
             if (['minimal', 'low', 'medium', 'high'].includes(d.reasoning.mode)) {
               setReasoningMode(d.reasoning.mode);
             }
+            if (d.reasoning.effort) setEffortValue(d.reasoning.effort);
             if (d.reasoning.budgetTokens) setBudgetTokens(String(d.reasoning.budgetTokens));
           }
         }
@@ -103,6 +129,16 @@ export default function UserLlmCard() {
     () => currentProviderMeta?.models.find((m) => m.id === modelName.trim()) ?? null,
     [currentProviderMeta, modelName],
   );
+  const effortValues = useMemo(
+    () => modelMeta?.reasoningOptions?.find((o) => o.type === 'effort')?.values ?? null,
+    [modelMeta],
+  );
+  // 切换到 effort 型模型时，若已存档位不在该模型档位表内，取表中位档兜底
+  useEffect(() => {
+    if (effortValues?.length) {
+      setEffortValue((prev) => (prev && effortValues.includes(prev) ? prev : effortValues[Math.ceil((effortValues.length - 1) / 2)]));
+    }
+  }, [effortValues]);
   const supportsBudget = modelMeta?.reasoningOptions?.some((o) => o.type === 'budget_tokens') ?? false;
   const supportsEffort = modelMeta?.reasoningOptions?.some((o) => o.type === 'effort') ?? false;
 
@@ -124,7 +160,10 @@ export default function UserLlmCard() {
     try {
       const reasoning = reasoningEnabled
         ? {
-            mode: reasoningMode,
+            mode: effortValues?.length && effortValue
+              ? effortToMode(effortValue)
+              : reasoningMode,
+            ...(effortValues?.length && effortValue ? { effort: effortValue } : {}),
             ...(supportsBudget && budgetTokens.trim() ? { budgetTokens: Number(budgetTokens.trim()) } : {}),
           }
         : { mode: 'off' as const };
@@ -271,20 +310,38 @@ export default function UserLlmCard() {
         </div>
         {reasoningEnabled && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <div className="flex rounded-lg border border-ink/10 overflow-hidden">
-              {REASONING_LEVELS.map((lv) => (
-                <button
-                  key={lv.value}
-                  type="button"
-                  onClick={() => setReasoningMode(lv.value)}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    reasoningMode === lv.value ? 'bg-coral text-white' : 'bg-white text-ink/60 hover:bg-ink/5'
-                  }`}
-                >
-                  {lv.label}
-                </button>
-              ))}
-            </div>
+            {effortValues?.length ? (
+              // 档位来自所选模型的注册表元数据（如 GLM 低/高/最大、GPT-5.1 关闭/最轻/低/中/高）
+              <div className="flex rounded-lg border border-ink/10 overflow-hidden">
+                {effortValues.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setEffortValue(value)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      effortValue === value ? 'bg-coral text-white' : 'bg-white text-ink/60 hover:bg-ink/5'
+                    }`}
+                  >
+                    {effortLabel(value)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex rounded-lg border border-ink/10 overflow-hidden">
+                {REASONING_LEVELS.map((lv) => (
+                  <button
+                    key={lv.value}
+                    type="button"
+                    onClick={() => setReasoningMode(lv.value)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      reasoningMode === lv.value ? 'bg-coral text-white' : 'bg-white text-ink/60 hover:bg-ink/5'
+                    }`}
+                  >
+                    {lv.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {supportsBudget && (
               <label className="flex items-center gap-2 text-xs text-ink/50">
                 思考预算（tokens，≥1024）
