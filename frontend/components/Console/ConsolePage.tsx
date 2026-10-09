@@ -192,8 +192,10 @@ export default function ConsolePage({ initialMode }: Props) {
         : typeof execution.result === 'string' ? execution.result
         : null;
       if (output) {
+        // 与 streamHandler complete 分支相同的确定性 ID：完成消息由 SSE、
+        // 轮询兜底、刷新回放三条路径追加，store.appendMessage 按 ID 幂等去重。
         store.appendMessage(task.sessionId, {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          id: `msg_final_${execution.id}`,
           type: 'ai',
           content: output,
           timestamp: getCurrentTime(),
@@ -202,14 +204,14 @@ export default function ConsolePage({ initialMode }: Props) {
       }
       if (execution.errorMessage) {
         store.appendMessage(task.sessionId, {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          id: `msg_final_err_${execution.id}`,
           type: 'system',
           content: `执行结束（${execution.status}）: ${execution.errorMessage}`,
           timestamp: getCurrentTime(),
         });
       } else if (execution.status === 'failed') {
         store.appendMessage(task.sessionId, {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          id: `msg_final_err_${execution.id}`,
           type: 'system',
           content: `执行失败（未返回详细错误信息，请查看右侧日志或服务端日志）`,
           timestamp: getCurrentTime(),

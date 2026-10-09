@@ -64,11 +64,38 @@ export class ToolPlanResolver {
     });
   }
 
+  /**
+   * LLM 计划的 dependencies 写在 id（T*）命名空间（见 TaskPlanner 提示词与
+   * cleanupDependencies 的按 id 校验），而可执行计划/路由以 fragmentId（F*）
+   * 为任务 ID。不同命名空间直接混用会让依赖永远无法满足，任务被整体跳过
+   * （实测：9 个子任务只有无依赖的 2 个执行）。这里翻译到可执行命名空间；
+   * 映射不到的依赖原样保留——可能是计划缺陷，也可能是指向已完成任务的合法
+   * 引用（重规划分片），不可在此区分，交由 PlanPipeline 对完整可执行计划
+   * 统一检测上报。
+   */
+  private buildDependencyTranslationMap(plan: TaskPlan): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const st of plan.subTasks) {
+      const fragmentId = st.fragmentId || st.id;
+      map.set(st.id, fragmentId);
+      if (!map.has(fragmentId)) map.set(fragmentId, fragmentId);
+    }
+    return map;
+  }
+
+  private translateDependencies(
+    translation: Map<string, string>,
+    dependencies: readonly string[],
+  ): string[] {
+    return dependencies.map((dep) => translation.get(dep) ?? dep);
+  }
+
   buildMergedExecutablePlan(
     plan: TaskPlan,
     assignments: TaskAssignment[],
     requirement: string,
   ): TaskPlan {
+    const translation = this.buildDependencyTranslationMap(plan);
     return {
       planId: plan.planId,
       requirement,
@@ -86,7 +113,10 @@ export class ToolPlanResolver {
           fragmentId: a.taskId,
           domain: a.domain,
           description: a.assignment,
-          dependencies: originalSubTask?.dependencies ?? a.dependencies ?? [],
+          dependencies: this.translateDependencies(
+            translation,
+            originalSubTask?.dependencies ?? a.dependencies ?? [],
+          ),
           priority: originalSubTask?.priority ?? 1,
           ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
         };
@@ -99,6 +129,7 @@ export class ToolPlanResolver {
     routing: Awaited<ReturnType<Router["route"]>>,
     options?: DirectorStreamOptions,
   ): TaskAssignment[] {
+    const translation = this.buildDependencyTranslationMap(plan);
     return routing
       .map((decision): TaskAssignment | null => {
         const descriptor = this.ctx.skillCtx.getAgentDescriptor(decision.agentName, options);
@@ -116,7 +147,10 @@ export class ToolPlanResolver {
           domain: decision.domain,
           assignment: decision.assignment,
           agentDescriptor: descriptor,
-          dependencies: originalSubTask?.dependencies ?? [],
+          dependencies: this.translateDependencies(
+            translation,
+            originalSubTask?.dependencies ?? [],
+          ),
           ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
         };
       })

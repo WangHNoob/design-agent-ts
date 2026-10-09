@@ -142,6 +142,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set((state) => {
       const task = state.tasks.get(sessionId);
       if (!task) return state;
+      // 幂等：完成消息同时由 SSE complete 与轮询兜底（applyExecution）两条
+      // 路径追加，刷新/重连还会回放历史事件——不带确定性 ID 去重会被显示
+      // 多遍（实测同一份完成总结在聊天里出现多次）。
+      if (msg.id && task.messages.some((m) => m.id === msg.id)) return state;
       const tasks = new Map(state.tasks);
       tasks.set(sessionId, { ...task, messages: [...task.messages, msg] });
       return { tasks };
