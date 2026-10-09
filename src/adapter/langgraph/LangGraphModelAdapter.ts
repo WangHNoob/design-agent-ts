@@ -10,6 +10,13 @@ import type { TracerPort } from "../../port/tracing/TracerPort.js";
 import { classifyModelError } from "../../core/model/classifyModelError.js";
 import { ModelCircuitBreaker } from "../../core/model/ModelCircuitBreaker.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
+import {
+  resolveProviderProtocol,
+  resolveProviderBaseUrl,
+  resolveReasoningIntent,
+  toChatOpenAIParams,
+  toChatAnthropicParams,
+} from "../../config/modelReasoning.js";
 
 export interface LangGraphModelAdapterOptions {
   /** Ordered fallback models (same or different provider). Primary is `config`. */
@@ -77,27 +84,33 @@ export class LangGraphModelAdapter implements ChatModelPort {
   }
 
   private buildModel(config: ModelConfig): ChatOpenAI | ChatAnthropic {
-    const maxTokens = config.maxTokens;
-    const temperature = config.temperature;
-    switch (config.provider) {
-      case "openai":
-      case "openai-compatible":
-        return new ChatOpenAI({
-          model: config.modelName,
-          apiKey: config.apiKey,
-          maxTokens,
-          temperature,
-          configuration: config.baseUrl ? { baseURL: config.baseUrl } : undefined,
-        });
-      case "anthropic":
-        return new ChatAnthropic({
-          model: config.modelName,
-          apiKey: config.apiKey,
-          maxTokens,
-          temperature,
-          anthropicApiUrl: config.baseUrl,
-        });
+    // provider 可以是内置协议或 models.dev 注册表 id（deepseek/zai/…）：
+    // 注册表 id 解析出协议与默认 baseURL，思考参数按该模型的能力元数据分发
+    const protocol = resolveProviderProtocol(config.provider);
+    const baseUrl = config.baseUrl ?? resolveProviderBaseUrl(config.provider) ?? undefined;
+    const intent = resolveReasoningIntent(config.provider, config.modelName, config.reasoning, config.maxTokens);
+
+    if (protocol === "anthropic") {
+      return new ChatAnthropic({
+        model: config.modelName,
+        apiKey: config.apiKey,
+        maxTokens: config.maxTokens,
+        temperature: config.temperature,
+        anthropicApiUrl: baseUrl,
+        ...toChatAnthropicParams(intent),
+      });
     }
+
+    const { reasoning, modelKwargs } = toChatOpenAIParams(intent);
+    return new ChatOpenAI({
+      model: config.modelName,
+      apiKey: config.apiKey,
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+      configuration: baseUrl ? { baseURL: baseUrl } : undefined,
+      ...(reasoning ? { reasoning } : {}),
+      ...(modelKwargs ? { modelKwargs } : {}),
+    });
   }
 
   /**
@@ -116,7 +129,7 @@ export class LangGraphModelAdapter implements ChatModelPort {
       return null;
     }
     if (!config || !config.apiKey) return null;
-    const key = `${userId}:${config.provider}:${config.modelName}:${config.baseUrl ?? ""}:${config.apiKey.slice(-8)}`;
+    const key = `${userId}:${config.provider}:${config.modelName}:${config.baseUrl ?? ""}:${config.apiKey.slice(-8)}:${JSON.stringify(config.reasoning ?? null)}`;
     const cached = this.userAdapters.get(userId);
     if (cached && cached.key === key) return cached.adapter;
     const adapter = new LangGraphModelAdapter(

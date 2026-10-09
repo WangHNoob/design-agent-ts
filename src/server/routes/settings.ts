@@ -10,6 +10,8 @@ import { redactSensitiveSettings } from "../../core/audit/redact.js";
 import { appendAudit } from "../security/auditHelpers.js";
 import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
 import { UserLlmSettingsStore, type UserLlmConfig } from "../UserLlmSettingsStore.js";
+import { listProviderMetas, loadModelSnapshot, type ReasoningOption } from "../../config/modelRegistry.js";
+import type { ReasoningConfig, ReasoningMode } from "../../port/model/ModelConfig.js";
 
 let userLlmStore: UserLlmSettingsStore | null = null;
 export function setUserLlmSettingsStore(store: UserLlmSettingsStore): void {
@@ -182,12 +184,45 @@ settingsRoute.get("/mcp/servers", async (c) => {
 });
 
 // ── 访客 BYOK：按用户模型配置（体验后应删除 Key）──
-const LLM_PROVIDERS = new Set(["openai", "anthropic", "openai-compatible"]);
+const BUILTIN_LLM_PROVIDERS = new Set(["openai", "anthropic", "openai-compatible"]);
+const REASONING_MODES = new Set<ReasoningMode>(["off", "minimal", "low", "medium", "high"]);
+
+/** 可选 provider = 内置协议 + models.dev 注册表里的全部 provider id。 */
+function allowedLlmProviders(): Set<string> {
+  return new Set([...BUILTIN_LLM_PROVIDERS, ...listProviderMetas().map((p) => p.id)]);
+}
 
 function maskKey(key: string): string {
   if (key.length <= 8) return "****";
   return key.slice(0, 4) + "****" + key.slice(-4);
 }
+
+settingsRoute.get("/models", async (c) => {
+  const snapshot = loadModelSnapshot();
+  const providers = listProviderMetas().map((p) => ({
+    id: p.id,
+    name: p.name,
+    protocol: p.protocol,
+    baseUrl: p.baseUrl,
+    models: Object.values(p.models).map((m) => ({
+      id: m.id,
+      name: m.name,
+      reasoning: m.reasoning,
+      reasoningOptions: (m.reasoningOptions ?? []) as ReasoningOption[],
+      toolCall: m.toolCall ?? false,
+      context: m.context,
+      output: m.output,
+      costIn: m.costIn,
+      costOut: m.costOut,
+      deprecated: m.deprecated ?? false,
+    })),
+  }));
+  return c.json({
+    fetchedAt: snapshot?.fetchedAt ?? null,
+    builtinProviders: [...BUILTIN_LLM_PROVIDERS],
+    providers,
+  });
+});
 
 settingsRoute.get("/llm", async (c) => {
   if (!userLlmStore) return c.json({ error: "not initialized" }, 503);
@@ -200,6 +235,7 @@ settingsRoute.get("/llm", async (c) => {
     provider: cfg.provider,
     modelName: cfg.modelName,
     baseUrl: cfg.baseUrl ?? "",
+    reasoning: cfg.reasoning ?? null,
     apiKeyMasked: maskKey(cfg.apiKey),
     updatedAt: cfg.updatedAt,
   });
@@ -214,15 +250,30 @@ settingsRoute.put("/llm", async (c) => {
   const modelName = String(body.modelName ?? "").trim();
   const apiKey = String(body.apiKey ?? "").trim();
   const baseUrl = String(body.baseUrl ?? "").trim();
-  if (!LLM_PROVIDERS.has(provider)) return c.json({ error: "不支持的 provider" }, 400);
+  if (!allowedLlmProviders().has(provider)) return c.json({ error: "不支持的 provider" }, 400);
   if (!modelName) return c.json({ error: "模型名不能为空" }, 400);
   if (!apiKey) return c.json({ error: "API Key 不能为空" }, 400);
   if (baseUrl && !/^https?:\/\//.test(baseUrl)) return c.json({ error: "Base URL 必须是 http(s) 地址" }, 400);
+  const reasoningInput = (body as { reasoning?: { mode?: unknown; budgetTokens?: unknown } }).reasoning;
+  let reasoning: ReasoningConfig | undefined;
+  if (reasoningInput && typeof reasoningInput === "object") {
+    const mode = String(reasoningInput.mode ?? "off") as ReasoningMode;
+    if (!REASONING_MODES.has(mode)) return c.json({ error: "不支持的思考档位" }, 400);
+    reasoning = { mode };
+    if (reasoningInput.budgetTokens !== undefined && reasoningInput.budgetTokens !== null) {
+      const budget = Number(reasoningInput.budgetTokens);
+      if (!Number.isFinite(budget) || budget < 1024 || budget > 1_000_000) {
+        return c.json({ error: "思考预算必须是 1024~1000000 的数值" }, 400);
+      }
+      reasoning.budgetTokens = Math.floor(budget);
+    }
+  }
   await userLlmStore.set(tenant.userId, {
-    provider: provider as UserLlmConfig["provider"],
+    provider,
     modelName,
     apiKey,
     baseUrl: baseUrl || undefined,
+    reasoning,
   });
   await appendAudit({
     userId: tenant.userId,

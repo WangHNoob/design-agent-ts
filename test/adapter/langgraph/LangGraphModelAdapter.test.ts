@@ -58,4 +58,91 @@ describe("LangGraphModelAdapter", () => {
     );
     expect(adapter.getModelName()).toBe("qwen-max");
   });
+
+  it("注册表 provider id：默认 baseURL + toggle 型思考参数（zai/GLM）", () => {
+    const adapter = new LangGraphModelAdapter({
+      provider: "zai",
+      modelName: "glm-4.6",
+      apiKey: "sk-test",
+      reasoning: { mode: "high" },
+    });
+    expect(ChatOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: { baseURL: "https://api.z.ai/api/paas/v4" },
+        modelKwargs: { enable_thinking: true },
+      })
+    );
+    expect(adapter.getModelName()).toBe("glm-4.6");
+  });
+
+  it("effort 型模型映射 reasoning.effort（deepseek），off 下发 enable_thinking=false", () => {
+    new LangGraphModelAdapter({
+      provider: "deepseek",
+      modelName: "deepseek-v4-flash",
+      apiKey: "sk-test",
+      reasoning: { mode: "high" },
+    });
+    expect(ChatOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoning: { effort: "high" } })
+    );
+
+    new LangGraphModelAdapter({
+      provider: "deepseek",
+      modelName: "deepseek-v4-flash",
+      apiKey: "sk-test",
+      reasoning: { mode: "off" },
+    });
+    expect(ChatOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({ modelKwargs: { enable_thinking: false } })
+    );
+  });
+
+  it("anthropic 协议注册表 id（minimax）走 ChatAnthropic；未登记模型按协议回退预算思考", () => {
+    new LangGraphModelAdapter({
+      provider: "minimax",
+      modelName: "minimax-unknown-model",
+      apiKey: "sk-test",
+      reasoning: { mode: "high" },
+    });
+    expect(ChatAnthropic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anthropicApiUrl: "https://api.minimax.io/anthropic/v1",
+        thinking: { type: "enabled", budget_tokens: 16384 },
+      })
+    );
+  });
+
+  it("用户显式 baseUrl 覆盖注册表预设", () => {
+    new LangGraphModelAdapter({
+      provider: "deepseek",
+      modelName: "deepseek-v4-flash",
+      apiKey: "sk-test",
+      baseUrl: "https://my-proxy.example.com/v1",
+    });
+    expect(ChatOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: { baseURL: "https://my-proxy.example.com/v1" },
+      })
+    );
+  });
+
+  it("无 reasoning 配置：toggle 型模型显式关思考，未登记模型不传思考参数", () => {
+    new LangGraphModelAdapter({
+      provider: "deepseek",
+      modelName: "deepseek-v4-flash",
+      apiKey: "sk-test",
+    });
+    expect(ChatOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({ modelKwargs: { enable_thinking: false } })
+    );
+
+    new LangGraphModelAdapter({
+      provider: "openai-compatible",
+      modelName: "totally-unknown-model",
+      apiKey: "sk-test",
+    });
+    const call = vi.mocked(ChatOpenAI).mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(call.reasoning).toBeUndefined();
+    expect(call.modelKwargs).toBeUndefined();
+  });
 });
