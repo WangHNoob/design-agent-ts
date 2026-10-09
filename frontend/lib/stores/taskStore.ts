@@ -10,15 +10,24 @@ const MAX_LIVE_LOGS = 500;
 
 export type TaskMode = 'design' | 'query' | 'table';
 
+/** 进度卡片锚点消息携带的规划任务清单（plan 事件快照，随卡片原地更新状态） */
+export interface ProgressPlanTask {
+  taskId: string;
+  title: string;
+  agentName?: string;
+}
+
 export interface ChatMessage {
   id: string;
-  type: 'user' | 'ai' | 'system';
+  type: 'user' | 'ai' | 'system' | 'progress';
   content: string;
   timestamp: string;
   /** 该消息所属执行的策略（一会话三模式）；旧消息与系统消息无此字段 */
   mode?: TaskMode;
   /** 本条回答引用的知识库证据（WeKnora 检索）；无检索为空 */
   sources?: KnowledgeSource[];
+  /** type==='progress'：本执行的规划任务清单，状态从 timeline 按 taskId 实时取 */
+  progress?: { tasks: ProgressPlanTask[] };
 }
 
 export interface KnowledgeSource {

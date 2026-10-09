@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { useTaskStore } from "../../frontend/lib/stores/taskStore.js";
-import { handleStreamEvent } from "../../frontend/lib/streamHandler.js";
+import { handleStreamEvent, resetTaskTracking } from "../../frontend/lib/streamHandler.js";
 
 const store = useTaskStore;
 
@@ -84,5 +84,70 @@ describe("完成消息幂等去重", () => {
     handleStreamEvent("s1", "task_start", { taskId: "F2", description: "平衡", domain: "combat_design" }, store.getState());
     const taskRows = (store.getState().getTask("s1")?.timeline ?? []).filter((e) => e.type === "task");
     expect(taskRows).toHaveLength(2);
+  });
+});
+
+describe("主对话进度卡片锚点", () => {
+  beforeEach(() => {
+    store.getState().removeTask("s1");
+  });
+
+  const planEvent = {
+    message: "规划完成",
+    plan: {
+      subTasks: [
+        { id: "F1", domain: "combat_design", description: "战斗框架设计", dependencies: [] },
+        { id: "F2", domain: "numerical_planning", description: "数值规划", dependencies: ["F1"] },
+      ],
+    },
+  };
+
+  test("plan 事件在主对话锚定一张进度卡片（确定性 ID）", () => {
+    seedTask("s1", "exec-1");
+    handleStreamEvent("s1", "plan", planEvent, store.getState());
+
+    const messages = store.getState().getTask("s1")?.messages ?? [];
+    const progressMsgs = messages.filter((m) => m.type === "progress");
+    expect(progressMsgs).toHaveLength(1);
+    expect(progressMsgs[0].id).toBe("msg_progress_exec-1");
+    expect(progressMsgs[0].progress?.tasks).toEqual([
+      { taskId: "F1", title: "战斗框架设计", agentName: "战斗策划" },
+      { taskId: "F2", title: "数值规划", agentName: "数值策划" },
+    ]);
+  });
+
+  test("HITL 重放/断线回放的重复 plan 事件不重复锚点", () => {
+    seedTask("s1", "exec-1");
+    handleStreamEvent("s1", "plan", planEvent, store.getState());
+    handleStreamEvent("s1", "plan", planEvent, store.getState());
+    handleStreamEvent("s1", "plan", planEvent, store.getState());
+    expect((store.getState().getTask("s1")?.messages ?? []).filter((m) => m.type === "progress")).toHaveLength(1);
+  });
+
+  test("plan 警告或空规划不锚定卡片", () => {
+    seedTask("s1", "exec-1");
+    handleStreamEvent("s1", "plan", { warning: true, message: "降级" }, store.getState());
+    handleStreamEvent("s1", "plan", { message: "空规划", plan: { subTasks: [] } }, store.getState());
+    expect((store.getState().getTask("s1")?.messages ?? []).filter((m) => m.type === "progress")).toHaveLength(0);
+  });
+
+  test("新一轮执行（resetTaskTracking）后锚点换新，两轮卡片并存", () => {
+    seedTask("s1", "exec-1");
+    handleStreamEvent("s1", "plan", planEvent, store.getState());
+    // 同会话重新发起执行：ConsolePage handleSubmit 会先 resetTaskTracking
+    resetTaskTracking("s1");
+    store.getState().updateTask("s1", { executionId: "exec-2" });
+    handleStreamEvent("s1", "plan", planEvent, store.getState());
+
+    const progressMsgs = (store.getState().getTask("s1")?.messages ?? []).filter((m) => m.type === "progress");
+    expect(progressMsgs).toHaveLength(2);
+    expect(progressMsgs.map((m) => m.id)).toEqual(["msg_progress_exec-1", "msg_progress_exec-2"]);
+  });
+
+  test("task_start 的时间线条目携带 taskId（进度卡片匹配键）", () => {
+    seedTask("s1", "exec-1");
+    handleStreamEvent("s1", "task_start", { taskId: "F3", description: "数值规划", domain: "numerical_planning" }, store.getState());
+    const taskRows = (store.getState().getTask("s1")?.timeline ?? []).filter((e) => e.type === "task");
+    expect(taskRows[0].taskId).toBe("F3");
   });
 });

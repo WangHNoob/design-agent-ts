@@ -14,7 +14,10 @@ function mapDomainToAgentName(domain: string): string {
     executive: '执行策划',
     qa: 'QA策划',
   };
-  return map[domain.toLowerCase()] || domain;
+  const key = domain.toLowerCase();
+  // 事件里的 domain 是全称（如 combat_design / numerical_planning）：
+  // 先全称匹配，再退到前缀
+  return map[key] || map[key.split('_')[0]] || domain;
 }
 
 const activeTaskRef = new Map<string, string | null>();
@@ -22,10 +25,28 @@ const taskEntriesRef = new Map<string, Map<string, TimelineEntry>>();
 // 已处理过的执行 start（按 traceId）：SSE 断线重连/恢复会全量回放事件历史，
 // 回放流里的 start 不能再次重置追踪表、把界面拉回 loading 或重复追加时间线
 const seenStartTraces = new Map<string, Set<string>>();
+// 进度卡片锚点消息 id：同一执行内重复 plan 事件（HITL 重放/断线回放）复用同一 id
+const progressAnchorRef = new Map<string, string>();
 
 export function resetTaskTracking(sessionId: string) {
   activeTaskRef.set(sessionId, null);
   taskEntriesRef.set(sessionId, new Map());
+  progressAnchorRef.delete(sessionId);
+}
+
+/**
+ * 进度卡片锚点消息的确定性 ID：优先用执行 id（跨刷新/回放稳定）；
+ * 尚未同步到 executionId 时退化为随机 id 并记住，同一执行内的后续事件复用。
+ */
+function resolveProgressAnchorId(sessionId: string, store: TaskStore): string {
+  const existing = progressAnchorRef.get(sessionId);
+  if (existing) return existing;
+  const executionId = store.getTask(sessionId)?.executionId;
+  const id = executionId
+    ? `msg_progress_${executionId}`
+    : `msg_progress_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  progressAnchorRef.set(sessionId, id);
+  return id;
 }
 
 export function handleStreamEvent(
@@ -105,6 +126,24 @@ export function handleStreamEvent(
         status: isWarning ? 'error' : 'completed',
         detail: plan?.subTasks ? plan.subTasks.map(t => `${t.id} [${t.domain}]`).join(' → ') : undefined,
       });
+      // 主对话进度卡片：规划完成即锚定一张卡片（plan 快照为任务清单），
+      // 状态由 ProgressCard 按 taskId 从 timeline 实时取。确定性 ID 幂等，
+      // HITL 重放/断线回放只会有这一张。
+      if (!isWarning && plan?.subTasks?.length) {
+        store.appendMessage(sessionId, {
+          id: resolveProgressAnchorId(sessionId, store),
+          type: 'progress',
+          content: '任务进度',
+          timestamp: getCurrentTime(),
+          progress: {
+            tasks: plan.subTasks.map((t) => ({
+              taskId: t.id,
+              title: t.description,
+              agentName: mapDomainToAgentName(t.domain),
+            })),
+          },
+        });
+      }
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
@@ -295,6 +334,7 @@ export function handleStreamEvent(
           type: 'task',
           title: description,
           agentName,
+          taskId,
           status: 'running',
         };
         store.appendTimeline(sessionId, entry);
