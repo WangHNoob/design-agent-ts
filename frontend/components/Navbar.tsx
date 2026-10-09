@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { LayoutDashboard, Gamepad2, Settings, ClipboardCheck, ScrollText, FolderCog, LogOut, User } from 'lucide-react';
+import { LayoutDashboard, Gamepad2, Settings, ClipboardCheck, ScrollText, LogOut, User } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from './AuthProvider';
@@ -11,8 +11,7 @@ const navItems = [
   { href: '/dashboard', label: '监控台', icon: LayoutDashboard },
   { href: '/logs', label: '日志', icon: ScrollText },
   { href: '/review', label: '审阅中心', icon: ClipboardCheck },
-  { href: '/settings/prompts', label: '管理', icon: FolderCog, isManage: true },
-  { href: '/settings', label: '设置', icon: Settings, isSettings: true },
+  { href: '/settings', label: '设置', icon: Settings },
 ];
 
 export default function Navbar() {
@@ -43,12 +42,10 @@ export default function Navbar() {
 
         <div className="flex items-center gap-1">
           {navItems.map((item) => {
-            const isManageSubPage = pathname.startsWith('/settings/');
-            const isActive = item.isManage
-              ? isManageSubPage
-              : item.isSettings
-                ? pathname === '/settings'
-                : pathname === item.href || pathname.startsWith(item.href + '/');
+            // /settings 下的旧子路由（已重定向）也归"设置"高亮
+            const isActive = item.href === '/settings'
+              ? pathname === '/settings' || pathname.startsWith('/settings/')
+              : pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
             return (
               <Link
