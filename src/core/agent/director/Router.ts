@@ -32,9 +32,13 @@ Task plan:
 
 Available agents: SystemDesigner, CombatDesigner, NumericalPlanner, GameplayDesigner, ExecutivePlanner, QAPlanner
 
+Rules:
+- Output exactly ONE decision per sub-task, in the SAME ORDER as the task plan.
+- Do NOT output any task id / fragmentId — the system assigns task numbers itself.
+
 Output format (JSON array):
 [
-  { "fragmentId": "F1", "domain": "system_design", "agentName": "SystemDesigner", "assignment": "...", "priority": 1 }
+  { "domain": "system_design", "agentName": "SystemDesigner", "assignment": "...", "priority": 1 }
 ]`;
 
 // ---------------------------------------------------------------------------
@@ -123,12 +127,26 @@ export class Router {
     }
 
     const typedRole = role as Role;
-    const decisions: RouteDecision[] = result.value.map((item) => ({
+    const parsed: RouteDecision[] = result.value.map((item) => ({
       fragmentId: item.fragmentId,
       domain: item.domain,
       agentName: item.agentName,
       assignment: item.assignment,
       priority: item.priority,
+    }));
+    // fragmentId（任务序号）由代码按位置键控，绝不采信 LLM 输出的编号
+    //（实测 6 个决策曾被全部回显为 "F1"）。决策数与任务数对不上说明 LLM
+    // 丢/编了任务，整体退化为确定性路由。
+    if (parsed.length !== plan.subTasks.length) {
+      this.logger.warn(
+        `[Router] LLM routing produced ${parsed.length} decisions for ${plan.subTasks.length} tasks → deterministic degrade`,
+      );
+      return this.routeDeterministic(plan, role);
+    }
+    const fragmentIds = plan.subTasks.map((st) => st.fragmentId || st.id);
+    const decisions: RouteDecision[] = parsed.map((d, i) => ({
+      ...d,
+      fragmentId: fragmentIds[i]!,
     }));
     const filtered = decisions.filter((d) => canAccessDomain(typedRole, d.domain));
     if (filtered.length === 0) {

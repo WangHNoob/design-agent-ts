@@ -326,7 +326,7 @@ export class PlanExecutor {
 
     const designSummary = this.buildDesignSummary({
       results,
-      expectedTotal: runResult.finalPlan.subTasks.length,
+      planTaskIds: runResult.finalPlan.subTasks.map((t) => t.id),
       sessionId,
       conflictCount: integration.conflictCount,
     });
@@ -388,20 +388,27 @@ export class PlanExecutor {
   }
   /**
    * 统一构造策划生成的收尾总结（流式/非流式共用，消除双份实现漂移）。
-   * 必须校验覆盖率：success 数与可执行计划任务数不符（存在 skipped/error
-   * 结果）时，明确输出部分完成警告并列出缺失任务——绝不假装全量成功
-   * （实测曾出现 9 个子任务只跑 2 个仍宣告"已生成"的事故）。
+   * 必须校验覆盖率：success 数与计划任务数不符（skipped/error 结果，或
+   * 计划中的任务没有任何结果）时，明确输出部分完成警告并列出缺失任务——
+   * 绝不假装全量成功（实测曾出现 9 个子任务只跑 2 个仍宣告"已生成"、
+   * 以及 6 个任务只剩 1 个却列出「未完成（0 个）」的事故）。
    */
   private buildDesignSummary(params: {
     results: readonly TaskResult[];
-    expectedTotal: number;
+    planTaskIds: readonly string[];
     sessionId: string;
     conflictCount: number;
-  }): { summary: string; allCompleted: boolean; completedCount: number } {
-    const { results, expectedTotal, sessionId, conflictCount } = params;
+  }): { summary: string; allCompleted: boolean; completedCount: number; expectedTotal: number } {
+    const { results, planTaskIds, sessionId, conflictCount } = params;
     const completedCount = results.filter((r) => r.status === "success").length;
     const notExecuted = results.filter((r) => r.status === "skipped" || r.status === "error");
-    const allCompleted = completedCount >= expectedTotal && notExecuted.length === 0;
+    // 计划中没有任何结果的任务（如路由编号错乱被去重吞掉）：既不是
+    // skipped 也不是 error，必须单独列出，否则清单会是空的
+    const resultedIds = new Set(results.map((r) => r.taskId));
+    const missingIds = planTaskIds.filter((id) => !resultedIds.has(id));
+    const expectedTotal = new Set(planTaskIds).size;
+    const incompleteCount = notExecuted.length + missingIds.length;
+    const allCompleted = completedCount >= expectedTotal && incompleteCount === 0;
 
     const fileList = results
       .filter((r) => r.status === "success")
@@ -417,15 +424,19 @@ export class PlanExecutor {
       ? `\n\n⚠️ 检测到 **${conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
       : "";
 
+    const incompleteLines = [
+      ...missingIds.map((id) => `- **${id}**（未执行）：该任务没有产生任何执行结果`),
+      ...notExecuted.map((r) => `- **${r.taskId}**（${r.status}）${r.errorMessage ? `：${r.errorMessage}` : ""}`),
+    ];
     const incompleteNote = allCompleted
       ? ""
-      : `\n\n### ⚠️ 未完成的子任务（${notExecuted.length} 个）\n\n${notExecuted.map((r) => `- **${r.taskId}**（${r.status}）${r.errorMessage ? `：${r.errorMessage}` : ""}`).join("\n")}\n\n> 本次执行未覆盖全部规划任务，以下内容缺失，请勿直接作为最终方案使用。`;
+      : `\n\n### ⚠️ 未完成的子任务（${incompleteCount} 个）\n\n${incompleteLines.join("\n")}\n\n> 本次执行未覆盖全部规划任务，以上内容缺失，请勿直接作为最终方案使用。`;
 
     const summary = allCompleted
       ? `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`
       : `## ⚠️ 策划方案部分完成（${completedCount}/${expectedTotal} 个子任务）\n\n已完成的产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}${incompleteNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档，或补充信息后重新执行。`;
 
-    return { summary, allCompleted, completedCount };
+    return { summary, allCompleted, completedCount, expectedTotal };
   }
 
   /**
@@ -1237,7 +1248,7 @@ export class PlanExecutor {
 
       const designSummary = this.buildDesignSummary({
         results,
-        expectedTotal: runResult.finalPlan.subTasks.length,
+        planTaskIds: runResult.finalPlan.subTasks.map((t) => t.id),
         sessionId,
         conflictCount: integration.conflictCount,
       });
@@ -1292,7 +1303,7 @@ export class PlanExecutor {
           output: summary,
           partial: !designSummary.allCompleted,
           completedCount: designSummary.completedCount,
-          expectedTotal: runResult.finalPlan.subTasks.length,
+          expectedTotal: designSummary.expectedTotal,
         },
       };
     } catch (err) {
