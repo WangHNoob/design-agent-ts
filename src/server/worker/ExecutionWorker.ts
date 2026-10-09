@@ -27,6 +27,7 @@ import type {
   QueueMessage,
 } from "../../port/queue/MessageQueuePort.js";
 import type { SessionRepository, SessionMeta } from "../../port/session/SessionRepository.js";
+import { getSessionContextUsage } from "../../core/context/SessionContextTracker.js";
 import type { TenantContext } from "../../port/user/TenantIsolationPort.js";
 import type { ExecutionOverrides } from "../../core/versioning/buildExecutionOverrides.js";
 
@@ -574,6 +575,19 @@ export class ExecutionWorker {
       } finally {
         clearInterval(pollTimer);
         this.activeExecutions.delete(execution.id);
+        // 会话上下文用量落库：所有终态（成功/失败/取消/重试）都记录最近一次
+        // 真实 input tokens，重启后前端仍可展示上下文用量
+        try {
+          const usage = getSessionContextUsage(execution.sessionId);
+          if (usage) {
+            await sessionRepository.update(execution.sessionId, {
+              contextTokens: usage.tokens,
+              ...(usage.window ? { contextWindow: usage.window } : {}),
+            });
+          }
+        } catch (err) {
+          console.warn(`[ExecutionWorker] 会话上下文用量落库失败: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     } finally {
       this.deps.inflightLimiter.release(lane);

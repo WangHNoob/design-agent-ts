@@ -17,6 +17,7 @@ import {
   toChatOpenAIParams,
   toChatAnthropicParams,
 } from "../../config/modelReasoning.js";
+import { getModelMeta } from "../../config/modelRegistry.js";
 
 export interface LangGraphModelAdapterOptions {
   /** Ordered fallback models (same or different provider). Primary is `config`. */
@@ -202,6 +203,13 @@ export class LangGraphModelAdapter implements ChatModelPort {
       }
     }
     return this.chain[this.activeIndex] ?? null;
+  }
+
+  /** 当前生效模型的上下文窗口（models.dev 注册表），未知返回 null。 */
+  getActiveContextWindow(): number | null {
+    const cfg = this.getActiveModelConfig();
+    if (!cfg) return null;
+    return getModelMeta(cfg.provider, cfg.modelName)?.context ?? null;
   }
 
   getChainLength(): number {

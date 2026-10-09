@@ -102,6 +102,22 @@ export async function compactSession(sessionId: string): Promise<{ compactedTurn
   return res.json();
 }
 
+export interface SessionContextUsageInfo {
+  tokens: number | null;
+  window: number | null;
+  budget: number | null;
+  model: string | null;
+  updatedAt: string | null;
+  source?: 'live' | 'persisted' | 'empty';
+}
+
+/** 会话上下文用量：最近一次 LLM 调用实际收到的 input tokens + 压缩预算（80% 线） */
+export async function getSessionContext(sessionId: string): Promise<SessionContextUsageInfo | null> {
+  const res = await apiFetch(`${API_BASE}/api/sessions/${sessionId}/context`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export interface ExecutionRecord {
   id: string;
   sessionId: string;

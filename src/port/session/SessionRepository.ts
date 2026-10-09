@@ -21,6 +21,10 @@ export interface SessionMeta {
   versionSnapshotId?: string;
   /** 人工触发"压缩上下文"生成的会话摘要；后续执行自动注入 prompt 背景 */
   contextSummary?: string;
+  /** 最近一次 LLM 调用模型实际收到的 input tokens（会话上下文长度） */
+  contextTokens?: number;
+  /** 记录该值时生效模型的上下文窗口 */
+  contextWindow?: number;
 }
 
 export interface SessionRepository {

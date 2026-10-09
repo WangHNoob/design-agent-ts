@@ -105,12 +105,19 @@ describe("Postgres Drizzle migrations", () => {
     expect(migration).toContain('"rating" integer');
   });
 
+  test("adds sessions context summary/usage columns in 0011", () => {
+    const migration = readFileSync(resolve("drizzle/0011_tense_leech.sql"), "utf8");
+    expect(migration).toContain('ADD COLUMN "context_summary" text');
+    expect(migration).toContain('ADD COLUMN "context_tokens" integer');
+    expect(migration).toContain('ADD COLUMN "context_window" integer');
+  });
+
   test("keeps the migration journal and snapshot in sync", () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
     ) as { entries: Array<{ idx: number; tag: string }> };
     const snapshot = JSON.parse(
-      readFileSync(resolve("drizzle/meta/0010_snapshot.json"), "utf8"),
+      readFileSync(resolve("drizzle/meta/0011_snapshot.json"), "utf8"),
     ) as {
       tables: Record<string, {
         columns: Record<string, { notNull: boolean }>;
@@ -129,10 +136,11 @@ describe("Postgres Drizzle migrations", () => {
       "0008_fat_supernaut",
       "0009_tranquil_misty_knight",
       "0010_right_famine",
+      "0011_tense_leech",
     ]);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 10,
-      tag: "0010_right_famine",
+      idx: 11,
+      tag: "0011_tense_leech",
     });
     expect(Object.keys(snapshot.tables)).toEqual(
       expect.arrayContaining([

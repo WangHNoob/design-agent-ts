@@ -54,6 +54,8 @@ export const sessions = pgTable(
     hitlCheckpointId: varchar("hitl_checkpoint_id", { length: 100 }),
     versionSnapshotId: uuid("version_snapshot_id"),
     contextSummary: text("context_summary"),
+    contextTokens: integer("context_tokens"),
+    contextWindow: integer("context_window"),
     createdAt,
     updatedAt,
   },
