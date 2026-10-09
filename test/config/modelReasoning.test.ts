@@ -3,6 +3,7 @@ import {
   resolveProviderProtocol,
   resolveProviderBaseUrl,
   resolveReasoningIntent,
+  snapEffortToValues,
   toChatOpenAIParams,
   toChatAnthropicParams,
   EFFORT_DEFAULT_BUDGET,
@@ -63,6 +64,16 @@ describe("resolveReasoningIntent（按注册表 reasoning_options 分发）", ()
     expect(resolveReasoningIntent("openai-compatible", "unknown-model", { mode: "high" })).toBeNull();
   });
 
+  test("effort 档位按注册表 values 对齐（GLM [low,high,max]）", () => {
+    // glm-coding-plan = anthropic 协议 + 仅 effort 型：字面量匹配优先，
+    // UI 五档中不在表内的才按强度排名取最近档
+    expect(resolveReasoningIntent("glm-coding-plan", "glm-5.3-flash", { mode: "medium" })).toEqual({ effort: "high" });
+    expect(resolveReasoningIntent("glm-coding-plan", "glm-5.3-flash", { mode: "high" })).toEqual({ effort: "high" });
+    expect(resolveReasoningIntent("glm-coding-plan", "glm-5.3-flash", { mode: "low" })).toEqual({ effort: "low" });
+    // 始终思考模型无 toggle 选项：off 时不传参数（无法关闭）
+    expect(resolveReasoningIntent("glm-coding-plan", "glm-5.3-flash", { mode: "off" })).toBeNull();
+  });
+
   test("注册表明确不支持思考的模型返回 null（不透传会被拒的参数）", () => {
     // 在快照里找一个 reasoning=false 的模型（如 minimax 的非推理模型），找不到就跳过
     const s = require("../../config/models.snapshot.json");
@@ -87,11 +98,33 @@ describe("参数翻译", () => {
     expect(toChatOpenAIParams(null)).toEqual({});
   });
 
-  test("预算 → ChatAnthropic thinking", () => {
+  test("预算 → ChatAnthropic thinking；档位 → outputConfig.effort", () => {
     expect(toChatAnthropicParams({ thinkingBudget: 8192 })).toEqual({
       thinking: { type: "enabled", budget_tokens: 8192 },
     });
-    expect(toChatAnthropicParams({ effort: "high" })).toEqual({});
+    expect(toChatAnthropicParams({ effort: "high" })).toEqual({
+      outputConfig: { effort: "high" },
+    });
+    expect(toChatAnthropicParams({ effort: "max" })).toEqual({
+      outputConfig: { effort: "max" },
+    });
     expect(toChatAnthropicParams(null)).toEqual({});
+  });
+
+  describe("snapEffortToValues", () => {
+    test("完全匹配时原样返回", () => {
+      expect(snapEffortToValues("medium", ["minimal", "low", "medium", "high"])).toBe("medium");
+      expect(snapEffortToValues("high", ["low", "high", "max"])).toBe("high");
+    });
+    test("GLM 三档映射：minimal/low→low、medium→high（high 字面量命中）", () => {
+      const values = ["low", "high", "max"];
+      expect(snapEffortToValues("minimal", values)).toBe("low");
+      expect(snapEffortToValues("low", values)).toBe("low");
+      expect(snapEffortToValues("medium", values)).toBe("high");
+    });
+    test("两档模型：medium 取中位", () => {
+      expect(snapEffortToValues("medium", ["low", "high"])).toBe("high");
+      expect(snapEffortToValues("low", ["low", "high"])).toBe("low");
+    });
   });
 });
