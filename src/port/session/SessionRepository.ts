@@ -19,6 +19,8 @@ export interface SessionMeta {
   hitlCheckpointId?: string;
   /** Pinned artifact version snapshot (MVCC). */
   versionSnapshotId?: string;
+  /** 人工触发"压缩上下文"生成的会话摘要；后续执行自动注入 prompt 背景 */
+  contextSummary?: string;
 }
 
 export interface SessionRepository {

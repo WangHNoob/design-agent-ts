@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download, Copy, Check, BookOpen } from 'lucide-react';
+import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download, Copy, Check, BookOpen, Scissors } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useShallow } from 'zustand/react/shallow';
@@ -13,7 +13,7 @@ import { ProgressCard } from '@/components/Console/ProgressCard';
 import { reportUserSignal } from '@/lib/userSignals';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
-import { executeDesign, executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
+import { executeDesign, executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, compactSession, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage, type KnowledgeSource } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking, dedupeSources } from '@/lib/streamHandler';
 import ModePicker from '@/components/Console/ModePicker';
@@ -758,6 +758,31 @@ export default function ConsolePage({ initialMode }: Props) {
     }
   };
 
+  const [compactBusy, setCompactBusy] = useState(false);
+  const handleCompactContext = useCallback(async () => {
+    const sid = activeSessionId;
+    if (!sid || compactBusy) return;
+    setCompactBusy(true);
+    try {
+      const res = await compactSession(sid);
+      store.appendMessage(sid, {
+        id: `msg_compact_${Date.now()}`,
+        type: 'system',
+        content: `已把本会话 ${res.compactedTurns} 轮历史压缩为上下文摘要，后续执行将自动携带。`,
+        timestamp: getCurrentTime(),
+      });
+    } catch (err) {
+      store.appendMessage(sid, {
+        id: `msg_compact_err_${Date.now()}`,
+        type: 'system',
+        content: `压缩失败：${err instanceof Error ? err.message.slice(0, 120) : '未知错误'}`,
+        timestamp: getCurrentTime(),
+      });
+    } finally {
+      setCompactBusy(false);
+    }
+  }, [activeSessionId, compactBusy, store]);
+
   const handleNewChat = () => {
     store.setActiveSession(null);
     setRequirement('');
@@ -1058,6 +1083,17 @@ export default function ConsolePage({ initialMode }: Props) {
                 <div className="flex items-center justify-between px-3 pb-2">
                   <div className="flex items-center gap-2">
                     <ModePicker mode={mode} disabled={loading} onChange={handleModeChange} />
+                    <button
+                      onClick={handleCompactContext}
+                      disabled={loading || !activeSessionId || compactBusy}
+                      title="把本会话历史压缩为上下文摘要，后续执行自动携带（腾出上下文空间）"
+                      className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
+                        'bg-ink/5 text-ink/50 hover:bg-ink/10 hover:text-ink'
+                      } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    >
+                      {compactBusy ? <Loader2 size={10} className="animate-spin" /> : <Scissors size={10} />}
+                      压缩上下文
+                    </button>
                     <button
                       onClick={() => setUseStream(!useStream)}
                       className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${

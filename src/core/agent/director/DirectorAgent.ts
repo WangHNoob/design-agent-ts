@@ -116,6 +116,12 @@ export interface DirectorDeps {
     maxActiveMessages?: number;
     maxTokens?: number;
     compressionThreshold?: number;
+    /**
+     * 当前生效模型的上下文窗口（tokens），BYOK 命中时为用户模型的窗口。
+     * 压缩预算 = compressionThreshold × min(maxTokens, contextWindow)；
+     * 返回 null（注册表无该模型）时按 maxTokens 原值。
+     */
+    contextWindow?: () => number | null;
     /** 归档摘要器：缺省启发式；注入 LLMSummarizerAdapter 启用 LLM 摘要（01-P3） */
     summarizer?: SummarizerPort;
   };

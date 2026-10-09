@@ -156,7 +156,10 @@ export class ExecutionWorker {
     return this.deps.contextStorage.run(
       context,
       async () => {
-        await this.deps.preloadUserModel?.().catch(() => {});
+        await this.deps.preloadUserModel?.().catch((err) => {
+          // 静默吞错会掩盖 BYOK 加载失败（用户以为在用自己的模型，实际回退全局）
+          console.warn(`[ExecutionWorker] 用户模型预热失败，本次执行回退全局模型: ${err instanceof Error ? err.message : String(err)}`);
+        });
         return await this.runExecution(
         message,
         execution,
@@ -283,6 +286,15 @@ export class ExecutionWorker {
         const initialTaskResults = this.initialTaskResults(tasks);
         const resumePlan = this.parseTaskPlan(execution.planPayload);
         const sessionMeta = await sessionRepository.get(execution.sessionId);
+        // 人工压缩生成的会话摘要置顶注入：design/table 走 sessionContext 块，
+        // query 模式随 history 进消息——所有模式自动携带
+        const sessionSummary = sessionMeta?.contextSummary?.trim();
+        const historyWithSummary = sessionSummary
+          ? [
+              { role: "assistant" as const, content: `【会话上下文摘要（人工压缩）】\n${sessionSummary}` },
+              ...(request.history ?? []),
+            ]
+          : request.history;
         const executionOverrides = this.deps.executionOverridesFactory
           ? await this.deps.executionOverridesFactory(sessionMeta, context.userId)
           : undefined;
@@ -295,7 +307,7 @@ export class ExecutionWorker {
           userId: context.userId,
           executionOverrides,
           // design/table 模式的会话上下文：query 模式仍走 executeStream 的 history 参数
-          sessionHistory: request.history,
+          sessionHistory: historyWithSummary,
         };
         const attempts = new Map<string, ExecutionAttempt>();
         let completedOutput = "";
@@ -334,7 +346,7 @@ export class ExecutionWorker {
             execution.sessionId,
             request.mode,
             request.role,
-            request.history,
+            historyWithSummary,
             options,
           )) {
             if (abandoned) break;

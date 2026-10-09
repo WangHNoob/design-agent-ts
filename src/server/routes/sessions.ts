@@ -11,6 +11,8 @@ export type ExecutionRepositoryFactory = (userId: string) => ExecutionRepository
 let sessionRepositoryFactory: SessionRepositoryFactory | null = null;
 let executionRepositoryFactoryInjected: ExecutionRepositoryFactory | null = null;
 let workspaceManagerInstance: WorkspaceManager | null = null;
+/** 手动压缩服务（bootstrap 注入）：把会话轮次蒸馏为上下文摘要 */
+let sessionCompactService: ((sessionId: string, turns: Array<{ requirement: string; output: string }>) => Promise<string>) | null = null;
 
 export function setSessionRepositoryFactory(factory: SessionRepositoryFactory) {
   sessionRepositoryFactory = factory;
@@ -22,6 +24,12 @@ export function setExecutionRepositoryFactory(factory: ExecutionRepositoryFactor
 
 export function setWorkspaceManager(ws: WorkspaceManager) {
   workspaceManagerInstance = ws;
+}
+
+export function setSessionCompactService(
+  service: (sessionId: string, turns: Array<{ requirement: string; output: string }>) => Promise<string>,
+) {
+  sessionCompactService = service;
 }
 
 function isValidSessionId(id: string): boolean {
@@ -130,6 +138,57 @@ sessionsRoute.get("/:id/messages", async (c) => {
     .filter((turn) => turn.requirement.length > 0);
 
   return c.json({ sessionId, turns });
+});
+
+// 手动压缩：把会话已有的全部轮次蒸馏为一段上下文摘要（LLM），存入
+// sessions.context_summary；后续执行的 prompt 背景自动携带该摘要。
+sessionsRoute.post("/:id/compact", async (c) => {
+  if (!executionRepositoryFactoryInjected || !sessionRepositoryFactory) {
+    return c.json({ error: "Repositories not initialized" }, 503);
+  }
+  if (!sessionCompactService) {
+    return c.json({ error: "Compact service not initialized" }, 503);
+  }
+  const sessionId = c.req.param("id");
+  if (!isValidSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
+  const userId = (c.get("tenant") as TenantContext).userId;
+  const sessionRepository = sessionRepositoryFactory(userId);
+  const session = await sessionRepository.get(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
+
+  // 与 GET /:id/messages 相同的轮次重建（上限 100）
+  const executions = (
+    await executionRepositoryFactoryInjected(userId).list({ sessionId, limit: 100 })
+  ).reverse();
+  const turns = executions
+    .map((execution) => ({
+      requirement:
+        typeof execution.requestPayload?.requirement === "string"
+          ? execution.requestPayload.requirement
+          : "",
+      output:
+        typeof execution.resultPayload?.output === "string"
+          ? execution.resultPayload.output
+          : "",
+    }))
+    .filter((turn) => turn.requirement.length > 0);
+  if (turns.length === 0) {
+    return c.json({ error: "会话暂无可压缩的历史" }, 400);
+  }
+
+  let summary: string;
+  try {
+    summary = await sessionCompactService(sessionId, turns);
+  } catch (err) {
+    return c.json(
+      { error: `压缩失败: ${err instanceof Error ? err.message : String(err)}` },
+      500,
+    );
+  }
+  await sessionRepository.update(sessionId, { contextSummary: summary });
+  return c.json({ success: true, compactedTurns: turns.length, summary });
 });
 
 sessionsRoute.delete("/:id", async (c) => {
