@@ -12,6 +12,11 @@ import { CachingToolWrapper } from "./CachingToolWrapper.js";
  * 非白名单工具原样透传。职责单一，不改动被装饰的 registry。
  */
 export class CachingToolRegistry implements ToolRegistry {
+  /** 透传内层 registry 的会话绑定标志（内层可能是 SessionToolRegistry）。 */
+  get sessionScoped(): boolean {
+    return this.base.sessionScoped;
+  }
+
   /** 工具名 → TTL 秒数；不在表中的白名单工具使用 defaultTtlSeconds。 */
   constructor(
     private readonly base: ToolRegistry,

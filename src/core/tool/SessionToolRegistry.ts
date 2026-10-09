@@ -9,6 +9,7 @@ import { ToolResult as TR } from "../../port/tool/ToolResult.js";
  * Session tools take precedence over base tools with the same name.
  */
 export class SessionToolRegistry implements ToolRegistry {
+  readonly sessionScoped = true;
   private sessionToolMap: Map<string, ToolPort>;
 
   constructor(

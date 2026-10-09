@@ -54,6 +54,7 @@ describe("LangGraphAgentFactory memory wiring", () => {
       getToolDescriptors: vi.fn().mockReturnValue([]),
       getTool: vi.fn().mockReturnValue(undefined),
       executeTool: vi.fn(),
+      sessionScoped: false,
     };
     const memory = new SlidingWindowMemoryPort({
       protectRecentTurns: 2,
@@ -98,6 +99,7 @@ describe("LangGraphAgentFactory memory wiring", () => {
       getToolDescriptors: vi.fn().mockReturnValue([]),
       getTool: vi.fn().mockReturnValue(undefined),
       executeTool: vi.fn(),
+      sessionScoped: false,
     };
     const sessionRegistry = new SessionToolRegistry(base, []);
     const memory = new SlidingWindowMemoryPort();

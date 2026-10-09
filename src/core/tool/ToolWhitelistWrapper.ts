@@ -94,6 +94,10 @@ export class ToolWhitelistWrapper implements ToolPort {
 export class WhitelistToolRegistry implements ToolRegistry {
   private readonly allowed: ReadonlySet<string>;
 
+  get sessionScoped(): boolean {
+    return this.base.sessionScoped;
+  }
+
   constructor(
     private readonly base: ToolRegistry,
     private readonly options: ToolWhitelistOptions,
