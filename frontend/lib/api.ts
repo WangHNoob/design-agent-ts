@@ -92,6 +92,16 @@ export async function cancelExecution(sessionId: string): Promise<{ success: boo
   }
 }
 
+/** 手动压缩：把会话已有轮次蒸馏为上下文摘要，后续执行自动携带 */
+export async function compactSession(sessionId: string): Promise<{ compactedTurns: number; summary: string }> {
+  const res = await apiFetch(`${API_BASE}/api/sessions/${sessionId}/compact`, { method: 'POST' });
+  if (!res.ok) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`压缩失败 (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
 export interface ExecutionRecord {
   id: string;
   sessionId: string;

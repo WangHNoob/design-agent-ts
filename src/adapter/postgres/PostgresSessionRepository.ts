@@ -49,6 +49,7 @@ export class PostgresSessionRepository implements SessionRepository {
       error: "error",
       hitl_checkpoint_id: "hitlCheckpointId",
       version_snapshot_id: "versionSnapshotId",
+      context_summary: "contextSummary",
     };
 
     for (const [dbCol, metaKey] of Object.entries(fieldMap)) {
@@ -112,6 +113,7 @@ export class PostgresSessionRepository implements SessionRepository {
       error: this.optionalString(row.error),
       hitlCheckpointId: this.optionalString(row.hitl_checkpoint_id),
       versionSnapshotId: this.optionalString(row.version_snapshot_id),
+      contextSummary: this.optionalString(row.context_summary),
     };
   }
 

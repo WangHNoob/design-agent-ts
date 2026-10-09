@@ -15,7 +15,7 @@ import type { ToolPort } from "../port/tool/ToolPort.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
 import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
-import { setSessionRepositoryFactory, setExecutionRepositoryFactory, setWorkspaceManager } from "./routes/sessions.js";
+import { setSessionRepositoryFactory, setExecutionRepositoryFactory, setWorkspaceManager, setSessionCompactService } from "./routes/sessions.js";
 import { setHITLRouteDependencies } from "./routes/hitl.js";
 import { DurableHumanReviewGateway } from "../core/hitl/DurableHumanReviewGateway.js";
 import { LoggingHook } from "../core/hook/LoggingHook.js";
@@ -75,6 +75,9 @@ import { ExecutionService } from "../core/execution/ExecutionService.js";
 import { InflightLimiter } from "../core/execution/InflightLimiter.js";
 import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
 import { LLMSummarizerAdapter } from "../adapter/llm/LLMSummarizerAdapter.js";
+import { getModelMeta } from "../config/modelRegistry.js";
+import type { LangGraphModelAdapter as LangGraphModelAdapterType } from "../adapter/langgraph/LangGraphModelAdapter.js";
+import type { ChatMessage as ChatMessagePort } from "../port/message/ChatMessage.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import { RedisTenantIsolationAdapter } from "../adapter/redis/RedisTenantIsolationAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
@@ -236,6 +239,17 @@ function buildDirectorDeps(params: {
       maxActiveMessages: params.config.memory.maxActiveMessages,
       maxTokens: params.config.limits.contextMaxTokens,
       compressionThreshold: params.config.limits.contextCompressionThreshold,
+      // 每任务建记忆端口时解析当前生效模型（BYOK 优先）的上下文窗口，
+      // 小窗口模型按窗口钳制压缩预算（DirectorContext.createMemoryPort 消费）
+      contextWindow: () => {
+        try {
+          const cfg = (params.container.model as LangGraphModelAdapterType).getActiveModelConfig();
+          if (!cfg) return null;
+          return getModelMeta(cfg.provider, cfg.modelName)?.context ?? null;
+        } catch {
+          return null;
+        }
+      },
       summarizer: params.config.memory.summarizer === "llm"
         ? new LLMSummarizerAdapter(params.model, {
             maxOutputTokens: params.config.memory.summarizerMaxOutputTokens,
@@ -643,6 +657,11 @@ export async function lateBootstrapDirector(): Promise<void> {
   configureSubAgentDescriptors(subAgentPrompts, subAgentToolNames, config.limits.subAgentMaxIterations, config.limits.modelMaxTokens);
 
   // Initialize hooks
+  // 压缩预算锚定真实模型窗口：0.8 × min(全局模型窗口, CONTEXT_MAX_TOKENS)
+  const globalModelWindow = getModelMeta(
+    settings.modelProvider ?? "openai",
+    settings.modelName ?? "",
+  )?.context ?? null;
   const hooks: import("../port/hook/AgentHook.js").AgentHook[] = [
     new CancellationHook(),
     new LoggingHook(runtimeLogger),
@@ -651,7 +670,9 @@ export async function lateBootstrapDirector(): Promise<void> {
     new OutputEnforcementHook(),
     new ContextManagementHook({
       compressionThreshold: config.limits.contextCompressionThreshold,
-      maxTokens: config.limits.contextMaxTokens,
+      maxTokens: globalModelWindow
+        ? Math.min(config.limits.contextMaxTokens, globalModelWindow)
+        : config.limits.contextMaxTokens,
       protectRecentTurns: config.memory.protectRecentTurns,
       maxActiveMessages: config.memory.maxActiveMessages,
       logger: runtimeLogger,
@@ -1020,6 +1041,28 @@ export async function lateBootstrapDirector(): Promise<void> {
   });
   setSessionRepositoryFactory(sessionRepositoryFactory);
   setExecutionRepositoryFactory(executionRepositoryFactory);
+  // 手动压缩：把会话轮次交给 LLM 摘要器（走 container.model，BYOK/计量自动生效）
+  setSessionCompactService(async (_sessionId, turns) => {
+    const container = bootstrapState?.container;
+    if (!container) throw new Error("Container not initialized");
+    const { ChatMessage } = await import("../port/message/ChatMessage.js");
+    const messages: ChatMessagePort[] = turns.flatMap((turn) => [
+      ChatMessage.text("user", "user", turn.requirement),
+      ChatMessage.text("assistant", "assistant", turn.output || "（本轮无产出）"),
+    ]);
+    const summarizer = new LLMSummarizerAdapter(container.model, {
+      maxInputChars: 48_000,
+      maxOutputTokens: 1_500,
+      systemPrompt: `你是会话上下文压缩器。把一个游戏策划工作会话的多轮历史压缩为后续工作所需的背景摘要。
+必须输出以下 Markdown 结构：
+## 用户目标
+## 已完成的产出（含文件名/模块名）
+## 关键决策与口径
+## 遗留事项
+若某节无内容写"无"。保留具体命名、数值与文件路径，不编造内容；总长度不超过 600 字。`,
+    });
+    return summarizer.summarize(messages);
+  });
   setWorkspaceManager(workspaceManager);
   setHITLRouteDependencies({
     repositoryFactory: hitlRepositoryFactory,

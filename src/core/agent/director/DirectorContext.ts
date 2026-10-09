@@ -50,12 +50,18 @@ export class DirectorContext {
       const { InMemoryMemoryPort } = await import("../../memory/InMemoryMemoryPort.js");
       return new InMemoryMemoryPort();
     }
+    // 压缩预算锚定真实模型窗口：BYOK 用户模型窗口小于全局配置时，
+    // 以较小者为准（否则小窗口模型压缩触发太晚，直接溢出报错）
+    const modelWindow = mem?.contextWindow?.();
+    const maxTokens = modelWindow
+      ? Math.min(mem?.maxTokens ?? 128_000, modelWindow)
+      : mem?.maxTokens ?? 128_000;
     const { SlidingWindowMemoryPort } = await import("../../memory/SlidingWindowMemoryPort.js");
     return new SlidingWindowMemoryPort({
       archiveEnabled: true,
       protectRecentTurns: mem?.protectRecentTurns ?? 10,
       maxActiveMessages: mem?.maxActiveMessages ?? 40,
-      maxTokens: mem?.maxTokens ?? 128_000,
+      maxTokens,
       compressionThreshold: mem?.compressionThreshold ?? 0.7,
       // 01-P3：注入 LLM 摘要器（缺省时 ContextManager 回落启发式）
       summarizer: mem?.summarizer,
