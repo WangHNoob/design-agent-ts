@@ -19,6 +19,9 @@ function mapDomainToAgentName(domain: string): string {
 
 const activeTaskRef = new Map<string, string | null>();
 const taskEntriesRef = new Map<string, Map<string, TimelineEntry>>();
+// 已处理过的执行 start（按 traceId）：SSE 断线重连/恢复会全量回放事件历史，
+// 回放流里的 start 不能再次重置追踪表、把界面拉回 loading 或重复追加时间线
+const seenStartTraces = new Map<string, Set<string>>();
 
 export function resetTaskTracking(sessionId: string) {
   activeTaskRef.set(sessionId, null);
@@ -35,6 +38,19 @@ export function handleStreamEvent(
 
   switch (event) {
     case 'start': {
+      // 回放去重：同一执行（同 traceId）的 start 只处理一次。恢复/重连时
+      // SSE 会从头回放历史，重放的 start 若再次生效，会重置任务追踪表、
+      // 把界面拉回 loading 并重复追加时间线/日志。
+      const traceId = d.traceId as string | undefined;
+      if (traceId) {
+        let traces = seenStartTraces.get(sessionId);
+        if (!traces) {
+          traces = new Set();
+          seenStartTraces.set(sessionId, traces);
+        }
+        if (traces.has(traceId)) break;
+        traces.add(traceId);
+      }
       store.updateTask(sessionId, {
         loading: true,
         streaming: true,
@@ -256,18 +272,32 @@ export function handleStreamEvent(
       const agentName = mapDomainToAgentName(domain);
 
       store.updateTask(sessionId, { statusText: `执行: ${description}` });
-      const entry: TimelineEntry = {
-        id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        time: getCurrentTime(),
-        type: 'task',
-        title: description,
-        agentName,
-        status: 'running',
-      };
-      store.appendTimeline(sessionId, entry);
 
-      const taskMap = taskEntriesRef.get(sessionId);
-      if (taskMap) {
+      // 时间线按 taskId 幂等：HITL 每个批准周期会重放流水线并产生新的
+      // task_start，断线恢复又会回放全部历史——同一任务会被处理多次。
+      // 步骤面板一个任务只有一行：重复事件把已有行置回「进行中」，
+      // 而不是追加重复行（实测同一任务曾被显示 4 遍）。
+      let taskMap = taskEntriesRef.get(sessionId);
+      if (!taskMap) {
+        taskMap = new Map();
+        taskEntriesRef.set(sessionId, taskMap);
+      }
+      const existingEntry = taskMap.get(taskId);
+      const entryStillListed = existingEntry
+        ? store.getTask(sessionId)?.timeline.some((e) => e.id === existingEntry.id)
+        : false;
+      if (existingEntry && entryStillListed) {
+        store.updateTimelineEntry(sessionId, existingEntry.id, { status: 'running' });
+      } else {
+        const entry: TimelineEntry = {
+          id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          time: getCurrentTime(),
+          type: 'task',
+          title: description,
+          agentName,
+          status: 'running',
+        };
+        store.appendTimeline(sessionId, entry);
         taskMap.set(taskId, entry);
       }
       activeTaskRef.set(sessionId, taskId);
