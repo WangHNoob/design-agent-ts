@@ -9,6 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 import Header from '@/components/Console/Header';
 import SessionSidebar from '@/components/Console/SessionSidebar';
 import RightPanel from '@/components/Console/RightPanel';
+import { ProgressCard } from '@/components/Console/ProgressCard';
 import { reportUserSignal } from '@/lib/userSignals';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
@@ -1163,6 +1164,26 @@ const ChatBubble = React.memo(function ChatBubble({
   // Hooks 规则：必须在任何条件 return 之前调用（此前在 system 早退之后，
   // 渲染分支变化时会触发 React Hooks 顺序错误）
   const [copied, setCopied] = React.useState(false);
+
+  // 任务进度卡片：plan 时锚定的单条消息，状态由 ProgressCard 自订阅
+  // timeline 按 taskId 原地更新，一个执行只占一个消息位
+  if (msg.type === 'progress') {
+    if (!sessionId || !msg.progress?.tasks?.length) return null;
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex gap-3"
+      >
+        <div className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg bg-coral text-white">
+          <Bot size={14} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <ProgressCard sessionId={sessionId} tasks={msg.progress.tasks} />
+        </div>
+      </motion.div>
+    );
+  }
 
   if (msg.type === 'system') {
     return (

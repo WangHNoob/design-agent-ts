@@ -10,6 +10,8 @@ export interface TimelineEntry {
   title: string;
   detail?: string;
   agentName?: string;
+  /** 任务行的规划任务 ID：主对话进度卡片按此匹配实时状态 */
+  taskId?: string;
   status: 'running' | 'completed' | 'error' | 'pending';
   durationMs?: number;
   children?: TimelineEntry[];
