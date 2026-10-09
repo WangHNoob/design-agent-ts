@@ -12,6 +12,7 @@ import type { MemoryPort } from "../../port/memory/MemoryPort.js";
 import { HookContext } from "../../port/hook/HookContext.js";
 import { classifyModelError } from "../../core/model/classifyModelError.js";
 import { hashString, normalizeToolArgs, stableStringify } from "../../core/guard/hash.js";
+import { recordSessionContext } from "../../core/context/SessionContextTracker.js";
 import { LangGraphMessageMapper } from "./LangGraphMessageMapper.js";
 import { LangGraphToolAdapter } from "./LangGraphToolAdapter.js";
 import { sanitizeToolSequence } from "./sanitizeMessages.js";
@@ -516,6 +517,14 @@ export class LangGraphAgentAdapter implements AgentPort {
           console.warn(`[LangGraphAgentAdapter:${descriptor.name}] ${reason}`);
           throw new Error(reason);
         }
+
+        // 会话上下文计量：记录本次调用模型实际收到的 input tokens（真实
+        // 上下文长度）与该模型的窗口（BYOK 感知），供前端展示"上下文用量"
+        recordSessionContext(state.sessionId, {
+          tokens: response.usage_metadata?.input_tokens ?? 0,
+          window: modelAdapter.getActiveContextWindow(),
+          model: modelAdapter.getActiveModelName(),
+        });
 
         return { messages: [response], iteration: state.iteration + 1 };
       } catch (err) {

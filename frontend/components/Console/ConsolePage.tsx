@@ -13,7 +13,7 @@ import { ProgressCard } from '@/components/Console/ProgressCard';
 import { reportUserSignal } from '@/lib/userSignals';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
-import { executeDesign, executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, compactSession, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
+import { executeDesign, executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, compactSession, getSessionContext, type SessionContextUsageInfo, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage, type KnowledgeSource } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking, dedupeSources } from '@/lib/streamHandler';
 import ModePicker from '@/components/Console/ModePicker';
@@ -759,6 +759,30 @@ export default function ConsolePage({ initialMode }: Props) {
   };
 
   const [compactBusy, setCompactBusy] = useState(false);
+
+  // 会话上下文用量：执行中每 5s 轮询（LLM 每次调用的真实 input tokens），
+  // 切会话/执行结束刷新一次
+  const [contextUsage, setContextUsage] = useState<SessionContextUsageInfo | null>(null);
+  useEffect(() => {
+    const sid = activeSessionId;
+    if (!sid) {
+      setContextUsage(null);
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      getSessionContext(sid)
+        .then((d) => { if (!cancelled) setContextUsage(d); })
+        .catch(() => {});
+    };
+    refresh();
+    const timer = task?.loading ? setInterval(refresh, 5000) : null;
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [activeSessionId, task?.loading]);
+
   const handleCompactContext = useCallback(async () => {
     const sid = activeSessionId;
     if (!sid || compactBusy) return;
@@ -771,6 +795,7 @@ export default function ConsolePage({ initialMode }: Props) {
         content: `已把本会话 ${res.compactedTurns} 轮历史压缩为上下文摘要，后续执行将自动携带。`,
         timestamp: getCurrentTime(),
       });
+      getSessionContext(sid).then((d) => setContextUsage(d)).catch(() => {});
     } catch (err) {
       store.appendMessage(sid, {
         id: `msg_compact_err_${Date.now()}`,
@@ -1083,6 +1108,30 @@ export default function ConsolePage({ initialMode }: Props) {
                 <div className="flex items-center justify-between px-3 pb-2">
                   <div className="flex items-center gap-2">
                     <ModePicker mode={mode} disabled={loading} onChange={handleModeChange} />
+                    {(() => {
+                      const tokens = contextUsage?.tokens ?? null;
+                      if (!tokens) return null;
+                      const budget = contextUsage?.budget ?? null;
+                      const ratio = budget ? Math.min(1, tokens / budget) : 0;
+                      const fmt = (n: number) => `${Math.round(n / 1000)}K`;
+                      const barColor = !budget
+                        ? 'bg-ink/30'
+                        : ratio >= 0.8 ? 'bg-red-500' : ratio >= 0.6 ? 'bg-amber-400' : 'bg-emerald-500';
+                      return (
+                        <div
+                          className="flex items-center gap-1.5 rounded-md bg-ink/5 px-2 py-1"
+                          title={`当前会话上下文用量（模型实际收到的 tokens）${contextUsage?.model ? ` · 模型 ${contextUsage.model}` : ''}${budget ? ` · 到达 ${fmt(budget)} 时自动压缩` : ''}`}
+                        >
+                          <span className="text-[10px] text-ink/50">上下文 {fmt(tokens)}{budget ? `/${fmt(budget)}` : ''}</span>
+                          {budget ? (
+                            <span className="inline-block h-1 w-10 overflow-hidden rounded-full bg-ink/10">
+                              <span className={`block h-full ${barColor}`} style={{ width: `${Math.max(3, Math.round(ratio * 100))}%` }} />
+                            </span>
+                          ) : null}
+                          {budget && ratio >= 0.8 ? <span className="text-[10px] text-red-500">建议压缩</span> : null}
+                        </div>
+                      );
+                    })()}
                     <button
                       onClick={handleCompactContext}
                       disabled={loading || !activeSessionId || compactBusy}

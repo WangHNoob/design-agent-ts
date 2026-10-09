@@ -13,6 +13,14 @@ let executionRepositoryFactoryInjected: ExecutionRepositoryFactory | null = null
 let workspaceManagerInstance: WorkspaceManager | null = null;
 /** 手动压缩服务（bootstrap 注入）：把会话轮次蒸馏为上下文摘要 */
 let sessionCompactService: ((sessionId: string, turns: Array<{ requirement: string; output: string }>) => Promise<string>) | null = null;
+/** 会话上下文用量服务（bootstrap 注入）：合并实时跟踪与压缩预算口径 */
+let sessionContextService: ((sessionId: string) => Promise<{
+  tokens: number;
+  window: number | null;
+  budget: number | null;
+  model: string | null;
+  updatedAt: string;
+} | null>) | null = null;
 
 export function setSessionRepositoryFactory(factory: SessionRepositoryFactory) {
   sessionRepositoryFactory = factory;
@@ -30,6 +38,18 @@ export function setSessionCompactService(
   service: (sessionId: string, turns: Array<{ requirement: string; output: string }>) => Promise<string>,
 ) {
   sessionCompactService = service;
+}
+
+export function setSessionContextService(
+  service: (sessionId: string) => Promise<{
+    tokens: number;
+    window: number | null;
+    budget: number | null;
+    model: string | null;
+    updatedAt: string;
+  } | null>,
+) {
+  sessionContextService = service;
 }
 
 function isValidSessionId(id: string): boolean {
@@ -138,6 +158,42 @@ sessionsRoute.get("/:id/messages", async (c) => {
     .filter((turn) => turn.requirement.length > 0);
 
   return c.json({ sessionId, turns });
+});
+
+// 会话上下文用量：最近一次 LLM 调用模型实际收到的 input tokens（实时跟踪，
+// 执行结束已落库），以及按生效模型窗口计算的压缩预算（80% 线）。
+sessionsRoute.get("/:id/context", async (c) => {
+  if (!sessionRepositoryFactory) {
+    return c.json({ error: "SessionRepository not initialized" }, 503);
+  }
+  const sessionId = c.req.param("id");
+  if (!isValidSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
+  const userId = (c.get("tenant") as TenantContext).userId;
+  const session = await sessionRepositoryFactory(userId).get(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
+
+  let live: Awaited<NonNullable<ReturnType<NonNullable<typeof sessionContextService>>>> | null = null;
+  if (sessionContextService) {
+    try {
+      live = await sessionContextService(sessionId);
+    } catch {
+      live = null;
+    }
+  }
+  const tokens = live?.tokens ?? session.contextTokens ?? null;
+  const window = live?.window ?? session.contextWindow ?? null;
+  const budget = live?.budget ?? null;
+  return c.json({
+    sessionId,
+    tokens,
+    window,
+    budget,
+    model: live?.model ?? null,
+    updatedAt: live?.updatedAt ?? session.updatedAt,
+    source: live ? "live" : session.contextTokens ? "persisted" : "empty",
+  });
 });
 
 // 手动压缩：把会话已有的全部轮次蒸馏为一段上下文摘要（LLM），存入

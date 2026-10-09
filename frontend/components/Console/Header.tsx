@@ -85,10 +85,11 @@ export default function Header({
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={onOpenSettings}
-          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink/50 hover:bg-ink/5 hover:text-ink transition-colors"
-          title="设置（我的模型 BYOK / 平台全局）"
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink/60 hover:bg-ink/5 hover:text-ink border border-ink/10 hover:border-coral/40 transition-colors"
+          title="设置：我的模型（BYOK）、思考模式、平台全局配置"
         >
-          <Settings size={14} />
+          <Settings size={13} />
+          <span>设置</span>
         </button>
         <button
           onClick={onNewChat}

@@ -15,7 +15,7 @@ import type { ToolPort } from "../port/tool/ToolPort.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
 import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
-import { setSessionRepositoryFactory, setExecutionRepositoryFactory, setWorkspaceManager, setSessionCompactService } from "./routes/sessions.js";
+import { setSessionRepositoryFactory, setExecutionRepositoryFactory, setWorkspaceManager, setSessionCompactService, setSessionContextService } from "./routes/sessions.js";
 import { setHITLRouteDependencies } from "./routes/hitl.js";
 import { DurableHumanReviewGateway } from "../core/hitl/DurableHumanReviewGateway.js";
 import { LoggingHook } from "../core/hook/LoggingHook.js";
@@ -76,6 +76,7 @@ import { InflightLimiter } from "../core/execution/InflightLimiter.js";
 import { ContextualPostgresLongTermMemoryAdapter } from "../adapter/postgres/ContextualPostgresLongTermMemoryAdapter.js";
 import { LLMSummarizerAdapter } from "../adapter/llm/LLMSummarizerAdapter.js";
 import { getModelMeta } from "../config/modelRegistry.js";
+import { getSessionContextUsage, effectiveContextBudget } from "../core/context/SessionContextTracker.js";
 import type { LangGraphModelAdapter as LangGraphModelAdapterType } from "../adapter/langgraph/LangGraphModelAdapter.js";
 import type { ChatMessage as ChatMessagePort } from "../port/message/ChatMessage.js";
 import { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
@@ -1062,6 +1063,22 @@ export async function lateBootstrapDirector(): Promise<void> {
 若某节无内容写"无"。保留具体命名、数值与文件路径，不编造内容；总长度不超过 600 字。`,
     });
     return summarizer.summarize(messages);
+  });
+  // 会话上下文用量：实时跟踪（最近一次 LLM 调用的真实 input tokens）+ 压缩预算口径
+  setSessionContextService(async (sessionId) => {
+    const usage = getSessionContextUsage(sessionId);
+    if (!usage) return null;
+    return {
+      tokens: usage.tokens,
+      window: usage.window,
+      budget: effectiveContextBudget(
+        usage.window,
+        config.limits.contextMaxTokens,
+        config.limits.contextCompressionThreshold,
+      ),
+      model: usage.model,
+      updatedAt: usage.updatedAt,
+    };
   });
   setWorkspaceManager(workspaceManager);
   setHITLRouteDependencies({

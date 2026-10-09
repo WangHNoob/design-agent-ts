@@ -50,6 +50,8 @@ export class PostgresSessionRepository implements SessionRepository {
       hitl_checkpoint_id: "hitlCheckpointId",
       version_snapshot_id: "versionSnapshotId",
       context_summary: "contextSummary",
+      context_tokens: "contextTokens",
+      context_window: "contextWindow",
     };
 
     for (const [dbCol, metaKey] of Object.entries(fieldMap)) {
@@ -114,6 +116,8 @@ export class PostgresSessionRepository implements SessionRepository {
       hitlCheckpointId: this.optionalString(row.hitl_checkpoint_id),
       versionSnapshotId: this.optionalString(row.version_snapshot_id),
       contextSummary: this.optionalString(row.context_summary),
+      contextTokens: typeof row.context_tokens === "number" ? row.context_tokens : undefined,
+      contextWindow: typeof row.context_window === "number" ? row.context_window : undefined,
     };
   }
 
