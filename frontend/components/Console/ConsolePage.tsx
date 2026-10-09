@@ -984,7 +984,7 @@ export default function ConsolePage({ initialMode }: Props) {
         onNewChat={handleNewChat}
         onToggleRightPanel={() => setRightPanelOpen((v) => !v)}
         rightPanelOpen={rightPanelOpen}
-        onOpenSettings={() => { setIsFirstTimeSetup(false); setShowSetupModal(true); }}
+        onOpenSettings={() => { router.push('/settings'); }}
       />
 
       <div ref={containerRef} className="flex-1 flex overflow-hidden">

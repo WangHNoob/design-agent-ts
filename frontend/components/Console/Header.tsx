@@ -86,7 +86,7 @@ export default function Header({
         <button
           onClick={onOpenSettings}
           className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink/50 hover:bg-ink/5 hover:text-ink transition-colors"
-          title="API 设置"
+          title="设置（我的模型 BYOK / 平台全局）"
         >
           <Settings size={14} />
         </button>

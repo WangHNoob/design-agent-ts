@@ -91,6 +91,13 @@ export default function SetupModal({ open, onClose, onConfigured, isFirstTime }:
 
             {/* Body */}
             <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+              {!isFirstTime && (
+                <div className="rounded-lg border border-coral/25 bg-coral/[0.04] px-3 py-2 text-[11px] leading-relaxed text-ink/60">
+                  这里配置的是<b className="text-ink">平台全局模型</b>（仅管理员，全体用户共享）。
+                  想使用自己的模型与 Key（含思考模式控制），请到
+                  <a href="/settings" className="ml-1 font-medium text-coral hover:underline">设置 → 我的模型（BYOK）</a>。
+                </div>
+              )}
               {isFirstTime && (
                 <p className="text-xs text-ink/50 leading-relaxed">
                   配置 LLM API Key 后即可开始使用游戏策划 AI。支持 OpenAI、Anthropic 及兼容接口。
