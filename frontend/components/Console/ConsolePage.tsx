@@ -3,20 +3,24 @@
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download, Copy, Check, BookOpen } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
+import { useShallow } from 'zustand/react/shallow';
 import Header from '@/components/Console/Header';
 import SessionSidebar from '@/components/Console/SessionSidebar';
 import RightPanel from '@/components/Console/RightPanel';
-import { reportUserSignal } from '@/components/Console/ResultPanel';
+import { reportUserSignal } from '@/lib/userSignals';
 import SetupModal from '@/components/Console/SetupModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
-import { executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
+import { executeDesign, executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage, type KnowledgeSource } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking, dedupeSources } from '@/lib/streamHandler';
 import ModePicker from '@/components/Console/ModePicker';
 import { MODE_META, MODE_ORDER, normalizeMode } from '@/lib/modes';
+
+// react-markdown + remark-gfm 较重且欢迎态/流式占位用不到：按需加载，
+// 不进控制台首屏关键路径（bundle-dynamic-imports）
+const Markdown = dynamic(() => import('./Markdown'), { ssr: false });
 
 const MAX_STREAM_RESUMES = 2;
 const TERMINAL_EXECUTION_STATUSES = new Set([
@@ -36,9 +40,27 @@ function getCurrentTime() {
 
 export default function ConsolePage({ initialMode }: Props) {
   const router = useRouter();
-  const store = useTaskStore();
-  const activeSessionId = store.activeSessionId;
-  const task = activeSessionId ? store.getTask(activeSessionId) : undefined;
+  // 订阅切片而非整个 store：整仓订阅会让任意任务（含后台执行的日志/计时器）
+  // 的每次 set() 都重渲染这 1300 行的控制台壳（rerender-defer-reads）。
+  // 方法引用在 create() 中定义一次、永远稳定，经 useShallow 组合只在
+  // activeSessionId 变化时改变身份。
+  const activeSessionId = useTaskStore((s) => s.activeSessionId);
+  // 仅订阅"当前激活任务"对象：流式 chunk / 本任务计时器仍会触发渲染
+  //（界面上就是要显示它们），但后台会话的更新不再波及本页。
+  const task = useTaskStore((s) => (s.activeSessionId ? s.tasks.get(s.activeSessionId) : undefined));
+  const store = useTaskStore(useShallow((s) => ({
+    activeSessionId: s.activeSessionId,
+    getTask: s.getTask,
+    updateTask: s.updateTask,
+    appendMessage: s.appendMessage,
+    appendTimeline: s.appendTimeline,
+    appendLog: s.appendLog,
+    setStreamRef: s.setStreamRef,
+    setActiveSession: s.setActiveSession,
+    cancelTask: s.cancelTask,
+    removeTask: s.removeTask,
+    createTask: s.createTask,
+  })));
 
   // 一会话三模式：mode 不再是路由身份，而是"下一条消息的执行策略"。
   // 同页切换（setMode）不卸载组件、不断流。
@@ -430,7 +452,8 @@ export default function ConsolePage({ initialMode }: Props) {
       if (event === 'start' && hydratingSessionsRef.current.has(sessionId)) {
         return;
       }
-      handleStreamEvent(sessionId, event, data, store);
+      // handleStreamEvent 需要完整 store：方法引用永远稳定，直接取实时快照
+      handleStreamEvent(sessionId, event, data, useTaskStore.getState());
 
       // 历史回放门控：重放期间 HITL 弹窗延迟判定（静默 1.5s 视为回放结束，
       // 若最终状态是 waiting 才弹窗——说明该检查点确实还在等人工审阅）
@@ -655,7 +678,7 @@ export default function ConsolePage({ initialMode }: Props) {
       attachStream(sid, stream);
     } else {
       try {
-        const { executeDesign } = await import('@/lib/api');
+        // @/lib/api 本就静态引入，这里再 dynamic import 是假代码分割
         const res = await executeDesign({ requirement: reqText, mode, role: effectiveRole, sessionId: sid, history });
         if (mountedRef.current) {
           if (res.success && res.output) {
@@ -704,11 +727,20 @@ export default function ConsolePage({ initialMode }: Props) {
     setRequirement('');
   };
 
-  const handleModeChange = (newMode: TaskMode) => {
+  // 稳定回调：传给 memo 化的 WelcomeScreen / ModePicker / ChatBubble，
+  // 否则每次渲染（含每个流式 chunk）都会击穿 memo（rerender-memo 系列）
+  const handleModeChange = useCallback((newMode: TaskMode) => {
     // 同页切换执行策略：不卸载组件、不断流；URL 仅作书签/刷新回显
     setMode(newMode);
     router.replace(`/design?mode=${newMode}`, { scroll: false });
-  };
+  }, [router]);
+
+  const handleExampleClick = useCallback((text: string, m: TaskMode) => {
+    handleModeChange(m);
+    setRequirement(text);
+  }, [handleModeChange]);
+
+  const openEvidence = useCallback(() => setRightPanelTab('knowledge'), []);
 
   const appendSessionSummary = (sid: string, session: SessionMeta) => {
     // 无执行记录时的兜底：用会话摘要拼一个只读视图
@@ -911,16 +943,13 @@ export default function ConsolePage({ initialMode }: Props) {
               <WelcomeScreen
                 mode={mode}
                 role={effectiveRole}
-                onExampleClick={(text, m) => {
-                  handleModeChange(m);
-                  setRequirement(text);
-                }}
+                onExampleClick={handleExampleClick}
                 onModeChange={handleModeChange}
               />
             ) : (
               <div className="space-y-4">
                 {messages.map((msg) => (
-                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} executionId={task?.executionId ?? null} onOpenEvidence={() => setRightPanelTab('knowledge')} />
+                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} executionId={task?.executionId ?? null} onOpenEvidence={openEvidence} />
                 ))}
                 {streaming && (
                   streamingText ? (
@@ -934,7 +963,7 @@ export default function ConsolePage({ initialMode }: Props) {
                       </div>
                       <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed bg-white border border-ink/6 text-ink overflow-x-auto">
                         <div className="markdown-content">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+                          <Markdown>{streamingText}</Markdown>
                         </div>
                         <span className="inline-block w-1.5 h-4 bg-coral/60 animate-pulse ml-0.5 align-text-bottom" />
                       </div>
@@ -1096,6 +1125,10 @@ const ChatBubble = React.memo(function ChatBubble({
   /** 点击引用徽标时切换右侧面板到「证据」tab */
   onOpenEvidence?: () => void;
 }) {
+  // Hooks 规则：必须在任何条件 return 之前调用（此前在 system 早退之后，
+  // 渲染分支变化时会触发 React Hooks 顺序错误）
+  const [copied, setCopied] = React.useState(false);
+
   if (msg.type === 'system') {
     return (
       <div className="flex items-center justify-center">
@@ -1110,7 +1143,6 @@ const ChatBubble = React.memo(function ChatBubble({
 
   const isUser = msg.type === 'user';
   const showDownload = !isUser && sessionId && role !== 'chief_designer' && msg.content.length > 0;
-  const [copied, setCopied] = React.useState(false);
   const handleCopy = () => {
     if (isUser) return;
     navigator.clipboard.writeText(msg.content);
@@ -1137,7 +1169,7 @@ const ChatBubble = React.memo(function ChatBubble({
           <div className="whitespace-pre-wrap">{msg.content}</div>
         ) : (
           <div className="markdown-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+            <Markdown>{msg.content}</Markdown>
           </div>
         )}
         <div className="flex items-center justify-between mt-1">
