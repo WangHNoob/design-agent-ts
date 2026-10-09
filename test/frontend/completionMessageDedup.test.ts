@@ -50,4 +50,39 @@ describe("完成消息幂等去重", () => {
     store.getState().appendMessage("s1", { ...msg, timestamp: "12:00:01" });
     expect(store.getState().getTask("s1")?.messages).toHaveLength(1);
   });
+
+  test("步骤时间线：同一任务的重复 task_start（HITL 周期/回放）只保留一行", () => {
+    seedTask("s1", "exec-1");
+    const startEvent = { taskId: "F3", description: "数值规划", domain: "numerical_planning" };
+    handleStreamEvent("s1", "task_start", startEvent, store.getState());
+    handleStreamEvent("s1", "task_start", startEvent, store.getState());
+    handleStreamEvent("s1", "task_start", startEvent, store.getState());
+
+    const taskRows = (store.getState().getTask("s1")?.timeline ?? []).filter((e) => e.type === "task");
+    expect(taskRows).toHaveLength(1);
+    expect(taskRows[0].status).toBe("running");
+
+    // 完成后再重跑（真实重跑场景）：仍是同一行，回到进行中→完成
+    handleStreamEvent("s1", "task_complete", { taskId: "F3", status: "success" }, store.getState());
+    handleStreamEvent("s1", "task_start", startEvent, store.getState());
+    const rows = (store.getState().getTask("s1")?.timeline ?? []).filter((e) => e.type === "task");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("running");
+  });
+
+  test("回放的 start（同 traceId）不重置任务追踪、不重复追加时间线", () => {
+    seedTask("s1", "exec-1");
+    const startData = { traceId: "trace-1" };
+    handleStreamEvent("s1", "start", startData, store.getState());
+    handleStreamEvent("s1", "task_start", { taskId: "F1", description: "审计", domain: "system_design" }, store.getState());
+    const timelineBefore = store.getState().getTask("s1")?.timeline.length ?? 0;
+
+    handleStreamEvent("s1", "start", startData, store.getState()); // 恢复连接回放的 start
+    expect(store.getState().getTask("s1")?.timeline.length).toBe(timelineBefore);
+
+    // 重放后新任务仍正常追加（追踪表未被回放破坏，也未被误清空）
+    handleStreamEvent("s1", "task_start", { taskId: "F2", description: "平衡", domain: "combat_design" }, store.getState());
+    const taskRows = (store.getState().getTask("s1")?.timeline ?? []).filter((e) => e.type === "task");
+    expect(taskRows).toHaveLength(2);
+  });
 });
