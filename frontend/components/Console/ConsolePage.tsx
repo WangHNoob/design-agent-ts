@@ -138,6 +138,32 @@ export default function ConsolePage({ initialMode }: Props) {
   const [refreshTick, setRefreshTick] = useState(0);
   const [hitlModalOpen, setHitlModalOpen] = useState(false);
   const [hitlFallbackContent, setHitlFallbackContent] = useState<string | undefined>();
+  // 已向用户展示过的 HITL 检查点（按会话）：批准后的状态翻转有延迟、断线
+  // 重连会回放 waiting_hitl 事件、轮询每个周期都会跑——没有这层去重，
+  // 同一个检查点会被反复弹出（实测连续弹多次后才停）
+  const surfacedHitlRef = useRef<Map<string, Set<string>>>(new Map());
+
+  const markHitlSurfaced = useCallback((sessionId: string, checkpointId: string) => {
+    let surfaced = surfacedHitlRef.current.get(sessionId);
+    if (!surfaced) {
+      surfaced = new Set<string>();
+      surfacedHitlRef.current.set(sessionId, surfaced);
+    }
+    surfaced.add(checkpointId);
+  }, []);
+
+  /** HITL 弹窗唯一入口：检查点已展示过（含已批准确认/用户手动关闭）就不再弹。
+   *  手动重开走顶部状态条按钮。 */
+  const maybeOpenHitlModal = useCallback((sessionId: string, checkpointId?: string | null) => {
+    const id = checkpointId ?? store.getTask(sessionId)?.hitlCheckpointId ?? null;
+    if (id) {
+      const surfaced = surfacedHitlRef.current.get(sessionId);
+      if (surfaced?.has(id)) return;
+      markHitlSurfaced(sessionId, id);
+      store.updateTask(sessionId, { hitlCheckpointId: id });
+    }
+    setHitlModalOpen(true);
+  }, [store, markHitlSurfaced]);
 
   // Check config status on mount
   useEffect(() => {
@@ -191,20 +217,23 @@ export default function ConsolePage({ initialMode }: Props) {
           streamRef: null,
         });
         // Resolve checkpoint id if stream event was missed.
-        if (!store.getTask(task.sessionId)?.hitlCheckpointId) {
+        const surfacedHitl = surfacedHitlRef.current.get(task.sessionId);
+        const currentCheckpointId = store.getTask(task.sessionId)?.hitlCheckpointId;
+        if (currentCheckpointId) {
+          if (!surfacedHitl?.has(currentCheckpointId)) {
+            maybeOpenHitlModal(task.sessionId, currentCheckpointId);
+          }
+        } else {
           listHITLCheckpoints(task.sessionId)
             .then((res) => {
               const pending = res.checkpoints.find(
                 (cp) => cp.status === 'waiting_review' || cp.status === 'escalated',
               );
               if (pending) {
-                store.updateTask(task.sessionId, { hitlCheckpointId: pending.id });
-                setHitlModalOpen(true);
+                maybeOpenHitlModal(task.sessionId, pending.id);
               }
             })
             .catch(() => {});
-        } else {
-          setHitlModalOpen(true);
         }
         setRefreshTick((t) => t + 1);
         return;
@@ -462,7 +491,7 @@ export default function ConsolePage({ initialMode }: Props) {
           hydratingSessionsRef.current.delete(sessionId);
           const t = store.getTask(sessionId);
           store.updateTask(sessionId, { loading: false, streaming: false });
-          if (t?.status === 'waiting') setHitlModalOpen(true);
+          if (t?.status === 'waiting') maybeOpenHitlModal(sessionId);
         };
         if (event === 'complete' || event === 'error' || event === 'execution_terminal' || event === 'cancelled') {
           finishHydration();
@@ -495,7 +524,9 @@ export default function ConsolePage({ initialMode }: Props) {
             setHitlFallbackContent(undefined);
           }
         }
-        if (!hydratingSessionsRef.current.has(sessionId)) setHitlModalOpen(true);
+        if (!hydratingSessionsRef.current.has(sessionId)) {
+          maybeOpenHitlModal(sessionId, typeof d.checkpointId === 'string' ? d.checkpointId : null);
+        }
       }
 
       if (event === 'execution_status') {
@@ -505,7 +536,9 @@ export default function ConsolePage({ initialMode }: Props) {
           if (checkpointId) {
             store.updateTask(sessionId, { hitlCheckpointId: checkpointId });
           }
-          if (!hydratingSessionsRef.current.has(sessionId)) setHitlModalOpen(true);
+          if (!hydratingSessionsRef.current.has(sessionId)) {
+            maybeOpenHitlModal(sessionId, checkpointId ?? null);
+          }
         }
       }
 
@@ -548,6 +581,8 @@ export default function ConsolePage({ initialMode }: Props) {
       loading: result.action !== 'reject',
       streaming: result.action !== 'reject',
     });
+    // 已处置的检查点：轮询/回放都不再为它弹窗
+    markHitlSurfaced(sid, result.checkpoint.id);
     setHitlModalOpen(false);
     setHitlFallbackContent(undefined);
     setRefreshTick((t) => t + 1);
