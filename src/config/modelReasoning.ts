@@ -87,8 +87,9 @@ function effortFor(meta: ModelMeta | null, cfg: ReasoningConfig): string {
 }
 
 /**
- * 解析思考意图。mode==='off' 时仅当模型属于"默认开启思考"的 toggle 型
- * （如 Qwen3/GLM）才显式下发关闭，其余情况不传参数（用厂商默认）。
+ * 解析思考意图。mode==='off' 时：模型注册表标注 effort 值含 "none"（如
+ * GPT-5.1）则透传精确关闭；toggle 型（如 Qwen3/GLM 4.x）下发显式关闭；
+ * 其余不传参数（用厂商默认）。
  */
 export function resolveReasoningIntent(
   provider: string,
@@ -97,6 +98,14 @@ export function resolveReasoningIntent(
   maxTokens?: number,
 ): ResolvedReasoning | null {
   if (!cfg || cfg.mode === "off") {
+    if (cfg?.effort) {
+      // UI 选择 "none" 档：仅当模型档位表确实包含该值（如 GPT-5.1）才透传
+      const values = getModelMeta(provider, modelName)?.reasoningOptions
+        ?.find((o) => o.type === "effort")?.values;
+      if (values?.includes(cfg.effort)) {
+        return { effort: cfg.effort };
+      }
+    }
     const meta = getModelMeta(provider, modelName);
     return meta && supportsToggle(meta) ? { enableThinking: false } : null;
   }
@@ -106,10 +115,16 @@ export function resolveReasoningIntent(
     // anthropic 协议优先预算型思考（thinking.budget_tokens，Claude 经典路径）；
     // 仅 effort 型模型（如 GLM 编码套餐）走 output_config.effort
     const preferBudget = resolveProviderProtocol(provider) === "anthropic";
-    if (preferBudget && supportsBudgetTokens(meta)) {
+    const effortValues = meta.reasoningOptions?.find((o) => o.type === "effort")?.values;
+    if (preferBudget && supportsBudgetTokens(meta) && !(cfg.effort && supportsEffort(meta))) {
       return { thinkingBudget: clampBudget(cfg, maxTokens) };
     }
     if (supportsEffort(meta)) {
+      // UI 传入的精确档位（注册表原值，如 max/xhigh/none）优先；
+      // 否则按统一五档换算到模型档位表
+      if (cfg.effort && (!effortValues || effortValues.includes(cfg.effort))) {
+        return { effort: cfg.effort };
+      }
       return { effort: effortFor(meta, cfg) };
     }
     if (supportsBudgetTokens(meta)) {
@@ -121,16 +136,22 @@ export function resolveReasoningIntent(
     return null; // 注册表明确该模型不支持思考
   }
 
-  // 无元数据：按解析后的协议保守映射
+  // 无元数据：按解析后的协议保守映射（UI 精确档位仍透传）
   const protocol = resolveProviderProtocol(provider);
   if (protocol === "anthropic") {
+    if (cfg.effort && (ANTHROPIC_EFFORTS as readonly string[]).includes(cfg.effort)) {
+      return { effort: cfg.effort };
+    }
     return { thinkingBudget: clampBudget(cfg, maxTokens) };
   }
   if (protocol === "openai") {
-    return { effort: cfg.mode };
+    return { effort: cfg.effort ?? cfg.mode };
   }
   return null;
 }
+
+const ANTHROPIC_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+type AnthropicEffort = (typeof ANTHROPIC_EFFORTS)[number];
 
 /** 翻译为 ChatOpenAI 构造参数（openai / openai-compatible 两协议共用）。 */
 export function toChatOpenAIParams(
@@ -153,9 +174,6 @@ export function toChatOpenAIParams(
   }
   return Object.keys(modelKwargs).length > 0 ? { modelKwargs } : {};
 }
-
-const ANTHROPIC_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
-type AnthropicEffort = (typeof ANTHROPIC_EFFORTS)[number];
 
 /** 翻译为 ChatAnthropic 构造参数：预算型 → thinking，档位型 → outputConfig.effort。 */
 export function toChatAnthropicParams(

@@ -254,12 +254,18 @@ settingsRoute.put("/llm", async (c) => {
   if (!modelName) return c.json({ error: "模型名不能为空" }, 400);
   if (!apiKey) return c.json({ error: "API Key 不能为空" }, 400);
   if (baseUrl && !/^https?:\/\//.test(baseUrl)) return c.json({ error: "Base URL 必须是 http(s) 地址" }, 400);
-  const reasoningInput = (body as { reasoning?: { mode?: unknown; budgetTokens?: unknown } }).reasoning;
+  const reasoningInput = (body as { reasoning?: { mode?: unknown; budgetTokens?: unknown; effort?: unknown } }).reasoning;
   let reasoning: ReasoningConfig | undefined;
   if (reasoningInput && typeof reasoningInput === "object") {
     const mode = String(reasoningInput.mode ?? "off") as ReasoningMode;
     if (!REASONING_MODES.has(mode)) return c.json({ error: "不支持的思考档位" }, 400);
     reasoning = { mode };
+    // 精确思考档位（注册表 effort values 原值，如 none/xhigh/max）
+    if (reasoningInput.effort !== undefined && reasoningInput.effort !== null && reasoningInput.effort !== "") {
+      const effort = String(reasoningInput.effort);
+      if (!/^[a-z0-9_-]{1,16}$/i.test(effort)) return c.json({ error: "无效的思考档位值" }, 400);
+      reasoning.effort = effort;
+    }
     if (reasoningInput.budgetTokens !== undefined && reasoningInput.budgetTokens !== null) {
       const budget = Number(reasoningInput.budgetTokens);
       if (!Number.isFinite(budget) || budget < 1024 || budget > 1_000_000) {

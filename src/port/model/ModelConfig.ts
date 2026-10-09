@@ -7,6 +7,12 @@ export type ReasoningMode = "off" | "minimal" | "low" | "medium" | "high";
 
 export interface ReasoningConfig {
   mode: ReasoningMode;
+  /**
+   * 精确思考档位（模型注册表 reasoning_options 的 effort values 原值，
+   * 如 max/xhigh/none）。存在且被模型支持时优先于 mode；缺省按 mode
+   * 换算到模型档位。
+   */
+  effort?: string;
   /** 显式思考预算（tokens）；仅预算型思考的模型使用，缺省按档位换算 */
   budgetTokens?: number;
 }

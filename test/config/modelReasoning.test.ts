@@ -74,6 +74,27 @@ describe("resolveReasoningIntent（按注册表 reasoning_options 分发）", ()
     expect(resolveReasoningIntent("glm-coding-plan", "glm-5.3-flash", { mode: "off" })).toBeNull();
   });
 
+  test("UI 精确档位（effort 原值）优先于 mode 换算", () => {
+    // 注册表 values 内的精确档位直接采用（如 GLM max）
+    expect(
+      resolveReasoningIntent("glm-coding-plan", "glm-5.3-flash", { mode: "high", effort: "max" }),
+    ).toEqual({ effort: "max" });
+    // 无元数据的模型也透传精确档位（openai → reasoning/modelKwargs 路径）
+    expect(
+      resolveReasoningIntent("openai", "unknown-model", { mode: "high", effort: "xhigh" }),
+    ).toEqual({ effort: "xhigh" });
+  });
+
+  test("mode=off + effort=none（GPT-5.1 类支持原生关闭的模型）透传 none", () => {
+    // 模型档位表含 none 才透传；否则回退 toggle 关闭 / 不传（保守）
+    expect(
+      resolveReasoningIntent("zai", "glm-4.6", { mode: "off", effort: "none" }),
+    ).toEqual({ enableThinking: false });
+    expect(
+      resolveReasoningIntent("openai-compatible", "unknown-model", { mode: "off", effort: "none" }),
+    ).toBeNull();
+  });
+
   test("注册表明确不支持思考的模型返回 null（不透传会被拒的参数）", () => {
     // 在快照里找一个 reasoning=false 的模型（如 minimax 的非推理模型），找不到就跳过
     const s = require("../../config/models.snapshot.json");
