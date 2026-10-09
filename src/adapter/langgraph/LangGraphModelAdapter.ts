@@ -180,7 +180,28 @@ export class LangGraphModelAdapter implements ChatModelPort {
   }
 
   getActiveModelName(): string {
-    return this.modelName;
+    // BYOK 生效时反映真实在用的用户模型——否则日志恒打全局名，
+    // 无法区分 BYOK 是否生效（曾因此误判"配置未生效"）
+    if (this.userOverride) {
+      const userId = this.userOverride.getUserId();
+      if (userId) {
+        const cached = this.userAdapters.get(userId);
+        if (cached) return cached.adapter.getActiveModelName();
+      }
+    }
+    return this.modelName ?? "unknown";
+  }
+
+  /** 当前生效的模型配置（BYOK 缓存命中时为用户配置；否则全局链当前槽位）。 */
+  getActiveModelConfig(): ModelConfig | null {
+    if (this.userOverride) {
+      const userId = this.userOverride.getUserId();
+      if (userId) {
+        const cached = this.userAdapters.get(userId);
+        if (cached) return cached.adapter.getActiveModelConfig();
+      }
+    }
+    return this.chain[this.activeIndex] ?? null;
   }
 
   getChainLength(): number {

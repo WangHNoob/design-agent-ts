@@ -1,5 +1,5 @@
 {
- "fetchedAt": "2026-10-09T14:32:53.004Z",
+ "fetchedAt": "2026-10-09T15:36:56.290Z",
  "source": "https://models.dev/api.json",
  "providers": {
   "zai": {
@@ -13259,6 +13259,103 @@
      "output": 131072,
      "costIn": 0.3,
      "costOut": 1.2
+    }
+   }
+  },
+  "glm-coding-plan": {
+   "id": "glm-coding-plan",
+   "name": "智谱 GLM 编码套餐（bigmodel.cn）",
+   "protocol": "anthropic",
+   "baseUrl": "https://open.bigmodel.cn/api/anthropic",
+   "models": {
+    "glm-5.3-flash": {
+     "id": "glm-5.3-flash",
+     "name": "GLM-5.3-Flash",
+     "reasoning": true,
+     "reasoningOptions": [
+      {
+       "type": "effort",
+       "values": [
+        "low",
+        "high",
+        "max"
+       ]
+      }
+     ],
+     "toolCall": true,
+     "context": 1000000,
+     "output": 131072,
+     "costIn": 0.15,
+     "costOut": 0.5
+    },
+    "glm-5.3": {
+     "id": "glm-5.3",
+     "name": "GLM-5.3",
+     "reasoning": true,
+     "reasoningOptions": [
+      {
+       "type": "effort",
+       "values": [
+        "low",
+        "high",
+        "max"
+       ]
+      }
+     ],
+     "toolCall": true,
+     "context": 1000000,
+     "output": 131072,
+     "costIn": 1.4,
+     "costOut": 4.4
+    },
+    "glm-5.2": {
+     "id": "glm-5.2",
+     "name": "GLM-5.2",
+     "reasoning": true,
+     "reasoningOptions": [
+      {
+       "type": "effort",
+       "values": [
+        "high",
+        "max"
+       ]
+      }
+     ],
+     "toolCall": true,
+     "context": 1000000,
+     "output": 131072,
+     "costIn": 1.4,
+     "costOut": 4.4
+    },
+    "glm-4.7": {
+     "id": "glm-4.7",
+     "name": "GLM-4.7",
+     "reasoning": true,
+     "reasoningOptions": [
+      {
+       "type": "toggle"
+      }
+     ],
+     "toolCall": true,
+     "context": 204800,
+     "output": 131072,
+     "costIn": 0.6,
+     "costOut": 2.2
+    },
+    "glm-5-turbo": {
+     "id": "glm-5-turbo",
+     "name": "GLM-5-Turbo",
+     "reasoning": true,
+     "reasoningOptions": [
+      {
+       "type": "toggle"
+      }
+     ],
+     "toolCall": true,
+     "context": 200000,
+     "output": 131072,
+     "costIn": 1.2,
+     "costOut": 4
     }
    }
   }

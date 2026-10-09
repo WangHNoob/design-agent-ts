@@ -33,6 +33,22 @@ const ALLOWED_PROVIDERS = new Set([
   "minimax-cn",
 ]);
 
+/**
+ * 本地补充的 provider 预设：models.dev 没有收录、但本应用需要的接入点。
+ * 模型元数据从指定源 provider 复制（保持随上游自动更新）。
+ */
+const LOCAL_PROVIDER_SOURCES = {
+  // 智谱 GLM 编码套餐只开放 Anthropic 兼容端点（open.bigmodel.cn），
+  // 模型元数据（思考档位 low/high/max 等）与 zai 条目同族
+  "glm-coding-plan": {
+    name: "智谱 GLM 编码套餐（bigmodel.cn）",
+    protocol: "anthropic",
+    baseUrl: "https://open.bigmodel.cn/api/anthropic",
+    fromProvider: "zai",
+    models: ["glm-5.3-flash", "glm-5.3", "glm-5.2", "glm-4.7", "glm-5-turbo"],
+  },
+};
+
 function protocolOf(npm, id) {
   if (npm === "@ai-sdk/anthropic") return "anthropic";
   if (npm === "@ai-sdk/openai") return "openai";
@@ -106,6 +122,24 @@ async function main() {
   }
 
   const snapshot = { fetchedAt: new Date().toISOString(), source: "https://models.dev/api.json", providers };
+  for (const [id, local] of Object.entries(LOCAL_PROVIDER_SOURCES)) {
+    const source = data[local.fromProvider];
+    if (!source) {
+      console.warn(`skip local provider ${id}: source ${local.fromProvider} missing upstream`);
+      continue;
+    }
+    const models = {};
+    for (const mid of local.models) {
+      const trimmed = trimModel(mid, source.models?.[mid]);
+      if (trimmed) models[mid] = trimmed;
+    }
+    if (Object.keys(models).length === 0) {
+      console.warn(`skip local provider ${id}: no models resolved from ${local.fromProvider}`);
+      continue;
+    }
+    providers[id] = { id, name: local.name, protocol: local.protocol, baseUrl: local.baseUrl, models };
+    modelCount += Object.keys(models).length;
+  }
   const fs = await import("node:fs");
   const path = await import("node:path");
   const target = path.resolve(process.cwd(), "config/models.snapshot.json");

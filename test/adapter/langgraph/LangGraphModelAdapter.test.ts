@@ -112,6 +112,35 @@ describe("LangGraphModelAdapter", () => {
     );
   });
 
+  it("GLM 编码套餐（anthropic 协议 + 仅 effort 型）→ outputConfig.effort", () => {
+    new LangGraphModelAdapter({
+      provider: "glm-coding-plan",
+      modelName: "glm-5.3-flash",
+      apiKey: "sk-test",
+      reasoning: { mode: "high" },
+    });
+    expect(ChatAnthropic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anthropicApiUrl: "https://open.bigmodel.cn/api/anthropic",
+        outputConfig: { effort: "high" },
+      })
+    );
+  });
+
+  it("getActiveModelName 反映用户 BYOK 模型（缓存命中时）", () => {
+    const userAdapter = new LangGraphModelAdapter({ provider: "zai", modelName: "glm-4.6", apiKey: "k-user" });
+    const wrapper = new LangGraphModelAdapter(
+      { provider: "openai", modelName: "gpt-4o", apiKey: "k-global" },
+      { userOverride: { getUserId: () => "u1", loadModelConfig: async () => null } },
+    );
+    // 未预热：缓存未命中 → 全局模型名
+    expect(wrapper.getActiveModelName()).toBe("gpt-4o");
+    // 模拟 preload 后的用户适配器缓存
+    (wrapper as unknown as { userAdapters: Map<string, { adapter: LangGraphModelAdapter; key: string }> })
+      .userAdapters.set("u1", { adapter: userAdapter, key: "k" });
+    expect(wrapper.getActiveModelName()).toBe("glm-4.6");
+  });
+
   it("用户显式 baseUrl 覆盖注册表预设", () => {
     new LangGraphModelAdapter({
       provider: "deepseek",

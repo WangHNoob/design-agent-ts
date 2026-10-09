@@ -5,6 +5,7 @@ import {
   supportsBudgetTokens,
   type ProviderProtocol,
   getProviderMeta,
+  type ModelMeta,
 } from "./modelRegistry.js";
 import type { ReasoningConfig } from "../port/model/ModelConfig.js";
 
@@ -21,8 +22,8 @@ import type { ReasoningConfig } from "../port/model/ModelConfig.js";
  */
 
 export interface ResolvedReasoning {
-  /** OpenAI 风格档位（reasoning_effort / reasoning.effort） */
-  effort?: "minimal" | "low" | "medium" | "high";
+  /** OpenAI 风格档位（reasoning_effort / reasoning.effort / output_config.effort），已按注册表 values 对齐（可能是 max 等模型专属档） */
+  effort?: string;
   /** 精确思考预算（Anthropic thinking.budget_tokens / 兼容端点 thinking_budget） */
   thinkingBudget?: number;
   /** 开关型思考（enable_thinking 类）；false = 显式关闭默认开启的思考 */
@@ -58,6 +59,34 @@ function clampBudget(cfg: ReasoningConfig, maxTokens?: number): number {
 }
 
 /**
+ * 把统一五档映射到模型实际支持的 effort 值列表（注册表 reasoning_options
+ * 的 values，如 GLM 的 [low, high, max]、OpenAI 的 [minimal, low, medium,
+ * high]）。模型支持该档位时原样；否则按强度排名取最近档。
+ */
+export function snapEffortToValues(
+  mode: "minimal" | "low" | "medium" | "high",
+  values: string[],
+): string {
+  if (values.includes(mode)) return mode;
+  if (values.length === 0) return mode;
+  switch (mode) {
+    case "minimal":
+    case "low":
+      return values[0]!;
+    case "medium":
+      return values[Math.ceil((values.length - 1) / 2)]!;
+    case "high":
+      return values[values.length - 1]!;
+  }
+}
+
+function effortFor(meta: ModelMeta | null, cfg: ReasoningConfig): string {
+  const values = meta?.reasoningOptions?.find((o) => o.type === "effort")?.values;
+  const mode = cfg.mode === "off" ? "medium" : cfg.mode;
+  return values ? snapEffortToValues(mode, values) : mode;
+}
+
+/**
  * 解析思考意图。mode==='off' 时仅当模型属于"默认开启思考"的 toggle 型
  * （如 Qwen3/GLM）才显式下发关闭，其余情况不传参数（用厂商默认）。
  */
@@ -74,14 +103,14 @@ export function resolveReasoningIntent(
 
   const meta = getModelMeta(provider, modelName);
   if (meta) {
-    // anthropic 协议只支持预算型思考（thinking.budget_tokens）：
-    // 即使注册表同时标注 effort（新式 adaptive 参数），也优先映射预算
+    // anthropic 协议优先预算型思考（thinking.budget_tokens，Claude 经典路径）；
+    // 仅 effort 型模型（如 GLM 编码套餐）走 output_config.effort
     const preferBudget = resolveProviderProtocol(provider) === "anthropic";
     if (preferBudget && supportsBudgetTokens(meta)) {
       return { thinkingBudget: clampBudget(cfg, maxTokens) };
     }
     if (supportsEffort(meta)) {
-      return { effort: cfg.mode === "minimal" ? "minimal" : cfg.mode };
+      return { effort: effortFor(meta, cfg) };
     }
     if (supportsBudgetTokens(meta)) {
       return { thinkingBudget: clampBudget(cfg, maxTokens) };
@@ -109,7 +138,11 @@ export function toChatOpenAIParams(
 ): { reasoning?: { effort: "minimal" | "low" | "medium" | "high" }; modelKwargs?: Record<string, unknown> } {
   if (!intent) return {};
   if (intent.effort) {
-    return { reasoning: { effort: intent.effort } };
+    // OpenAI 系协议只接受四档；模型专属档（如 max）经 reasoning_effort 透传
+    if (intent.effort === "minimal" || intent.effort === "low" || intent.effort === "medium" || intent.effort === "high") {
+      return { reasoning: { effort: intent.effort } };
+    }
+    return { modelKwargs: { reasoning_effort: intent.effort } };
   }
   const modelKwargs: Record<string, unknown> = {};
   if (intent.thinkingBudget !== undefined) {
@@ -121,10 +154,19 @@ export function toChatOpenAIParams(
   return Object.keys(modelKwargs).length > 0 ? { modelKwargs } : {};
 }
 
-/** 翻译为 ChatAnthropic 构造参数（扩展思考预算）。 */
+const ANTHROPIC_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+type AnthropicEffort = (typeof ANTHROPIC_EFFORTS)[number];
+
+/** 翻译为 ChatAnthropic 构造参数：预算型 → thinking，档位型 → outputConfig.effort。 */
 export function toChatAnthropicParams(
   intent: ResolvedReasoning | null,
-): { thinking?: { type: "enabled"; budget_tokens: number } } {
-  if (!intent?.thinkingBudget) return {};
-  return { thinking: { type: "enabled", budget_tokens: intent.thinkingBudget } };
+): { thinking?: { type: "enabled"; budget_tokens: number }; outputConfig?: { effort: AnthropicEffort } } {
+  if (!intent) return {};
+  if (intent.thinkingBudget) {
+    return { thinking: { type: "enabled", budget_tokens: intent.thinkingBudget } };
+  }
+  if (intent.effort && (ANTHROPIC_EFFORTS as readonly string[]).includes(intent.effort)) {
+    return { outputConfig: { effort: intent.effort as AnthropicEffort } };
+  }
+  return {};
 }
