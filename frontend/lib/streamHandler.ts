@@ -168,12 +168,8 @@ export function handleStreamEvent(
         streamingText: '',
         hitlCheckpointId: checkpointId ?? null,
       });
-      store.appendMessage(sessionId, {
-        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
-        type: 'system',
-        content: `需要人工审阅（${reviewPoint}）${checkpointId ? ` · checkpoint=${checkpointId}` : ''}\n${feedback}${plan?.subTasks ? `\n已规划 ${plan.subTasks.length} 个任务，请在弹窗中确认。` : ''}`,
-        timestamp: getCurrentTime(),
-      });
+      // 主对话不再追加"需要人工审阅"系统消息：等待状态由输入框上方横幅、
+      // 审阅弹窗和右栏步骤时间线承载，对话框只保留任务进度卡片与最终结论
       store.appendTimeline(sessionId, {
         id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),

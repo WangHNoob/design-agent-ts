@@ -150,4 +150,20 @@ describe("主对话进度卡片锚点", () => {
     const taskRows = (store.getState().getTask("s1")?.timeline ?? []).filter((e) => e.type === "task");
     expect(taskRows[0].taskId).toBe("F3");
   });
+
+  test("hitl 事件不再向主对话追加系统消息，等待状态与时间线照常", () => {
+    seedTask("s1", "exec-1");
+    handleStreamEvent("s1", "hitl", {
+      reviewPoint: "hitl-1-task-plan",
+      checkpointId: "ckpt-1",
+      feedback: "hitl-1-task-plan waiting for human review",
+      plan: { subTasks: [{ id: "F1" }, { id: "F2" }] },
+    }, store.getState());
+
+    const task = store.getState().getTask("s1");
+    expect((task?.messages ?? []).filter((m) => m.type === "system")).toHaveLength(0);
+    expect(task?.status).toBe("waiting");
+    expect(task?.hitlCheckpointId).toBe("ckpt-1");
+    expect((task?.timeline ?? []).some((e) => e.type === "phase" && e.title.includes("等待审阅"))).toBe(true);
+  });
 });
