@@ -78,4 +78,38 @@ describe("Integration: DESIGN Flow", () => {
     expect(summaryText).toContain("共完成 **3** 个子任务");
     expect(summaryText).not.toContain("部分完成");
   });
+
+  it("事故回归：LLM 路由全部回显 F1 时，代码键控的任务序号应让全部子任务执行", async () => {
+    // 复现 2026-10-09 第二次事故：路由 LLM 把 6 个决策全部标成 fragmentId=F1，
+    // 可执行计划变成重复 id 被去重后只剩 1 个任务（1/6 宣告部分完成）。
+    // 现在任务序号由代码按位置键控，LLM 编号被忽略。
+    const model = new MockModelAdapter([
+      ChatMessage.text("assistant", "mock", JSON.stringify({
+        planId: "plan-dup",
+        subTasks: [
+          { id: "T1", fragmentId: "F1", domain: "gameplay_design", description: "定位", dependencies: [], priority: 1 },
+          { id: "T2", fragmentId: "F2", domain: "combat_design", description: "技能组", dependencies: ["T1"], priority: 2 },
+          { id: "T3", fragmentId: "F3", domain: "qa", description: "验证", dependencies: ["T1", "T2"], priority: 3 },
+        ],
+      })),
+      ChatMessage.text("assistant", "mock", JSON.stringify([
+        { fragmentId: "F1", domain: "gameplay_design", agentName: "GameplayDesigner", assignment: "定位", priority: 1 },
+        { fragmentId: "F1", domain: "combat_design", agentName: "CombatDesigner", assignment: "技能组", priority: 2 },
+        { fragmentId: "F1", domain: "qa", agentName: "QAPlanner", assignment: "验证", priority: 3 },
+      ])),
+    ]);
+
+    const director = new DirectorAgent({
+      model,
+      agentFactory: new MockAgentFactory(),
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn().mockReturnValue([]), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: new SkillManager(),
+      humanReviewGateway: new MockHumanReviewGateway(true),
+      hooks: [],
+    });
+
+    const response = await director.execute("上线一个新角色", "session-dup-routing", "design", "chief_designer");
+    expect(response.success).toBe(true);
+    expect(response.metadata.fileCount).toBe(3);
+  });
 });

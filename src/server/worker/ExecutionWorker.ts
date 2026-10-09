@@ -817,6 +817,9 @@ export class ExecutionWorker {
     const task = (await repository.listTasks(execution.id)).find((item) => item.taskKey === taskKey);
     if (!task) return;
     const rawStatus = typeof event.data.status === "string" ? event.data.status : "error";
+    // HITL-2 暂停标记（status=pending）不是任务结果：任务行保持 running，
+    // 否则暂停会被误记成 error 终态（实测 attempt 1 全是空消息的 error）。
+    if (rawStatus === "pending") return;
     const nextStatus: ExecutionTaskStatus = rawStatus === "success"
       ? "success"
       : rawStatus === "skipped"

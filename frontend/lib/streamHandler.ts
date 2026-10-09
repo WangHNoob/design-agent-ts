@@ -17,23 +17,6 @@ function mapDomainToAgentName(domain: string): string {
   return map[domain.toLowerCase()] || domain;
 }
 
-function summarizeToolArgs(args: Record<string, unknown>): string {
-  const entries = Object.entries(args);
-  if (entries.length === 0) return '';
-  if (entries.length === 1) {
-    const [, value] = entries[0];
-    const strValue = typeof value === 'string' ? value : JSON.stringify(value);
-    return strValue.length > 120 ? `${strValue.substring(0, 120)}...` : strValue;
-  }
-  // Show key=value pairs for multi-param tools
-  const parts = entries.map(([key, value]) => {
-    const strValue = typeof value === 'string' ? value : JSON.stringify(value);
-    const truncated = strValue.length > 60 ? `${strValue.substring(0, 60)}...` : strValue;
-    return `${key}: ${truncated}`;
-  });
-  return parts.join(', ');
-}
-
 const activeTaskRef = new Map<string, string | null>();
 const taskEntriesRef = new Map<string, Map<string, TimelineEntry>>();
 
@@ -329,27 +312,10 @@ export function handleStreamEvent(
     }
 
     case 'tool_start': {
-      const taskId = d.taskId as string;
       const toolName = d.toolName as string;
       const args = d.args as Record<string, unknown>;
 
-      const toolEntry: TimelineEntry = {
-        id: `tool_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        time: getCurrentTime(),
-        type: 'tool',
-        title: toolName,
-        detail: summarizeToolArgs(args),
-        status: 'running',
-      };
-
-      const taskMap = taskEntriesRef.get(sessionId);
-      const taskEntry = taskMap?.get(taskId);
-      if (taskEntry) {
-        store.addToolToTask(sessionId, taskEntry.id, toolEntry);
-      } else {
-        store.appendTimeline(sessionId, toolEntry);
-      }
-
+      // 步骤面板只保留任务级进度（产品约定）：工具调用明细只进日志面板
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
@@ -362,50 +328,12 @@ export function handleStreamEvent(
     }
 
     case 'tool_complete': {
-      const taskId = d.taskId as string;
       const toolName = d.toolName as string;
       const durationMs = d.durationMs as number | undefined;
       const success = d.success as boolean;
       const summary = d.summary as string;
 
-      const taskMap = taskEntriesRef.get(sessionId);
-      const taskEntry = taskMap?.get(taskId);
-      if (taskEntry) {
-        store.updateTask(sessionId, {
-          timeline: store.getTask(sessionId)?.timeline.map((entry) => {
-            if (entry.id === taskEntry.id && entry.children) {
-              const updatedChildren = entry.children.map((child) => {
-                if (child.type === 'tool' && child.title === toolName && child.status === 'running') {
-                  return {
-                    ...child,
-                    status: success ? ('completed' as const) : ('error' as const),
-                    durationMs,
-                    detail: summary,
-                  };
-                }
-                return child;
-              });
-              return { ...entry, children: updatedChildren };
-            }
-            return entry;
-          }) || [],
-        });
-      } else {
-        store.updateTask(sessionId, {
-          timeline: store.getTask(sessionId)?.timeline.map((entry) => {
-            if (entry.type === 'tool' && entry.title === toolName && entry.status === 'running') {
-              return {
-                ...entry,
-                status: success ? ('completed' as const) : ('error' as const),
-                durationMs,
-                detail: summary,
-              };
-            }
-            return entry;
-          }) || [],
-        });
-      }
-
+      // 步骤面板只保留任务级进度（产品约定）：结果明细只进日志面板
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
@@ -464,19 +392,42 @@ export function handleStreamEvent(
 
     case 'task_complete': {
       const taskId = d.taskId as string;
+      const taskStatus = (d.status as string) || 'success';
+      const errorMessage = d.errorMessage as string | undefined;
       const taskMap = taskEntriesRef.get(sessionId);
       const taskEntry = taskMap?.get(taskId);
 
       if (taskEntry) {
-        store.updateTimelineEntry(sessionId, taskEntry.id, { status: 'completed' });
+        // 明确的任务进度状态：success=已完成 / skipped=已跳过 / error=失败 /
+        // pending=等待人工审阅（HITL-2 暂停标记）
+        if (taskStatus === 'success') {
+          store.updateTimelineEntry(sessionId, taskEntry.id, { status: 'completed' });
+        } else if (taskStatus === 'skipped') {
+          store.updateTimelineEntry(sessionId, taskEntry.id, {
+            status: 'completed',
+            detail: '已跳过（依赖任务未成功）',
+          });
+        } else if (taskStatus === 'pending') {
+          store.updateTimelineEntry(sessionId, taskEntry.id, {
+            status: 'pending',
+            detail: '产出已生成，等待人工审阅',
+          });
+        } else {
+          store.updateTimelineEntry(sessionId, taskEntry.id, {
+            status: 'error',
+            detail: errorMessage ? `失败：${errorMessage.slice(0, 120)}` : '执行失败',
+          });
+        }
       }
       activeTaskRef.set(sessionId, null);
       store.appendLog(sessionId, {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         time: getCurrentTime(),
-        level: 'info',
+        level: taskStatus === 'error' ? 'error' : 'info',
         source: 'Task',
-        message: `任务完成: ${taskId}`,
+        message: taskStatus === 'success'
+          ? `任务完成: ${taskId}`
+          : `任务${taskStatus === 'skipped' ? '跳过' : taskStatus === 'pending' ? '等待审阅' : '失败'}: ${taskId}`,
       });
       break;
     }

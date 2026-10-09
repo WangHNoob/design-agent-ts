@@ -301,6 +301,23 @@ describe("ExecutionWorker", () => {
     expect(executeStream).not.toHaveBeenCalled();
   });
 
+  test("task_complete status=pending（HITL-2 暂停标记）不落 error 终态", async () => {
+    const director = {
+      async *executeStream(): AsyncIterable<StreamEvent> {
+        yield { type: "task_start", data: { taskId: "A", description: "A" } };
+        yield { type: "task_complete", data: { taskId: "A", status: "pending" } };
+        yield { type: "hitl", data: { reviewPoint: "hitl-2-agent-output", checkpointId: "ck-1", resumeCursor: "after_task:A" } };
+      },
+    } as unknown as DirectorAgent;
+    const f = await fixture(director);
+
+    await expect(f.worker.handleMessage(queueMessage(f.execution.id))).resolves.toEqual({ success: true });
+    const task = (await f.executions.listTasks(f.execution.id))[0];
+    // 暂停期间任务行保持 running（startTask 已置位），而不是被写成 error
+    expect(task?.status).toBe("running");
+    expect([...f.executions.attempts.values()][0]?.status).toBe("running");
+  });
+
   test("同任务重跑（先 error 后 success）last-write-wins：终态覆盖为 success 且两次 attempt 均落库", async () => {
     const director = {
       async *executeStream(): AsyncIterable<StreamEvent> {

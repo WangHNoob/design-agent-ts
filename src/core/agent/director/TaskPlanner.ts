@@ -82,6 +82,37 @@ function cleanupDependencies(tasks: SubTask[]): SubTask[] {
 }
 
 /**
+ * 任务序号由代码统一分配（LLM 只决定"做什么、依赖谁"，不决定编号）：
+ * id 与 fragmentId 统一为 F{i}，依赖从 LLM 发明的编号重写到同一命名空间。
+ * 实测 LLM 会输出错乱/重复编号（6 个任务在路由层全部回显 "F1"），代码
+ * 编号后整条链路只有单一 ID 命名空间，路由与可执行计划不再依赖 LLM 编号。
+ * 编号冲突时按列表顺序后者覆盖前者（与旧 seen-去重语义一致），孤立依赖丢弃。
+ */
+function normalizeTaskIds(tasks: SubTask[], logger: LoggerPort): SubTask[] {
+  const fragmentByOldId = new Map<string, string>();
+  tasks.forEach((t, i) => {
+    const fragmentId = `F${i + 1}`;
+    fragmentByOldId.set(t.id, fragmentId);
+    if (t.fragmentId) fragmentByOldId.set(t.fragmentId, fragmentId);
+  });
+
+  return tasks.map((t, i) => {
+    const id = `F${i + 1}`;
+    const dependencies: string[] = [];
+    for (const dep of t.dependencies) {
+      const mapped = fragmentByOldId.get(dep);
+      if (!mapped) {
+        logger.warn(`[TaskPlanner] dropping dependency "${dep}" of task ${id}: not in plan`);
+        continue;
+      }
+      if (mapped === id || dependencies.includes(mapped)) continue;
+      dependencies.push(mapped);
+    }
+    return { ...t, id, fragmentId: id, dependencies };
+  });
+}
+
+/**
  * Convert WorkflowTask[] to SubTask[] using the given requirement map.
  * Tasks whose domain is not accessible by the role are filtered out.
  */
@@ -356,7 +387,7 @@ export class TaskPlanner {
     return {
       planId: result.value.planId,
       requirement,
-      subTasks: cleaned,
+      subTasks: normalizeTaskIds(cleaned, this.logger),
     };
   }
 }

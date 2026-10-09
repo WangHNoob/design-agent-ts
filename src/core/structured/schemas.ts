@@ -144,16 +144,10 @@ export const RouteDecisionArraySchema = z
   .array(RawRouteItemSchema)
   .min(1, "route decisions must be a non-empty array")
   .superRefine((arr, ctx) => {
+    // fragmentId 不再要求：任务序号由 Router 代码按位置分配，LLM 只需
+    // 按任务顺序输出 domain/agentName/assignment。
     arr.forEach((item, idx) => {
-      const fragmentId = asString(item.fragmentId ?? item.taskId ?? item.id);
       const assignment = asString(item.assignment ?? item.description ?? item.requirement);
-      if (!fragmentId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "fragmentId is required",
-          path: [idx, "fragmentId"],
-        });
-      }
       if (!assignment.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -175,7 +169,7 @@ export const RouteDecisionArraySchema = z
   })
   .transform((arr): RouteDecisionParsed[] =>
     arr.map((item, idx) => ({
-      fragmentId: asString(item.fragmentId ?? item.taskId ?? item.id),
+      fragmentId: asString(item.fragmentId ?? item.taskId ?? item.id) || `F${idx + 1}`,
       domain: normalizeDomain(asString(item.domain) || "system_design"),
       agentName: asString(item.agentName ?? item.agent) || "SystemDesigner",
       assignment: asString(item.assignment ?? item.description ?? item.requirement),

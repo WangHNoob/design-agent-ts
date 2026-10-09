@@ -381,10 +381,11 @@ describe("DirectorAgent", () => {
     const completed = events.filter((event) => event.type === "task_complete");
 
     expect(maxActive).toBe(2);
+    // 任务序号由代码分配（F1/F2/F3），LLM 编号 A/B/C 不进入执行链路
     expect(completed).toEqual(expect.arrayContaining([
-      expect.objectContaining({ data: expect.objectContaining({ taskId: "A", status: "error" }) }),
-      expect.objectContaining({ data: expect.objectContaining({ taskId: "B", status: "success" }) }),
-      expect.objectContaining({ data: expect.objectContaining({ taskId: "C", status: "skipped" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ taskId: "F1", status: "error" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ taskId: "F2", status: "success" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ taskId: "F3", status: "skipped" }) }),
     ]));
     expect(process).toHaveBeenCalledTimes(2);
   });

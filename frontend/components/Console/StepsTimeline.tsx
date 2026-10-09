@@ -49,6 +49,19 @@ function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number })
     pending: <span className="w-2 h-2 rounded-full bg-ink/20" />,
   }[entry.status];
 
+  const statusLabel = {
+    running: '进行中',
+    completed: '已完成',
+    error: '失败',
+    pending: '等待',
+  }[entry.status];
+  const statusLabelClass = {
+    running: 'text-amber-500',
+    completed: 'text-emerald-600',
+    error: 'text-red-500',
+    pending: 'text-ink/60',
+  }[entry.status];
+
   const indentClass = level === 0 ? '' : 'ml-4';
   const connector = level > 0 ? '├─ ' : '';
 
@@ -87,6 +100,7 @@ function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number })
               {entry.agentName && <span className="font-medium text-coral">{entry.agentName}: </span>}
               {entry.title}
             </span>
+            <span className={`shrink-0 text-xs ${statusLabelClass}`}>({statusLabel})</span>
             {entry.durationMs !== undefined && (
               <span className="text-xs text-ink/70 font-mono">
                 {formatDuration(entry.durationMs)}
