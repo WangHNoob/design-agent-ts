@@ -37,4 +37,45 @@ describe("Integration: DESIGN Flow", () => {
     expect(response.success).toBe(true);
     expect(response.agentName).toBe("Director");
   });
+
+  it("事故回归：双命名空间计划（id=T* / fragmentId=F*）的全部子任务都应执行，而不是只有无依赖的跑通", async () => {
+    // 复现 2026-10-09 策划生成事故：计划依赖写在 T 命名空间，可执行计划以 F
+    // 命名空间为任务 ID。修复前依赖无法满足 → F2/F3 永远 skipped，9 个子任务
+    // 只完成 2 个仍宣告成功。
+    const model = new MockModelAdapter([
+      ChatMessage.text("assistant", "mock", JSON.stringify({
+        planId: "plan-incident",
+        subTasks: [
+          { id: "T1", fragmentId: "F1", domain: "gameplay_design", description: "角色池审计", dependencies: [], priority: 1 },
+          { id: "T2", fragmentId: "F2", domain: "gameplay_design", description: "新角色定位", dependencies: ["T1"], priority: 2 },
+          { id: "T3", fragmentId: "F3", domain: "combat_design", description: "机制平衡", dependencies: ["T1", "T2"], priority: 3 },
+        ],
+      })),
+      ChatMessage.text("assistant", "mock", JSON.stringify([
+        { fragmentId: "F1", domain: "gameplay_design", agentName: "GameplayDesigner", assignment: "角色池审计", priority: 1 },
+        { fragmentId: "F2", domain: "gameplay_design", agentName: "GameplayDesigner", assignment: "新角色定位", priority: 2 },
+        { fragmentId: "F3", domain: "combat_design", agentName: "CombatDesigner", assignment: "机制平衡", priority: 3 },
+      ])),
+    ]);
+
+    const director = new DirectorAgent({
+      model,
+      agentFactory: new MockAgentFactory(),
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn().mockReturnValue([]), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: new SkillManager(),
+      humanReviewGateway: new MockHumanReviewGateway(true),
+      hooks: [],
+    });
+
+    const response = await director.execute("上线一个新角色并平衡现有角色", "session-incident", "design", "chief_designer");
+    expect(response.success).toBe(true);
+    // 修复前：completedCount=1（F2/F3 被 skipped）；修复后：3/3 全部执行
+    expect(response.metadata.fileCount).toBe(3);
+    const summaryText = response.message.content
+      .filter((c) => c.type === "text")
+      .map((c) => (c as { text: string }).text)
+      .join("");
+    expect(summaryText).toContain("共完成 **3** 个子任务");
+    expect(summaryText).not.toContain("部分完成");
+  });
 });

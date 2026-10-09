@@ -28,8 +28,20 @@ export interface PlanPipelineOptions {
   maxFanOut?: number;
   /** Audit callback when a fan-out layer is split into batches. */
   onFanOutBatch?: (info: FanOutBatchInfo) => void | Promise<void>;
+  /**
+   * Audit callback when the plan needed sanitizing (duplicate ids / dependencies
+   * referencing tasks outside the plan). Fires once at the start of execute();
+   * a non-empty info means the plan was structurally defective and the DAG was
+   * silently altered — callers should surface this (span/alert), never ignore it.
+   */
+  onPlanSanitized?: (info: PlanSanitizeInfo) => void | Promise<void>;
   /** Grace period to collect partial output from an aborted in-flight task (ms). Default 2000. */
   inFlightPartialOutputTimeoutMs?: number;
+}
+
+export interface PlanSanitizeInfo {
+  duplicateIds: string[];
+  droppedDependencies: Array<{ taskId: string; unknown: string[] }>;
 }
 
 class TaskTimeoutError extends Error {
@@ -41,6 +53,11 @@ class TaskTimeoutError extends Error {
 
 export class PlanPipeline {
   private layers: string[][];
+  /** 净化后的任务副本：execute 的运行时语义（skip 检查、取消兜底）必须与
+   * 分层计算基于同一份依赖视图，否则会出现"分层时忽略依赖、运行时又按
+   * 依赖跳过"的割裂（实测导致 9 个子任务只有 2 个执行）。 */
+  private sanitizedTasks: SubTask[];
+  private sanitizeInfo: PlanSanitizeInfo;
   private signal?: AbortSignal;
   private options: Omit<PlanPipelineOptions, "signal">;
 
@@ -61,10 +78,16 @@ export class PlanPipeline {
       this.signal = signalOrOptions?.signal;
       this.options = signalOrOptions ?? options;
     }
-    this.layers = this.topologicalSort(plan);
+    const sanitized = this.sanitizePlan(plan);
+    this.sanitizedTasks = sanitized.tasks;
+    this.sanitizeInfo = { duplicateIds: sanitized.duplicateIds, droppedDependencies: sanitized.droppedDependencies };
+    this.layers = this.topologicalSort(this.sanitizedTasks);
   }
 
   async execute(): Promise<TaskResult[]> {
+    if (this.sanitizeInfo.duplicateIds.length > 0 || this.sanitizeInfo.droppedDependencies.length > 0) {
+      await this.options.onPlanSanitized?.(this.sanitizeInfo);
+    }
     const initialResults = this.options.initialResults ?? [];
     const allResults: TaskResult[] = [...initialResults];
     const resultByTaskId = new Map(initialResults.map((result) => [result.taskId, result]));
@@ -74,7 +97,7 @@ export class PlanPipeline {
       // Check abort between layers
       if (this.signal?.aborted) {
         const remainingLayers = this.layers.length - layerIndex;
-        const remainingTasks = this.plan.subTasks.length - resultByTaskId.size;
+        const remainingTasks = this.sanitizedTasks.length - resultByTaskId.size;
         this.logger.info(
           `[PlanPipeline] Aborted, cancelling ${remainingTasks} tasks across ${remainingLayers} layers`,
         );
@@ -83,7 +106,7 @@ export class PlanPipeline {
       }
 
       const layerTasks = layer
-        .map((id) => this.plan.subTasks.find((t) => t.id === id))
+        .map((id) => this.sanitizedTasks.find((t) => t.id === id))
         .filter((t): t is SubTask => t !== undefined)
         .filter((task) => !resultByTaskId.has(task.id));
 
@@ -130,29 +153,42 @@ export class PlanPipeline {
     return this.layers;
   }
 
-  private topologicalSort(plan: TaskPlan): string[][] {
+  private sanitizePlan(plan: TaskPlan): {
+    tasks: SubTask[];
+    duplicateIds: string[];
+    droppedDependencies: Array<{ taskId: string; unknown: string[] }>;
+  } {
     // LLM 生成的计划可能有小瑕疵（重复 id / 引用计划外 id 的依赖）：
-    // 在这里净化出一份可执行的安全副本，而不是让整条执行流崩溃
+    // 在这里净化出一份可执行的安全副本，而不是让整条执行流崩溃。
+    // 净化会静默改变 DAG 语义，必须通过 logger + onPlanSanitized 显式上报。
     const seen = new Set<string>();
-    const sanitized: TaskPlan["subTasks"] = [];
+    const duplicateIds: string[] = [];
+    const droppedDependencies: Array<{ taskId: string; unknown: string[] }> = [];
+    const tasks: SubTask[] = [];
     for (const task of plan.subTasks) {
       if (seen.has(task.id)) {
-        console.warn(`[PlanPipeline] dropping duplicate task id in plan: ${task.id}`);
+        duplicateIds.push(task.id);
+        this.logger.error(`[PlanPipeline] dropping duplicate task id in plan: ${task.id}`);
         continue;
       }
       seen.add(task.id);
       const unknownDependencies = task.dependencies.filter((dependency) => !seen.has(dependency));
       if (unknownDependencies.length > 0) {
         // 未知依赖直接丢弃：任务会提前到更早的层执行，影响小于中断执行
-        console.warn(
+        droppedDependencies.push({ taskId: task.id, unknown: unknownDependencies });
+        this.logger.error(
           `[PlanPipeline] dropping unknown dependencies of ${task.id}: ${unknownDependencies.join(", ")}`,
         );
-        sanitized.push({ ...task, dependencies: task.dependencies.filter((d) => seen.has(d)) });
+        tasks.push({ ...task, dependencies: task.dependencies.filter((d) => seen.has(d)) });
       } else {
-        sanitized.push(task);
+        tasks.push(task);
       }
     }
-    const orderedTasks = sanitized;
+    return { tasks, duplicateIds, droppedDependencies };
+  }
+
+  private topologicalSort(sanitizedTasks: readonly SubTask[]): string[][] {
+    const orderedTasks = sanitizedTasks;
 
     const inDegree = new Map<string, number>();
     const adjacency = new Map<string, string[]>();
@@ -332,7 +368,7 @@ export class PlanPipeline {
     allResults: TaskResult[],
     resultByTaskId: Map<string, TaskResult>,
   ): Promise<void> {
-    for (const task of this.plan.subTasks) {
+    for (const task of this.sanitizedTasks) {
       if (resultByTaskId.has(task.id)) {
         continue;
       }

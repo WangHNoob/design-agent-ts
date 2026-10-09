@@ -266,6 +266,7 @@ export class PlanExecutor {
         planHardEnabled: planHard.enabled,
         maxFanOut: this.ctx.config.multiAgent().enabled ? this.ctx.config.multiAgent().maxFanOut : 0,
         onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
+        onPlanSanitized: (info) => this.safeRecordPlanSpan("plan.unknown_deps_dropped", { ...info }),
         inFlightPartialOutputTimeoutMs: this.ctx.deps.limits?.inFlightPartialOutputTimeoutMs,
       },
     });
@@ -320,26 +321,16 @@ export class PlanExecutor {
       };
     }
 
-    const completedCount = results.filter((r) => r.status === "success").length;
-
     // Structured integration: field registry + conflict detection + per-agent docs.
     const integration = await this.integrateAndPersist(results, sessionId);
 
-    const fileList = results
-      .filter((r) => r.status === "success")
-      .map((r) => {
-        const dirName = this.ctx.deps.workspace
-          ? this.ctx.deps.workspace.resolveTaskDirName(sessionId, r.taskId)
-          : r.taskId;
-        return `- ${dirName}/output.md`;
-      })
-      .join("\n");
-
-    const conflictNote = integration.conflictCount > 0
-      ? `\n\n⚠️ 检测到 **${integration.conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
-      : "";
-
-    let summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+    const designSummary = this.buildDesignSummary({
+      results,
+      expectedTotal: runResult.finalPlan.subTasks.length,
+      sessionId,
+      conflictCount: integration.conflictCount,
+    });
+    let summary = designSummary.summary;
 
     // HITL-3：终稿验收（非流式路径；resume 后由幂等已决分支返回人工决策）
     const hitl3Gateway = this.ctx.deps.humanReviewGateway;
@@ -386,11 +377,57 @@ export class PlanExecutor {
     return {
       agentName: "Director",
       message: ChatMessage.text("assistant", "Director", summary),
-      metadata: { fileCount: completedCount, conflictCount: integration.conflictCount },
+      metadata: {
+        fileCount: designSummary.completedCount,
+        conflictCount: integration.conflictCount,
+        partial: !designSummary.allCompleted,
+      },
       success: true,
       errorMessage: null,
     };
   }
+  /**
+   * 统一构造策划生成的收尾总结（流式/非流式共用，消除双份实现漂移）。
+   * 必须校验覆盖率：success 数与可执行计划任务数不符（存在 skipped/error
+   * 结果）时，明确输出部分完成警告并列出缺失任务——绝不假装全量成功
+   * （实测曾出现 9 个子任务只跑 2 个仍宣告"已生成"的事故）。
+   */
+  private buildDesignSummary(params: {
+    results: readonly TaskResult[];
+    expectedTotal: number;
+    sessionId: string;
+    conflictCount: number;
+  }): { summary: string; allCompleted: boolean; completedCount: number } {
+    const { results, expectedTotal, sessionId, conflictCount } = params;
+    const completedCount = results.filter((r) => r.status === "success").length;
+    const notExecuted = results.filter((r) => r.status === "skipped" || r.status === "error");
+    const allCompleted = completedCount >= expectedTotal && notExecuted.length === 0;
+
+    const fileList = results
+      .filter((r) => r.status === "success")
+      .map((r) => {
+        const dirName = this.ctx.deps.workspace
+          ? this.ctx.deps.workspace.resolveTaskDirName(sessionId, r.taskId)
+          : r.taskId;
+        return `- ${dirName}/output.md`;
+      })
+      .join("\n");
+
+    const conflictNote = conflictCount > 0
+      ? `\n\n⚠️ 检测到 **${conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
+      : "";
+
+    const incompleteNote = allCompleted
+      ? ""
+      : `\n\n### ⚠️ 未完成的子任务（${notExecuted.length} 个）\n\n${notExecuted.map((r) => `- **${r.taskId}**（${r.status}）${r.errorMessage ? `：${r.errorMessage}` : ""}`).join("\n")}\n\n> 本次执行未覆盖全部规划任务，以下内容缺失，请勿直接作为最终方案使用。`;
+
+    const summary = allCompleted
+      ? `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`
+      : `## ⚠️ 策划方案部分完成（${completedCount}/${expectedTotal} 个子任务）\n\n已完成的产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}${incompleteNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档，或补充信息后重新执行。`;
+
+    return { summary, allCompleted, completedCount };
+  }
+
   /**
    * Run structured integration over sub-agent results: populate a field
    * registry, detect cross-agent conflicts, and persist synthesized documents
@@ -1085,6 +1122,7 @@ export class PlanExecutor {
           planHardEnabled: planHard.enabled,
           maxFanOut: this.ctx.config.multiAgent().enabled ? this.ctx.config.multiAgent().maxFanOut : 0,
           onFanOutBatch: (info) => this.safeRecordPlanSpan("guard.fan_out_batch", { ...info }),
+          onPlanSanitized: (info) => this.safeRecordPlanSpan("plan.unknown_deps_dropped", { ...info }),
           inFlightPartialOutputTimeoutMs: this.ctx.deps.limits?.inFlightPartialOutputTimeoutMs,
           onTaskStart: (task) => eventBus.emit({
             type: "task_start",
@@ -1194,26 +1232,16 @@ export class PlanExecutor {
         return;
       }
 
-      const completedCount = results.filter((r) => r.status === "success").length;
-
       // Structured integration: field registry + conflict detection.
       const integration = await this.integrateAndPersist(results, sessionId);
 
-      const fileList = results
-        .filter((r) => r.status === "success")
-        .map((r) => {
-          const dirName = this.ctx.deps.workspace
-            ? this.ctx.deps.workspace.resolveTaskDirName(sessionId, r.taskId)
-            : r.taskId;
-          return `- ${dirName}/output.md`;
-        })
-        .join("\n");
-
-      const conflictNote = integration.conflictCount > 0
-        ? `\n\n⚠️ 检测到 **${integration.conflictCount}** 处字段冲突，详见 \`final/冲突报告.md\`。`
-        : "";
-
-      let summary = `## ✅ 策划方案已生成\n\n共完成 **${completedCount}** 个子任务，所有产出已保存到工作空间：\n\n${fileList || "- （无成功产出）"}${conflictNote}\n\n---\n\n📂 请在右侧「工作空间文件」面板中选择并下载所需文档。  \n📦 也可以直接点击「打包下载全部」获取 ZIP。`;
+      const designSummary = this.buildDesignSummary({
+        results,
+        expectedTotal: runResult.finalPlan.subTasks.length,
+        sessionId,
+        conflictCount: integration.conflictCount,
+      });
+      let summary = designSummary.summary;
 
       // HITL-3：终稿验收（resume 后由幂等已决分支返回人工决策）
       const hitl3Gateway = this.ctx.deps.humanReviewGateway;
@@ -1257,7 +1285,16 @@ export class PlanExecutor {
       }
 
       yield { type: "integrate", data: { message: "汇总完成，产出已保存到工作空间", conflictCount: integration.conflictCount } };
-      yield { type: "complete", data: { success: true, output: summary } };
+      yield {
+        type: "complete",
+        data: {
+          success: designSummary.allCompleted,
+          output: summary,
+          partial: !designSummary.allCompleted,
+          completedCount: designSummary.completedCount,
+          expectedTotal: runResult.finalPlan.subTasks.length,
+        },
+      };
     } catch (err) {
       if (isToolHitlRequiredError(err)) {
         for (const event of eventBus.drain()) {

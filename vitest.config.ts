@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   test: {
@@ -17,6 +18,8 @@ export default defineConfig({
       "@port": "./src/port",
       "@core": "./src/core",
       "@adapter": "./src/adapter",
+      // frontend 组件层在测试中引用（frontend/tsconfig 的 @/* 别名）
+      "@": fileURLToPath(new URL("./frontend", import.meta.url)),
     },
   },
 });

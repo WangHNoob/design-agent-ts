@@ -771,10 +771,12 @@ export class ExecutionWorker {
         inputPayload: { ...event.data },
       })).entity;
     }
-    if (task.status === "pending") {
+    if (task.status === "pending" || ["success", "error", "skipped", "cancelled"].includes(task.status)) {
+      // 终态 → running：重规划/HITL 恢复重跑任务时重建可追踪的 attempt；
+      // 否则重跑不产生 attempt、started_at 也不刷新，DB 与实际执行脱节。
       task = await repository.transitionTaskStatus(
         task.id,
-        "pending",
+        task.status,
         "running",
         { startedAt: this.now().toISOString() },
       ) ?? task;
@@ -813,7 +815,7 @@ export class ExecutionWorker {
   ): Promise<void> {
     const taskKey = this.eventTaskId(event);
     const task = (await repository.listTasks(execution.id)).find((item) => item.taskKey === taskKey);
-    if (!task || ["success", "error", "skipped", "cancelled"].includes(task.status)) return;
+    if (!task) return;
     const rawStatus = typeof event.data.status === "string" ? event.data.status : "error";
     const nextStatus: ExecutionTaskStatus = rawStatus === "success"
       ? "success"
@@ -833,8 +835,11 @@ export class ExecutionWorker {
       : errorMessage === undefined
         ? undefined
         : ErrorClassifier.classify(errorMessage);
-    const expected = task.status === "running" ? "running" : "pending";
-    await repository.transitionTaskStatus(task.id, expected, nextStatus, {
+    // Last-write-wins：重规划/HITL 恢复会重跑任务，晚到的结果必须覆盖早先的
+    // 终态。此前终态行直接忽略后续事件，首轮 error 会永久锁死任务行——后续
+    // 成功不回写 DB，每次 resume 都重跑并重复推送产出（实测 4 个周期重复 4 次）。
+    // CAS 以读到的当前状态为期望值，与并发写之间仍是原子切换。
+    await repository.transitionTaskStatus(task.id, task.status, nextStatus, {
       outputPayload: { output },
       errorClass: nextStatus === "cancelled"
         ? "cancelled"

@@ -37,6 +37,13 @@ export interface RunPlanWithReplanResult {
   replanCount: number;
   exhausted: boolean;
   finalPlan: TaskPlan;
+  /**
+   * True when the run finished without errors but some tasks were skipped whose
+   * skip cannot be traced to any error result — i.e. the plan was structurally
+   * defective (unresolvable dependencies) and those tasks never executed.
+   * Callers must not report such a run as a full success.
+   */
+  partial?: boolean;
   /** Set when replan itself failed (invalid JSON / plan violation). */
   replanFailed?: boolean;
   replanErrorMessage?: string;
@@ -121,11 +128,24 @@ export async function runPlanWithReplan(
 
     const failed = firstErrorResult(accumulated);
     if (!failed) {
+      // 无 error 但存在 skipped：每个 skip 本应追溯到某个 error（依赖失败链），
+      // 追溯不到说明计划本身有缺陷（依赖无法解析），任务从未执行——不能按
+      // 全量成功上报。
+      const skipped = accumulated.filter((r) => r.status === "skipped");
+      const partial = skipped.length > 0;
+      if (partial) {
+        await options.onAudit?.("plan.unresolved_skips", {
+          skippedCount: skipped.length,
+          skippedTaskIds: skipped.map((r) => r.taskId),
+          sampleReason: skipped[0]?.errorMessage ?? null,
+        });
+      }
       return {
         results: accumulated,
         replanCount,
         exhausted: false,
         finalPlan: currentPlan,
+        partial,
       };
     }
 

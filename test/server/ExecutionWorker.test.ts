@@ -301,6 +301,36 @@ describe("ExecutionWorker", () => {
     expect(executeStream).not.toHaveBeenCalled();
   });
 
+  test("同任务重跑（先 error 后 success）last-write-wins：终态覆盖为 success 且两次 attempt 均落库", async () => {
+    const director = {
+      async *executeStream(): AsyncIterable<StreamEvent> {
+        yield { type: "plan", data: { plan: {
+          planId: "p1",
+          requirement: "design",
+          subTasks: [{
+            id: "F1", fragmentId: "F1", domain: "system_design",
+            description: "F1", dependencies: [], priority: 1,
+          }],
+        } } };
+        // 第一轮：任务失败（如 LLM 空输出被判 error）
+        yield { type: "task_start", data: { taskId: "F1", description: "F1" } };
+        yield { type: "task_complete", data: { taskId: "F1", status: "error", errorClass: "permanent", errorMessage: "empty output" } };
+        // 重规划/恢复后重跑：必须覆盖先前终态，而不是被锁死在 error
+        yield { type: "task_start", data: { taskId: "F1", description: "F1" } };
+        yield { type: "task_complete", data: { taskId: "F1", status: "success", output: "done" } };
+        yield { type: "complete", data: { success: true, output: "done" } };
+      },
+    } as unknown as DirectorAgent;
+    const f = await fixture(director);
+
+    await expect(f.worker.handleMessage(queueMessage(f.execution.id))).resolves.toEqual({ success: true });
+    expect((await f.executions.listTasks(f.execution.id))[0]?.status).toBe("success");
+    const attempts = [...f.executions.attempts.values()].sort((a, b) => a.attemptNumber - b.attemptNumber);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toMatchObject({ attemptNumber: 1, status: "error" });
+    expect(attempts[1]).toMatchObject({ attemptNumber: 2, status: "success" });
+  });
+
   test("running 崩溃恢复注入持久 plan 与已成功任务结果", async () => {
     let receivedOptions: { resumePlan?: unknown; initialTaskResults?: readonly TaskResult[] } | undefined;
     const director = {

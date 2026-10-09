@@ -186,7 +186,10 @@ export function handleStreamEvent(
         : `执行结束（${status}）`;
       if (!alreadyShown) {
         store.appendMessage(sessionId, {
-          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+          // 与轮询兜底（applyExecution）的失败消息同一确定性 ID，去重
+          id: store.getTask(sessionId)?.executionId
+            ? `msg_final_err_${store.getTask(sessionId)?.executionId}`
+            : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
           type: 'system',
           content: terminalMsg,
           timestamp: getCurrentTime(),
@@ -511,8 +514,14 @@ export function handleStreamEvent(
       const output = (d.output as string) || task?.streamingText || '';
       // 本轮引用的知识库证据附加到回答消息（去重后随消息展示）
       const roundSources = dedupeSources(task?.pendingSources ?? []);
+      // 确定性 ID：SSE complete、轮询兜底（applyExecution）、刷新后事件回放
+      // 三条路径都会追加这份完成消息，靠 store.appendMessage 的 ID 幂等去重，
+      // 保证只显示一次。
+      const finalMsgId = task?.executionId
+        ? `msg_final_${task.executionId}`
+        : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`;
       const msg: ChatMessage = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 4)}`,
+        id: finalMsgId,
         type: output ? 'ai' : 'system',
         content: output || '执行完成，但 Agent 未返回任何输出内容。',
         timestamp: getCurrentTime(),
