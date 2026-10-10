@@ -48,7 +48,7 @@ npx tsx --env-file=.env eval/intent/run-eval.ts --tag v4-experiment --prompt /tm
 | 总体准确率 | correct / total | 越高越好 |
 | **误吞 task→chat** | 真实任务被直答吃掉（**危险**） | **0 容忍** |
 | 漏判 chat→task | 闲聊走了规划（安全方向，功能退化） | 逐例分析即可 |
-| 延迟 p50/p95 | 单例分类耗时 | p50 < 1.5s；线上另有 3s 超时兜底 |
+| 延迟 p50/p95 | 单例分类耗时 | p50 < 1.5s；线上另有 6s 超时兜底（按网关 p95 校准） |
 | LLM 调用次数 | 含结构化重试 | ≈ 用例数（重试多说明输出不稳定） |
 | 输出 token/例 | 成本参考 | —（输入 token 网关不回传，暂缺） |
 

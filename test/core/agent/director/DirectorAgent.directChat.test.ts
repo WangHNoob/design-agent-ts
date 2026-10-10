@@ -230,4 +230,142 @@ describe("DirectorAgent design/table 闲聊快路径", () => {
     expect(response.metadata.directChat).toBeUndefined();
     expect(classify).toHaveBeenCalledTimes(1);
   });
+
+  it("拒答伪计划兜底：分类判 task + planner 拒答式计划 → 直答，不冻 HITL 卡", async () => {
+    const classify = vi.fn().mockResolvedValue("task");
+    const hitl = createMockHITL();
+    const refusalPlanJson = JSON.stringify({
+      planId: "auto",
+      subTasks: [
+        {
+          id: "F1",
+          fragmentId: "F1",
+          domain: "qa",
+          description: "用户输入「你是谁」不属于游戏设计需求，无法拆解为有效的游戏策划子任务。请用户提供具体的游戏设计需求后重新规划。",
+          dependencies: [],
+          priority: 1,
+        },
+      ],
+    });
+    const director = new DirectorAgent({
+      model: {
+        generate: vi.fn().mockResolvedValue({
+          message: ChatMessage.text("assistant", "bot", refusalPlanJson),
+          inputTokenCount: 10,
+          outputTokenCount: 5,
+          finishReason: "stop",
+        }),
+        stream: vi.fn().mockImplementation(async function* () {
+          yield {
+            message: ChatMessage.text("assistant", "bot", "我是游戏策划工作台的助手，"),
+          };
+          yield {
+            message: ChatMessage.text("assistant", "bot", "请直接描述你想做的设计需求。"),
+          };
+        }),
+        getModelName: () => "mock-model",
+        getProvider: () => "mock",
+      },
+      agentFactory: { createAgent: vi.fn() } as unknown as AgentFactory,
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: hitl,
+      hooks: [],
+      chatFastPath: { enabled: true, classify },
+      prompts: { directChat: "直答提示词" },
+    });
+
+    const events = await collect(
+      director.executeStream("你是谁", "sid-refusal-1", "design", "chief_designer"),
+    );
+
+    // planner 已被调用（伪计划已生成），但不进 HITL，改走直答
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect((hitl.requestReview as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === "hitl")).toBe(false);
+    expect(events.at(-1)?.type).toBe("complete");
+    expect(events.at(-1)?.data.directChat).toBe(true);
+    expect(events.at(-1)?.data.output).toBe("我是游戏策划工作台的助手，请直接描述你想做的设计需求。");
+  });
+
+  it("parseFallback 伪计划兜底：规划解析失败 + 需求是显性闲聊 → 直答", async () => {
+    const classify = vi.fn().mockResolvedValue("task");
+    const hitl = createMockHITL();
+    const director = new DirectorAgent({
+      // planner LLM 输出非 JSON → parseFallback 单任务伪计划（description=原文"你是谁"）
+      model: {
+        generate: vi.fn().mockResolvedValue({
+          message: ChatMessage.text("assistant", "bot", "这个问题我无法按 JSON 回答"),
+          inputTokenCount: 10,
+          outputTokenCount: 5,
+          finishReason: "stop",
+        }),
+        stream: vi.fn().mockImplementation(async function* () {
+          yield { message: ChatMessage.text("assistant", "bot", "我是平台助手，请描述你想做的设计。") };
+        }),
+        getModelName: () => "mock-model",
+        getProvider: () => "mock",
+      },
+      agentFactory: { createAgent: vi.fn() } as unknown as AgentFactory,
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: hitl,
+      hooks: [],
+      chatFastPath: { enabled: true, classify },
+      prompts: { directChat: "直答提示词" },
+    });
+
+    const events = await collect(director.executeStream("你是谁", "sid-refusal-2", "design", "chief_designer"));
+
+    expect((hitl.requestReview as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === "hitl")).toBe(false);
+    expect(events.at(-1)?.type).toBe("complete");
+    expect(events.at(-1)?.data.directChat).toBe(true);
+  });
+
+  it("parseFallback 但需求是真实任务 → 照走 HITL（不被静态兜底误吞）", async () => {
+    const classify = vi.fn().mockResolvedValue("task");
+    const hitl = createMockHITL();
+    const director = new DirectorAgent({
+      model: {
+        generate: vi.fn().mockResolvedValue({
+          message: ChatMessage.text("assistant", "bot", "无法解析的输出"),
+          inputTokenCount: 10,
+          outputTokenCount: 5,
+          finishReason: "stop",
+        }),
+        stream: vi.fn(),
+        getModelName: () => "mock-model",
+        getProvider: () => "mock",
+      },
+      agentFactory: { createAgent: vi.fn() } as unknown as AgentFactory,
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: hitl,
+      hooks: [],
+      chatFastPath: { enabled: true, classify },
+    });
+
+    await collect(director.executeStream("设计一个背包系统", "sid-normal-2", "design", "chief_designer"));
+
+    expect((hitl.requestReview as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+  });
+
+  it("正常单任务计划不触发拒答兜底（照走 HITL）", async () => {
+    const classify = vi.fn().mockResolvedValue("task");
+    const hitl = createMockHITL();
+    const director = new DirectorAgent({
+      model: createMockModel(),
+      agentFactory: { createAgent: vi.fn() } as unknown as AgentFactory,
+      toolRegistry: { register: vi.fn(), getToolDescriptors: vi.fn(), getTool: vi.fn(), executeTool: vi.fn() },
+      skillRegistry: createMockSkillRegistry(),
+      humanReviewGateway: hitl,
+      hooks: [],
+      chatFastPath: { enabled: true, classify },
+    });
+
+    await collect(director.executeStream("帮我设计一个背包系统", "sid-normal-1", "design", "chief_designer"));
+
+    expect((hitl.requestReview as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+  });
 });

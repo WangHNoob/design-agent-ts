@@ -223,7 +223,9 @@ export function loadConfig(): FrameworkConfig {
     },
     intent: {
       chatFastPathEnabled: process.env.INTENT_CHAT_FAST_PATH !== "false",
-      timeoutMs: Number(process.env.INTENT_TIMEOUT_MS ?? 3000),
+      // 网关延迟尾巴 p95 3~6.5s（2026-10-11 线上「你是谁」3s 超时误入规划），
+      // 6s 覆盖大部分尾巴；超时仍是安全方向（判 task 走原流程）
+      timeoutMs: Number(process.env.INTENT_TIMEOUT_MS ?? 6000),
     },
     memory: {
       archiveEnabled: process.env.MEMORY_ARCHIVE_ENABLED !== "false",

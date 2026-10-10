@@ -97,25 +97,42 @@ async function main() {
   const promptHash = crypto.createHash("sha256").update(prompt).digest("hex").slice(0, 12);
 
   const config = loadConfig();
+  // 与运行时（lateBootstrapDirector）同口径合并 settings.json 覆盖项，
+  // 保证评测的模型 = 线上服务的模型（UI 改过 provider/model 后评测不失真）
+  const settingsPath = process.env.SETTINGS_DIR
+    ? path.join(process.env.SETTINGS_DIR, "settings.json")
+    : "settings.json";
+  let modelCfg = { ...config.model };
+  if (fs.existsSync(settingsPath)) {
+    const s = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as Record<string, string | undefined>;
+    modelCfg = {
+      ...modelCfg,
+      apiKey: s.modelApiKey || modelCfg.apiKey,
+      provider: (s.modelProvider as typeof modelCfg.provider) || modelCfg.provider,
+      modelName: s.modelName || modelCfg.modelName,
+      baseUrl: s.modelBaseUrl || modelCfg.baseUrl,
+    };
+  }
+  const maxTokens = Number(process.env.MODEL_MAX_TOKENS ?? config.limits.modelMaxTokens);
   const primary = {
-    provider: config.model.provider,
-    modelName: config.model.modelName,
-    apiKey: config.model.apiKey,
-    baseUrl: config.model.baseUrl,
-    maxTokens: config.limits.modelMaxTokens,
+    provider: modelCfg.provider,
+    modelName: modelCfg.modelName,
+    apiKey: modelCfg.apiKey,
+    baseUrl: modelCfg.baseUrl,
+    maxTokens,
   };
   const model = new LangGraphModelAdapter(primary, {
-    fallbacks: config.model.fallbackModels.map((m) => ({ ...primary, modelName: m })),
-    failureThreshold: config.model.fallbackFailureThreshold,
-    cooldownMs: config.model.fallbackCooldownMs,
-    callTimeoutMs: config.model.callTimeoutMs,
+    fallbacks: modelCfg.fallbackModels.map((m) => ({ ...primary, modelName: m })),
+    failureThreshold: modelCfg.fallbackFailureThreshold,
+    cooldownMs: modelCfg.fallbackCooldownMs,
+    callTimeoutMs: modelCfg.callTimeoutMs,
   });
   const { countingModel, stats } = withUsageCounter(model);
 
   const cases = golden.cases.slice(0, limit);
   console.log(
     `eval: set=${setPath}(${cases.length}/${golden.cases.length}) prompt=${promptPath} hash=${promptHash} ` +
-      `model=${config.model.provider}/${config.model.modelName} concurrency=${concurrency}`,
+      `model=${modelCfg.provider}/${modelCfg.modelName} concurrency=${concurrency}`,
   );
 
   const classifier = new IntentClassifier(countingModel, { prompt, timeoutMs: 30_000, maxCheckChars: 0 });
@@ -165,7 +182,7 @@ async function main() {
     setVersion: golden.version,
     promptPath,
     promptHash,
-    model: `${config.model.provider}/${config.model.modelName}`,
+    model: `${modelCfg.provider}/${modelCfg.modelName}`,
     total: results.length,
     correct,
     accuracy: Number((correct / results.length).toFixed(4)),
