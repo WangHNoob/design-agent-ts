@@ -979,7 +979,7 @@ export class PlanExecutor {
   async *executeDirectChatStream(
     requirement: string,
     sessionId: string,
-    mode: "design" | "table",
+    mode: "design" | "query" | "table",
     role: string,
     history: ReadonlyArray<{ role: "user" | "assistant"; content: string }> | undefined,
     options?: DirectorStreamOptions,

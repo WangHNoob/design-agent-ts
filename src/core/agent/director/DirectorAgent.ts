@@ -23,7 +23,7 @@ import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPor
 import type { ExecutionOverrides } from "../../versioning/buildExecutionOverrides.js";
 import { AgentCallGuard, type CallContext, type HandoffLimits, type HandoffPayload } from "../../multiagent/index.js";
 import type { FaqMatchRaw } from "../../faq/types.js";
-import type { UserIntent } from "./IntentClassifier.js";
+import type { ModeHint, UserIntent } from "./IntentClassifier.js";
 
 
 export interface StreamEvent {
@@ -179,15 +179,18 @@ export interface DirectorDeps {
     match: (query: string) => Promise<FaqMatchRaw | null>;
   };
   /**
-   * design/table 模式闲聊快路径：意图分类命中 chat 时直接对话回复，
-   * 不进规划/工作流。enabled=false 或 classify 缺失时完全跳过；
-   * classify 结果 fail-safe（超时/异常一律 task，由 IntentClassifier 保证）。
+   * 前置意图路由（全模式统一）：LLM 判 chat → 直接对话回复；判 query →
+   * 知识查询管道（跨模式纠偏，如策划模式下问本游戏数据）；其余（含未启用
+   * /HITL 续跑/分类异常）→ 当前模式默认管道。fail-safe：路由器只能放行
+   * 「明显不该走当前管道」的消息，task 落点 = 原行为，零回归。
+   * 模式选择器语义从"硬切换"降级为"模糊意图偏置"（modeHint）。
    */
   chatFastPath?: {
     enabled: boolean;
     classify: (
       requirement: string,
       history?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
+      modeHint?: ModeHint,
     ) => Promise<UserIntent>;
   };
 }
@@ -308,22 +311,26 @@ export class DirectorAgent {
     options?: DirectorStreamOptions
   ): Promise<AgentResponse> {
     return this.withRootTrace(sessionId, mode, options, async (traceId) => {
-      let result: AgentResponse;
-      if (mode === "design" || mode === "table") {
-        const direct = await this.tryDirectChatFlow(requirement, sessionId, mode, role, history, options);
-        if (direct) {
-          return { ...direct, metadata: { ...direct.metadata, traceId } };
-        }
+      const route = await this.resolveRoute(requirement, mode, history, options);
+      if (route === "chat") {
+        const direct = await this.executor.executeDirectChatFlow(requirement, sessionId, role, history, options);
+        return { ...direct, metadata: { ...direct.metadata, traceId } };
       }
+      if (route === "query") {
+        const queried = await this.executor.executeQueryFlow(requirement, sessionId, traceId, history, options?.signal);
+        return { ...queried, metadata: { ...queried.metadata, traceId } };
+      }
+      let result: AgentResponse;
       switch (mode) {
           case "design":
+          case "table":
             result = await this.executor.executeDesignFlow(requirement, sessionId, role, traceId, options);
             break;
           case "query":
-            result = await this.executor.executeQueryFlow(requirement, sessionId, traceId, history, options?.signal);
-            break;
-          case "table":
-            result = await this.executor.executeTableFlow(requirement, sessionId, role, traceId, options);
+            // 明确 task 跨模式进规划；unknown 回落查询管道（fail-safe）
+            result = route === "task"
+              ? await this.executor.executeDesignFlow(requirement, sessionId, role, traceId, options)
+              : await this.executor.executeQueryFlow(requirement, sessionId, traceId, history, options?.signal);
             break;
         }
         return {
@@ -399,10 +406,21 @@ export class DirectorAgent {
     options: DirectorStreamOptions | undefined,
   ): AsyncGenerator<StreamEvent> {
     const signal = options?.signal;
-    if (mode === "design" || mode === "table") {
-      const answered = yield* this.tryDirectChatStream(requirement, sessionId, mode, role, history, options);
-      if (answered) return;
+    const route = await this.resolveRoute(requirement, mode, history, options);
+    if (route === "chat") {
+      yield* this.executor.executeDirectChatStream(requirement, sessionId, mode, role, history, options);
+      return;
     }
+    if (route === "query") {
+      yield* this.executor.executeQueryStream(requirement, sessionId, history, signal, options);
+      return;
+    }
+    if (route === "task") {
+      // 明确的设计任务 → 规划管道（跨模式：query 模式下要方案就去规划）
+      yield* this.executor.executeDesignStream(requirement, sessionId, role, options);
+      return;
+    }
+    // unknown / 未启用：模式默认管道（fail-safe = 原行为）
     switch (mode) {
       case "query":
         yield* this.executor.executeQueryStream(requirement, sessionId, history, signal, options);
@@ -415,61 +433,39 @@ export class DirectorAgent {
   }
 
   /**
-   * 闲聊快路径（流式）：命中 chat 时产出完整直答事件流并返回 true。
-   * 任何跳过条件（未启用 / HITL 续跑 / 判为 task / 分类失败）都静默放行
-   * 返回 false，不产出任何事件、不影响原流程。
+   * 前置意图路由：返回实际应走的管道。
+   * chat=直答 / query=知识查询管道 / task=规划管道（design/table 共用，
+   * 跨模式生效）/ unknown=不确定（超时/降级/异常/未启用/HITL 续跑），
+   * 由调用方回落当前模式默认管道——fail-safe 落点 = 原行为，零回归。
    */
-  private async *tryDirectChatStream(
+  private async resolveRoute(
     requirement: string,
-    sessionId: string,
-    mode: "design" | "table",
-    role: string,
+    mode: "design" | "query" | "table",
     history: Array<{ role: "user" | "assistant"; content: string }> | undefined,
     options: DirectorStreamOptions | undefined,
-  ): AsyncGenerator<StreamEvent, boolean> {
+  ): Promise<UserIntent> {
     const fp = this.deps.chatFastPath;
-    if (!fp?.enabled || !fp.classify) return false;
-    // HITL 审阅后的续跑：requirement 是原始需求，必然是 task，跳过分类省一次调用。
-    if (options?.resumePlan || (options?.initialTaskResults?.length ?? 0) > 0) return false;
+    if (!fp?.enabled || !fp.classify) return "unknown";
+    // HITL 审阅后的续跑：requirement 是原始需求，跳过分类省一次调用。
+    if (options?.resumePlan || (options?.initialTaskResults?.length ?? 0) > 0) return "unknown";
 
     let intent: UserIntent;
     try {
-      intent = await fp.classify(requirement, history);
+      intent = await fp.classify(requirement, history, mode);
     } catch {
-      return false;
+      return "unknown";
     }
-    if (intent !== "chat") return false;
-
-    this.logger.info(`[DirectorAgent] chat fast-path hit, direct reply (mode=${mode}, role=${role})`);
-    void this.executor.safeRecordPlanSpan("intent.chat_hit", { mode, role, chars: requirement.length });
-    yield* this.executor.executeDirectChatStream(requirement, sessionId, mode, role, history, options);
-    return true;
-  }
-
-  /** 闲聊快路径（非流式）：命中 chat 返回直答 AgentResponse，否则 null。 */
-  private async tryDirectChatFlow(
-    requirement: string,
-    sessionId: string,
-    mode: "design" | "table",
-    role: string,
-    history: Array<{ role: "user" | "assistant"; content: string }> | undefined,
-    options: DirectorStreamOptions | undefined,
-  ): Promise<AgentResponse | null> {
-    const fp = this.deps.chatFastPath;
-    if (!fp?.enabled || !fp.classify) return null;
-    if (options?.resumePlan || (options?.initialTaskResults?.length ?? 0) > 0) return null;
-
-    let intent: UserIntent;
-    try {
-      intent = await fp.classify(requirement, history);
-    } catch {
-      return null;
+    if (intent === "chat") {
+      this.logger.info(`[DirectorAgent] intent route chat, direct reply (mode=${mode})`);
+      void this.executor.safeRecordPlanSpan("intent.chat_hit", { mode, chars: requirement.length });
+    } else if (intent === "query" && mode !== "query") {
+      this.logger.info(`[DirectorAgent] intent route query (cross-mode, from=${mode})`);
+      void this.executor.safeRecordPlanSpan("intent.query_routed", { mode, chars: requirement.length });
+    } else if (intent === "task" && mode === "query") {
+      this.logger.info("[DirectorAgent] intent route task (cross-mode, from=query)");
+      void this.executor.safeRecordPlanSpan("intent.task_routed", { chars: requirement.length });
     }
-    if (intent !== "chat") return null;
-
-    this.logger.info(`[DirectorAgent] chat fast-path hit, direct reply (mode=${mode}, role=${role})`);
-    void this.executor.safeRecordPlanSpan("intent.chat_hit", { mode, role, chars: requirement.length });
-    return this.executor.executeDirectChatFlow(requirement, sessionId, role, history, options);
+    return intent;
   }
 
   private async withRootTrace<T>(

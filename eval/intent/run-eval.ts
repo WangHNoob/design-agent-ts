@@ -170,8 +170,19 @@ async function main() {
     entry.correct += r.correct ? 1 : 0;
     byCategory.set(r.category, entry);
   }
-  const missedChatToTask = results.filter((r) => !r.correct && r.expect === "chat");
-  const swallowedTaskToChat = results.filter((r) => !r.correct && r.expect === "task");
+  // 三类混淆矩阵：wrong[expect][actual]
+  const confusion: Record<string, Record<string, number>> = { chat: {}, query: {}, task: {} };
+  for (const r of results) {
+    if (!r.correct) {
+      confusion[r.expect]![r.actual] = (confusion[r.expect]![r.actual] ?? 0) + 1;
+    }
+  }
+  // 危险：非 chat 黄金被判 chat——真实任务/知识库问答被直答吃掉（编造风险）
+  const swallowToChat = results.filter((r) => !r.correct && r.actual === "chat").length;
+  // 查询误入规划：安全方向（多走流程，不编造）
+  const queryToTask = (confusion.query!.task ?? 0);
+  // 任务变问答：方案诉求得到一个回答而非产出物（可恢复，对话可继续）
+  const taskToQuery = (confusion.task!.query ?? 0);
   const latencies = results.map((r) => r.latencyMs).sort((a, b) => a - b);
   const usage = stats();
 
@@ -186,10 +197,13 @@ async function main() {
     total: results.length,
     correct,
     accuracy: Number((correct / results.length).toFixed(4)),
-    // 漏判（chat→task）：安全方向——闲聊走了规划，功能退化但不吞任务
-    missChatToTask: missedChatToTask.length,
-    // 误吞（task→chat）：危险方向——真实任务被闲聊直答吃掉
-    swallowTaskToChat: swallowedTaskToChat.length,
+    // 误吞（{task,query}→chat）：危险方向——直答编造本游戏数据或吃掉真实任务
+    swallowToChat,
+    // 漏判（chat→query/task）：安全——闲聊走了重管道，功能退化不编造
+    missChat: (confusion.chat!.query ?? 0) + (confusion.chat!.task ?? 0),
+    queryToTask,
+    taskToQuery,
+    confusion,
     byCategory: Object.fromEntries(
       [...byCategory.entries()].map(([k, v]) => [k, { ...v, accuracy: Number((v.correct / v.total).toFixed(4)) }]),
     ),
@@ -215,10 +229,10 @@ async function main() {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
 
-  console.log(`\n== 意图分类评测：${tag} ==`);
+  console.log(`\n== 意图路由评测：${tag} ==`);
   console.log(`总体: ${correct}/${results.length} = ${(report.accuracy * 100).toFixed(1)}%`);
-  console.log(`误吞 task→chat（危险）: ${report.swallowTaskToChat}`);
-  console.log(`漏判 chat→task（安全）: ${report.missChatToTask}`);
+  console.log(`误吞 →chat（危险）: ${report.swallowToChat}`);
+  console.log(`漏判 chat→其他（安全）: ${report.missChat} | query→task: ${queryToTask} | task→query: ${taskToQuery}`);
   console.log(`延迟 ms: mean=${report.latencyMs.mean} p50=${report.latencyMs.p50} p95=${report.latencyMs.p95}`);
   console.log(`token/例: in≈${report.tokens.inputAvgPerCase} out≈${report.tokens.outputAvgPerCase}（共 ${usage.calls} 次 LLM 调用）`);
   for (const [cat, v] of Object.entries(report.byCategory)) {

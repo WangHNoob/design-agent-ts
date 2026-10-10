@@ -1,8 +1,73 @@
 # 意图识别快路径：方案与评测迭代记录
 
 > 面试问答向的问题实录。对应代码：`src/core/agent/director/IntentClassifier.ts`、
-> `DirectorAgent.ts`（chatFastPath 分发）、`PlanExecutor.ts`（executeDirectChatStream/Flow）、
-> `prompts/intent_classify.md`（v3 定稿）；评测：`eval/intent/golden-set.json` + `run-eval.ts`，报告在 `eval/intent/reports/`。
+> `DirectorAgent.ts`（resolveRoute 统一分发）、`PlanExecutor.ts`（executeDirectChatStream/Flow）、
+> `prompts/intent_classify.md`（v9 定稿）；评测：`eval/intent/golden-set.json` + `run-eval.ts`，报告在 `eval/intent/reports/`。
+
+## 0. 路由演进 v2：全模式统一前置路由（chat / query / task）
+
+### 0.1 行业调研结论（2026-10）
+
+| 产品/来源 | 做法 | 对本项目的启示 |
+|---|---|---|
+| OpenAI GPT-5「Auto」 | 实时路由器自动选模型与能力档，用真实人工切换信号训练；模式选择器保留为手动覆盖 | 「自动为主、手动覆盖」是成熟形态；选择器不该是硬闸门 |
+| Anthropic《Building Effective Agents》/《Writing Tools for Agents》 | 系统提示内路由：闲聊/通用知识直接回答不调工具，真正需要才调（环内路由） | 环内路由的前提是所有能力在同一个 agent 循环里；**进错重管道后环内救不回来** |
+| Cursor 2.0 | Ask/Agent/Plan 手动选择器 + 统一 composer 自动选择，可覆盖 | 模式=偏好/偏置，而非管道开关 |
+| 意图路由工程实践（AAAI 2026 等） | 专用分类层（别让 overloaded prompt 全揽）、标签要短（+5% 准确率）、结构化输出、显式 fallback | 三类短标签 + 独立分类器 + unknown 回落，全部命中 |
+
+（来源：[Introducing GPT-5](https://openai.com/index/introducing-gpt-5)、
+[How Does GPT-5 Work?](https://www.wheresyoured.at/how-does-gpt-5-work)、
+[Introducing ChatGPT agent](https://openai.com/index/introducing-chatgpt-agent)、
+[Cursor Agent mode docs](https://cursor.com)、
+[Building Effective Agents](https://github.com/machinededge/building-effective-agents/blob/main/building-effective-agents.md)、
+[Intent Recognition and Auto-Routing in Multi-Agent Systems](https://gist.github.com)、
+[The Intent Classification Layer Most Agent Routers Skip](https://tianpan.co)、
+[AAAI 2026 多轮意图分类研究](https://ojs.aaai.org)）
+
+### 0.2 设计定稿
+
+**核心判断**：本平台的 query 管道本身就是环内路由（query agent 自决调 KB 工具，prompt 已含
+「闲聊直接回复」指令），但 design 规划管道是**单向重入口**——进了 TaskPlanner 就无法"不规划"，
+环内路由救不了进错管道的消息。因此必须在**管道入口前**做路由（out-of-loop），这正是
+"chat/agent 双模式仍避免不了 agent 模式下意图识别"的工程答案：**把意图识别从模式内部提到分发层，模式降级为偏置**。
+
+- **三类路由**：`chat`（直答）/ `query`（知识查询管道）/ `task`（规划管道，design/table 共用——
+  代码里两模式本就同走 executeDesignStream，配表由技能匹配区分）。
+- **模式选择器 = 偏置而非开关**（Cursor 式）：modeHint 只影响"模糊/两可"消息的判定
+  （design/table 模糊→task，query 模糊→query），明确意图跨模式纠偏——
+  策划模式下问本游戏数据 → 自动进查询管道；查询模式下要方案 → 自动进规划管道。
+- **fail-safe 升级为四值**：超时/解析降级/异常/超长输入/HITL 续跑 → `unknown`（回落当前模式
+  默认管道，= 原行为零回归）。**区分「确定 task」与「不确定」是关键**——早期版本把不确定也
+  归 task，导致 query 模式下发设计需求被留在了查询管道（分类对了、分发语义错了，线上实测抓出）。
+- 危险方向不变：只有明确的 `chat`/`query` 才改道；`unknown` 永远回落。
+
+### 0.3 路由迭代（golden-set v2：91 例 × 16 类别，新增 kb_query_variants / routing_edge）
+
+| 轮次 | prompt hash | 总体 | 误吞→chat（危险） | 全部混淆 | 备注 |
+|---|---|---|---|---|---|
+| v4 基线 | `6684044402fb` | 100%（91/91） | 0 | 0 | 三类化一次到位 |
+| v4 复测 | 同上 | 98.9% | 0 | task→query ×1 | 「看看概率合不合理」评估类被当查数 |
+| v5 | `da4a497dab01` | 98.9% ×2 | 0 | chat→task ×1（稳定） | 「给我讲讲配表功能怎么用」被动词带偏 |
+| v6 | `e1fe7cb978f9` | **100% ×2** | 0 | 0 | 补两组对照示例 |
+| v7 | `f48ecb1addd9` | 98.9% ×2 | 0 | task→unknown ×1（稳定） | 规则改模糊→按策略后，两可例输出非 JSON 降级 |
+| v8 | `e1931b969cfc` | 100% / 98.9% | 0 | query→unknown ×1 | GLM 偶发不输出 JSON（老问题 #2） |
+| v9 定稿 | 同 v8 + 重试 2 次 | **100% ×2** | **0** | **0** | 分类重试 1→2 次消掉降级尾巴（输出仅 ~10 token，代价极小） |
+
+### 0.4 线上验证（2026-10-11，五路径）
+
+| 场景 | 路由 | 实际事件流 |
+|---|---|---|
+| design 模式·「我们游戏公会点如何产出消耗」 | → query 管道 | 12 次 KB 工具调用 + 流式回答，无 plan/hitl |
+| query 模式·「帮我设计公会战玩法 20v20」 | → 规划管道 | plan ×2 + hitl 审阅（**修复前错误地留在查询管道**） |
+| design 模式·「你能做什么」 | → 直答 | chunk 流式，无 plan |
+| query 模式·「你好」 | → 直答 | chunk 流式，无 plan |
+| table 模式·「出一张强化费用表」 | → 规划管道 | plan ×2 + hitl 审阅 |
+
+### 0.5 产品语义小结（对外一句话）
+
+用户不需要理解三模式也能用对：说闲聊就聊天，问游戏数据就查知识库，要方案就进规划——
+模式选择器从「必须先懂再选」变成「懂的人可锁定，不懂的人被自动纠偏」。
+
 
 ## 1. 背景与问题
 
@@ -189,3 +254,17 @@ hash 绑定报告、每轮盯危险指标、双跑验证稳定性，否则"改�
 处理：超时按评测实测的 p95 校准到 6s；给回落路径补两层防御（伪计划检测改直答 + 超时时静态
 闲聊模式兜底）；每次分类落延迟 span。验证用的是故障注入——把超时调成 1ms 强制复现，修复前后
 事件流对比一目了然。复盘沉淀的方法论：超时值要用延迟分布校准，fail-safe 的下游 UX 要单独设计。
+
+**Q9 主流做法是 chat/agent 双模式，你为什么不这么做？（路由 v2 必问）**
+双模式解决不了"agent 模式内部还要不要意图识别"——我的平台三条管道能力差异太大（直答/单agent查库/
+多agent规划+HITL），agent 模式内部进错重管道后，环内路由救不回来（Anthropic 式"系统提示内路由"
+的前提是所有能力在同一个循环里，我的规划管道是单向入口）。所以把意图识别提到**分发层**：
+chat/query/task 三类前置路由，模式选择器降级为模糊偏置（Cursor 式"自动为主、手动覆盖"）。
+用户不需要先懂三模式才能用对，懂的人可以锁定。
+
+**Q10 路由版迭代里最深的教训？**
+"分类对了、分发语义错了"：早期把 fail-safe 的"不确定"也归为 task，结果 query 模式下发设计需求
+（分类正确判 task）被留在查询管道给了个聊天式回答。线上五路径实测抓出来的。修复是引入第四值
+unknown：**确定 task 跨模式进规划，不确定才回落模式默认**。教训：fail-safe 的"安全落点"和
+"分类结果的语义"是两件事，混用一个值就会在某个模式组合下出错——这类 bug 单测全覆盖了分类器，
+但只有端到端跨模式实测才暴露。

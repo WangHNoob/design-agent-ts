@@ -98,7 +98,7 @@ describe("DirectorAgent design/table 闲聊快路径", () => {
 
     const events = await collect(director.executeStream("你能做什么", "sid-chat-1", "design", "chief_designer", history));
 
-    expect(classify).toHaveBeenCalledWith("你能做什么", history);
+    expect(classify).toHaveBeenCalledWith("你能做什么", history, "design");
     expect(events.map((e) => e.type)).toEqual(["start", "chunk", "chunk", "complete"]);
     expect(events[0]?.data.directChat).toBe(true);
     expect(events[2]?.data).toEqual({ text: "，我是助手" });
@@ -189,17 +189,62 @@ describe("DirectorAgent design/table 闲聊快路径", () => {
     expect(classify).not.toHaveBeenCalled();
   });
 
-  it("query 模式不受 chatFastPath 影响", async () => {
+  it("query 模式 chat 意图 → 直答（不再进查询 agent）", async () => {
     const classify = vi.fn().mockResolvedValue("chat");
     const { director, agentFactory, processStream } = createDirector({ enabled: true, classify });
 
-    const events = await collect(director.executeStream("你能做什么", "sid-q-1", "query", "chief_designer"));
+    const events = await collect(director.executeStream("你好", "sid-q-chat-1", "query", "chief_designer"));
 
-    expect(classify).not.toHaveBeenCalled();
+    expect(classify).toHaveBeenCalledWith("你好", undefined, "query");
+    expect((agentFactory.createAgent as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(processStream).not.toHaveBeenCalled();
+    expect(events.at(-1)?.type).toBe("complete");
+    expect(events.at(-1)?.data.directChat).toBe(true);
+  });
+
+  it("design 模式 query 意图（本游戏数据问答）→ 跨模式路由到知识查询管道", async () => {
+    const classify = vi.fn().mockResolvedValue("query");
+    const { director, agentFactory, processStream } = createDirector({ enabled: true, classify });
+
+    const events = await collect(
+      director.executeStream("我们游戏各卡池的5星概率是多少", "sid-cross-1", "design", "chief_designer"),
+    );
+
+    expect(classify).toHaveBeenCalledTimes(1);
     expect((agentFactory.createAgent as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
     expect(processStream).toHaveBeenCalled();
+    expect(events.some((e) => e.type === "plan")).toBe(false);
     expect(events.at(-1)?.type).toBe("complete");
     expect(events.at(-1)?.data.output).toBe("LLM answer");
+  });
+
+  it("query 模式 task 意图 → 跨模式路由进规划管道", async () => {
+    const classify = vi.fn().mockResolvedValue("task");
+    const { director, processStream } = createDirector({ enabled: true, classify });
+
+    const events = await collect(director.executeStream("帮我设计一个公会战玩法", "sid-q-task-1", "query", "chief_designer"));
+
+    expect(processStream).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === "plan")).toBe(true);
+  });
+
+  it("query 模式 unknown（分类失败）→ 模式默认查询管道兜底", async () => {
+    const classify = vi.fn().mockRejectedValue(new Error("llm down"));
+    const { director, processStream } = createDirector({ enabled: true, classify });
+
+    const events = await collect(director.executeStream("随便什么", "sid-q-err-1", "query", "chief_designer"));
+
+    expect(processStream).toHaveBeenCalled();
+    expect(events.at(-1)?.type).toBe("complete");
+  });
+
+  it("modeHint 透传：分类器拿到用户显式选择的模式", async () => {
+    const classify = vi.fn().mockResolvedValue("task");
+    const { director } = createDirector({ enabled: true, classify });
+
+    await collect(director.executeStream("设计一个背包系统", "sid-hint-1", "table", "chief_designer"));
+
+    expect(classify).toHaveBeenCalledWith("设计一个背包系统", undefined, "table");
   });
 
   it("流式输出为空 → error 事件（而非空 complete）", async () => {

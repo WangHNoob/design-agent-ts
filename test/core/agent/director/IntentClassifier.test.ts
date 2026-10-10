@@ -35,6 +35,28 @@ describe("IntentClassifier", () => {
     await expect(c.classify("你好")).resolves.toBe("chat");
   });
 
+  it("query JSON → query（知识库问答改道）", async () => {
+    const model = mockModel('{"intent": "query"}');
+    const c = new IntentClassifier(model, { prompt: PROMPT });
+    await expect(c.classify("我们游戏的保底数是多少")).resolves.toBe("query");
+  });
+
+  it("knowledge_query 别名归一为 query", async () => {
+    const model = mockModel('{"intent": "knowledge_query"}');
+    const c = new IntentClassifier(model, { prompt: PROMPT });
+    await expect(c.classify("查一下体力恢复速度")).resolves.toBe("query");
+  });
+
+  it("modeHint 注入用户提示（模糊意图偏置）", async () => {
+    const model = mockModel('{"intent": "chat"}');
+    const c = new IntentClassifier(model, { prompt: PROMPT });
+    await c.classify("继续", undefined, "query");
+    const called = model.generate.mock.calls[0]?.[0] as ReturnType<typeof ChatMessage.text>[];
+    const text = ChatMessage.textContent(called[1]);
+    expect(text).toContain("用户当前选择的默认执行策略：query");
+    expect(text).toContain("意图模糊");
+  });
+
   it("intent 大小写不敏感（CHAT → chat）", async () => {
     const model = mockModel('{"intent": "CHAT"}');
     const c = new IntentClassifier(model, { prompt: PROMPT });
@@ -60,14 +82,14 @@ describe("IntentClassifier", () => {
     expect(model.generate).toHaveBeenCalledTimes(1);
   });
 
-  it("非 JSON 输出重试 1 次后降级 → task", async () => {
+  it("非 JSON 输出重试 2 次后降级 → unknown（模式默认）", async () => {
     const model = mockModel("我觉得这是闲聊，不需要 JSON");
     const c = new IntentClassifier(model, { prompt: PROMPT, timeoutMs: 2000 });
-    await expect(c.classify("你好")).resolves.toBe("task");
-    expect(model.generate).toHaveBeenCalledTimes(2);
+    await expect(c.classify("你好")).resolves.toBe("unknown");
+    expect(model.generate).toHaveBeenCalledTimes(3);
   });
 
-  it("超时 → task", async () => {
+  it("超时 → unknown（模式默认）", async () => {
     const never = new Promise<never>(() => {});
     const model = {
       generate: vi.fn(() => never),
@@ -77,7 +99,7 @@ describe("IntentClassifier", () => {
     } as unknown as ChatModelPort & { generate: ReturnType<typeof vi.fn> };
     const c = new IntentClassifier(model, { prompt: PROMPT, timeoutMs: 30 });
     const result = await c.classifyWithTrace("帮我设计一个背包系统，支持物品分类和堆叠");
-    expect(result.intent).toBe("task");
+    expect(result.intent).toBe("unknown");
     expect(result.degraded).toBe(true);
     expect(result.latencyMs).toBeLessThan(2000);
   });
@@ -103,7 +125,7 @@ describe("IntentClassifier", () => {
     expect(isObviousChatText("介绍一下你自己")).toBe(true);
   });
 
-  it("模型抛错 → fail-safe：显性闲聊静态兜底 chat，其余 task（异常不外溢）", async () => {
+  it("模型抛错 → fail-safe：显性闲聊静态兜底 chat，其余 unknown（异常不外溢）", async () => {
     const model = {
       generate: vi.fn().mockRejectedValue(new Error("boom")),
       stream: vi.fn(),
@@ -112,14 +134,14 @@ describe("IntentClassifier", () => {
     } as never;
     const c = new IntentClassifier(model, { prompt: PROMPT, timeoutMs: 500 });
     await expect(c.classify("你好")).resolves.toBe("chat");
-    await expect(c.classify("设计一个背包系统")).resolves.toBe("task");
+    await expect(c.classify("设计一个背包系统")).resolves.toBe("unknown");
   });
 
-  it("超过 maxCheckChars 直接判 task，不调用模型", async () => {
+  it("超过 maxCheckChars 直接判 unknown，不调用模型", async () => {
     const model = mockModel('{"intent": "chat"}');
     const c = new IntentClassifier(model, { prompt: PROMPT, maxCheckChars: 10 });
     const result = await c.classifyWithTrace("x".repeat(11));
-    expect(result.intent).toBe("task");
+    expect(result.intent).toBe("unknown");
     expect(result.skipped).toBe("disabled_length");
     expect(model.generate).not.toHaveBeenCalled();
   });
