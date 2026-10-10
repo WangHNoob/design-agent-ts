@@ -1,6 +1,13 @@
 'use client';
 
-import { Settings, Plus, PanelRight, LogOut } from 'lucide-react';
+import { Settings, Plus, PanelRight, LogOut, UserRound } from 'lucide-react';
+
+interface IdentityChip {
+  isDemo: boolean;
+  label: string;
+  quota?: string;
+  onClick?: () => void;
+}
 
 interface Props {
   role: string;
@@ -12,6 +19,8 @@ interface Props {
   onToggleRightPanel: () => void;
   rightPanelOpen: boolean;
   onOpenSettings?: () => void;
+  /** 身份标识（演示模式/管理员），演示模式点击可重开体验选择弹窗。 */
+  identityChip?: IdentityChip | null;
 }
 
 const ROLES = [
@@ -34,6 +43,7 @@ export default function Header({
   onToggleRightPanel,
   rightPanelOpen,
   onOpenSettings,
+  identityChip,
 }: Props) {
   const statusDot = {
     idle: 'bg-ink/30',
@@ -74,6 +84,26 @@ export default function Header({
       </div>
 
       <div className="flex-1" />
+
+      {/* Identity chip（演示模式/管理员） */}
+      {identityChip && (
+        <button
+          onClick={identityChip.onClick}
+          disabled={!identityChip.onClick}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${
+            identityChip.isDemo
+              ? 'border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400'
+              : 'border-ink/10 bg-paper/60 text-ink/55'
+          } ${identityChip.onClick ? 'cursor-pointer' : 'cursor-default'}`}
+          title={identityChip.isDemo ? '演示模式：使用平台免费额度。点击查看体验选项或主人登录' : `当前身份：${identityChip.label}`}
+        >
+          <UserRound size={12} />
+          <span>{identityChip.label}</span>
+          {identityChip.quota && (
+            <span className="hidden sm:inline font-mono text-[10px] opacity-70">{identityChip.quota}</span>
+          )}
+        </button>
+      )}
 
       {/* Status */}
       <div className="flex items-center gap-2 shrink-0">

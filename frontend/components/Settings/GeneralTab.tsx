@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { Settings, Save, RotateCcw, Database, MessageSquare, Globe, KeyRound, Link2 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
+import { useAuth } from '@/components/AuthProvider';
 import { getSettings, saveSettings, getTavilyStatus, type TavilyStatus } from '@/lib/api';
 
 interface AppSettings {
@@ -86,6 +87,10 @@ function Switch({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 }
 
 export default function GeneralTab({ embedded = false }: { embedded?: boolean } = {}) {
+  const { user } = useAuth();
+  // 平台全局配置后端仅管理员可保存（POST /api/settings 403 门禁）；
+  // 非管理员直接不渲染表单，避免"改了却保存失败"的假成功体验
+  const isAdmin = user?.role === 'admin';
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -210,6 +215,8 @@ export default function GeneralTab({ embedded = false }: { embedded?: boolean } 
           <UserLlmCard />
 
           {/* LLM Config（全局，仅管理员可保存） */}
+          {isAdmin ? (
+          <>
           <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
             <div className="flex items-center gap-2 mb-5">
               <KeyRound size={18} className="text-coral" />
@@ -387,8 +394,22 @@ export default function GeneralTab({ embedded = false }: { embedded?: boolean } 
               </div>
             </div>
           </div>
+          </>
+          ) : (
+            <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
+              <div className="flex items-center gap-2 mb-3">
+                <KeyRound size={18} className="text-coral" />
+                <h2 className="font-semibold text-ink">LLM 配置（平台全局 · 管理员）</h2>
+              </div>
+              <p className="text-sm leading-relaxed text-ink/50">
+                平台全局模型配置仅管理员可查看与修改。你可以使用上方「我的模型（BYOK）」配置自己的
+                LLM Key，仅作用于你自己的任务；Key 在服务端加密存储。
+              </p>
+            </div>
+          )}
 
           {/* Actions */}
+          {isAdmin && (
           <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
             <div className="flex items-center gap-2 mb-5">
               <Database size={18} className="text-coral" />
@@ -411,6 +432,7 @@ export default function GeneralTab({ embedded = false }: { embedded?: boolean } 
               </button>
             </div>
           </div>
+          )}
         </motion.div>
       </div>
 
