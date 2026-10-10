@@ -208,7 +208,7 @@ export interface FrameworkConfig {
   intent: {
     /** INTENT_CHAT_FAST_PATH — default true. */
     chatFastPathEnabled: boolean;
-    /** INTENT_TIMEOUT_MS — 单次分类超时，超时判 task。default 3000. */
+    /** INTENT_TIMEOUT_MS — 单次分类超时，超时判 task。default 6000. */
     timeoutMs: number;
   };
   /**

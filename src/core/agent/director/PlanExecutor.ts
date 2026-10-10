@@ -14,6 +14,7 @@ import { EventBus } from "./EventBus.js";
 import { StreamEmitterHook } from "../../hook/StreamEmitterHook.js";
 import { isToolHitlRequiredError, type ToolHitlRequiredError } from "../../tool/ToolHitlRequiredError.js";
 import { decideFaqHit } from "../../faq/decideFaqHit.js";
+import { isObviousChatText } from "./IntentClassifier.js";
 import { PlanReplanner } from "../../plan/PlanReplanner.js";
 import { runPlanWithReplan } from "../../plan/runPlanWithReplan.js";
 import { AgentCallGuard, AGENT_INVOKE_TOOL_NAME, type CallContext, type HandoffLimits, type HandoffPayload, buildSessionContextBlock, distillHandoff, isHandoffViolationError, isMultiAgentGuardError, seedHandoffsFromResults, validateHandoff } from "../../multiagent/index.js";
@@ -45,6 +46,25 @@ function buildDirectChatMessages(
   }
   messages.push(ChatMessage.text("user", "user", requirement));
   return messages;
+}
+
+/**
+ * 伪计划检测（两层）：
+ * 1. 拒答伪计划：意图分类超时回落 task 后，TaskPlanner 的 LLM 面对非设计
+ *    需求会产出"无法拆解/不属于游戏设计需求"式的单任务伪计划（planId=auto）；
+ * 2. 降级伪计划：planner LLM 输出解析失败 → parseFallback 单任务计划，
+ *    description 就是原始需求原文——若需求本身是显性寒暄/身份询问
+ *    （isObviousChatText），同样不该冻成 HITL 审阅卡。
+ * 识别后改走直答兜底。只查单任务且无工作流命中的计划，口径保持窄避免误伤。
+ */
+const REFUSAL_PLAN_RE =
+  /(不属于|不是).{0,8}(游戏设计|游戏策划|设计需求|策划需求)|(无法|难以|不能).{0,8}(拆解|规划|解析)|(请提供|请描述|请补充).{0,10}具体/;
+
+function isPseudoPlan(plan: TaskPlan, requirement: string): boolean {
+  if (plan.skillId) return false;
+  if (plan.subTasks.length !== 1) return false;
+  if (REFUSAL_PLAN_RE.test(plan.subTasks[0]?.description ?? "")) return true;
+  return plan.parseFallback === true && isObviousChatText(requirement);
 }
 
 /**
@@ -185,6 +205,17 @@ export class PlanExecutor {
     const plan = await this.ctx.skillCtx
       .getTaskPlanner(options)
       .plan(requirement, role, skill, this.sessionContextBlock(options, "planner"));
+
+    if (isPseudoPlan(plan, requirement)) {
+      this.ctx.logger.warn(
+        `[DirectorAgent] planner pseudo plan → direct reply fallback: ${plan.subTasks[0]?.description?.slice(0, 60)}`,
+      );
+      void this.safeRecordPlanSpan("intent.refusal_plan", {
+        chars: requirement.length,
+        description: plan.subTasks[0]?.description?.slice(0, 80) ?? "",
+      });
+      return this.executeDirectChatFlow(requirement, sessionId, role, options?.sessionHistory, options);
+    }
 
     const reviewedPlan = await this.ctx.deps.humanReviewGateway.requestReview(
       sessionId,
@@ -954,7 +985,19 @@ export class PlanExecutor {
     options?: DirectorStreamOptions,
   ): AsyncIterable<StreamEvent> {
     yield { type: "start", data: { sessionId, mode, role, directChat: true } };
+    yield* this.directReplyEvents(requirement, history, options);
+  }
 
+  /**
+   * 直答事件体（chunk* + complete/error/cancelled，不含 start）。
+   * 供两处复用：闲聊快路径（前置 start）与拒答伪计划兜底
+   * （流中已有 start，不能再发一次，否则前端时间线会重复锚点）。
+   */
+  private async *directReplyEvents(
+    requirement: string,
+    history: ReadonlyArray<{ role: "user" | "assistant"; content: string }> | undefined,
+    options?: DirectorStreamOptions,
+  ): AsyncGenerator<StreamEvent> {
     const messages = buildDirectChatMessages(requirement, history, this.ctx.deps.prompts?.directChat);
     const streamingEnabled = this.ctx.deps.streamingEnabled !== false;
 
@@ -1075,6 +1118,17 @@ export class PlanExecutor {
               errorClass: "permanent",
             },
           };
+          return;
+        }
+        if (isPseudoPlan(plan, requirement)) {
+          this.ctx.logger.warn(
+            `[DirectorAgent] planner pseudo plan → direct reply fallback: ${plan.subTasks[0]?.description?.slice(0, 60)}`,
+          );
+          void this.safeRecordPlanSpan("intent.refusal_plan", {
+            chars: requirement.length,
+            description: plan.subTasks[0]?.description?.slice(0, 80) ?? "",
+          });
+          yield* this.directReplyEvents(requirement, options?.sessionHistory, options);
           return;
         }
         if (plan.warnings && plan.warnings.length > 0) {

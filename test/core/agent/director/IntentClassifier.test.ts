@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { IntentClassifier } from "../../../../src/core/agent/director/IntentClassifier.js";
+import { IntentClassifier, isObviousChatText } from "../../../../src/core/agent/director/IntentClassifier.js";
 import type { ChatModelPort } from "../../../../src/port/model/ChatModelPort.js";
 import { ChatMessage } from "../../../../src/port/message/ChatMessage.js";
 
@@ -76,13 +76,34 @@ describe("IntentClassifier", () => {
       getProvider: () => "mock",
     } as unknown as ChatModelPort & { generate: ReturnType<typeof vi.fn> };
     const c = new IntentClassifier(model, { prompt: PROMPT, timeoutMs: 30 });
-    const result = await c.classifyWithTrace("你好");
+    const result = await c.classifyWithTrace("帮我设计一个背包系统，支持物品分类和堆叠");
     expect(result.intent).toBe("task");
     expect(result.degraded).toBe(true);
     expect(result.latencyMs).toBeLessThan(2000);
   });
 
-  it("模型抛错 → task（异常不外溢）", async () => {
+  it("超时但消息是显性寒暄/身份询问 → 静态兜底判 chat（不回落规划产伪计划）", async () => {
+    const never = new Promise<never>(() => {});
+    const model = {
+      generate: vi.fn(() => never),
+      stream: vi.fn(),
+      getModelName: () => "mock",
+      getProvider: () => "mock",
+    } as unknown as ChatModelPort & { generate: ReturnType<typeof vi.fn> };
+    const c = new IntentClassifier(model, { prompt: PROMPT, timeoutMs: 30 });
+    for (const text of ["你是谁", "你好", "你能做什么", "在吗？", "谢谢！"]) {
+      await expect(c.classify(text), text).resolves.toBe("chat");
+    }
+  });
+
+  it("显性闲聊模式不含任务动词——问候夹带需求不误判", () => {
+    expect(isObviousChatText("你好，帮我设计一个签到系统")).toBe(false);
+    expect(isObviousChatText("你能做什么设计")).toBe(false);
+    expect(isObviousChatText("设计一个背包系统")).toBe(false);
+    expect(isObviousChatText("介绍一下你自己")).toBe(true);
+  });
+
+  it("模型抛错 → fail-safe：显性闲聊静态兜底 chat，其余 task（异常不外溢）", async () => {
     const model = {
       generate: vi.fn().mockRejectedValue(new Error("boom")),
       stream: vi.fn(),
@@ -90,7 +111,8 @@ describe("IntentClassifier", () => {
       getProvider: () => "mock",
     } as never;
     const c = new IntentClassifier(model, { prompt: PROMPT, timeoutMs: 500 });
-    await expect(c.classify("你好")).resolves.toBe("task");
+    await expect(c.classify("你好")).resolves.toBe("chat");
+    await expect(c.classify("设计一个背包系统")).resolves.toBe("task");
   });
 
   it("超过 maxCheckChars 直接判 task，不调用模型", async () => {

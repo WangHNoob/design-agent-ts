@@ -212,9 +212,30 @@ function buildChatFastPath(
     prompt: prompts.intentClassify,
     timeoutMs: config.intent.timeoutMs,
   });
+  const tracer = bootstrapState?.tracer;
   return {
     enabled: true,
-    classify: (requirement, history) => classifier.classify(requirement, history),
+    // 包装一层观测：每次分类的意图/延迟/是否降级落 span，供快路径调优
+    // （journalctl 只有超时/命中两条日志，尾巴延迟分布在这里看）
+    classify: async (requirement, history) => {
+      const trace = await classifier.classifyWithTrace(requirement, history);
+      try {
+        await tracer?.recordSpan({
+          name: "intent.classified",
+          kind: "internal",
+          status: "ok",
+          attributes: {
+            intent: trace.intent,
+            latencyMs: trace.latencyMs,
+            degraded: trace.degraded,
+            skipped: trace.skipped ?? "",
+          },
+        });
+      } catch {
+        // 观测不能影响分类
+      }
+      return trace.intent;
+    },
   };
 }
 
