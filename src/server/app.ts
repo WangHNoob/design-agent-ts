@@ -14,6 +14,7 @@ import { auditRoute } from "./routes/audit.js";
 import { costRoute } from "./routes/cost.js";
 import { versionsRoute } from "./routes/versions.js";
 import { userSignalsRoute, setUserSignalDatabase } from "./routes/userSignals.js";
+import { demoRoute } from "./routes/demo.js";
 import type { BetterAuthAdapter } from "../adapter/betterauth/BetterAuthAdapter.js";
 import type { TenantIsolationPort } from "../port/user/TenantIsolationPort.js";
 import type { TenantContext } from "../port/user/TenantIsolationPort.js";
@@ -108,6 +109,8 @@ export function createApp() {
   app.route("/api/workflows", workflowsRoute);
   app.route("/api/versions", versionsRoute);
   app.route("/api/user-signals", userSignalsRoute);
+  // 演示模式公开路由（auth.ts 中间件对 /api/demo/* 放行）
+  app.route("/api/demo", demoRoute);
 
   // ─── Health & Monitoring ───────────────────────────────────────
   app.get("/health", async (c) => {

@@ -11,8 +11,10 @@ export type ExecutionRepositoryFactory = (userId: string) => ExecutionRepository
 let sessionRepositoryFactory: SessionRepositoryFactory | null = null;
 let executionRepositoryFactoryInjected: ExecutionRepositoryFactory | null = null;
 let workspaceManagerInstance: WorkspaceManager | null = null;
-/** 手动压缩服务（bootstrap 注入）：把会话轮次蒸馏为上下文摘要 */
+/** 手动压缩会话上下文服务（bootstrap 注入）：把会话轮次蒸馏为上下文摘要 */
 let sessionCompactService: ((sessionId: string, turns: Array<{ requirement: string; output: string }>) => Promise<string>) | null = null;
+/** 演示免费额度守卫（bootstrap 注入）：压缩是 LLM 调用，需与任务执行同受额度约束 */
+let sessionDemoQuota: import("../../core/cost/DemoQuotaGuard.js").DemoQuotaGuard | null = null;
 /** 会话上下文用量服务（bootstrap 注入）：合并实时跟踪与压缩预算口径 */
 let sessionContextService: ((sessionId: string) => Promise<{
   tokens: number;
@@ -38,6 +40,12 @@ export function setSessionCompactService(
   service: (sessionId: string, turns: Array<{ requirement: string; output: string }>) => Promise<string>,
 ) {
   sessionCompactService = service;
+}
+
+export function setSessionDemoQuota(
+  quota: import("../../core/cost/DemoQuotaGuard.js").DemoQuotaGuard | null,
+) {
+  sessionDemoQuota = quota;
 }
 
 export function setSessionContextService(
@@ -210,6 +218,14 @@ sessionsRoute.post("/:id/compact", async (c) => {
     return c.json({ error: "Invalid session id" }, 400);
   }
   const userId = (c.get("tenant") as TenantContext).userId;
+  if (sessionDemoQuota) {
+    try {
+      await sessionDemoQuota.assertAllowed(userId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "免费额度已用完";
+      return c.json({ error: "DEMO_QUOTA_EXCEEDED", message }, 429);
+    }
+  }
   const sessionRepository = sessionRepositoryFactory(userId);
   const session = await sessionRepository.get(sessionId);
   if (!session) return c.json({ error: "Session not found" }, 404);

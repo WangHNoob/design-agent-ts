@@ -85,3 +85,7 @@ eval/reports/
 loadtest/reports/*
 !loadtest/reports/.gitkeep
 
+
+# 运行时 BYOK 加密 Key 存储（绝不入库）
+user-llm/
+data/.user-secret

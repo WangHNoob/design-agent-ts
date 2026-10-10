@@ -19,7 +19,7 @@ export function authMiddleware(
   contextStorage: ContextStoragePort<TenantContext>,
 ) {
   return async (c: Context, next: Next) => {
-    if (c.req.path.startsWith("/api/auth/")) {
+    if (c.req.path.startsWith("/api/auth/") || c.req.path.startsWith("/api/demo/")) {
       return next();
     }
 
@@ -51,7 +51,7 @@ export function authMiddleware(
  */
 export function requireAuth() {
   return async (c: Context, next: Next) => {
-    if (c.req.path.startsWith("/api/auth/")) {
+    if (c.req.path.startsWith("/api/auth/") || c.req.path.startsWith("/api/demo/")) {
       return next();
     }
     const tenant = c.get("tenant") as TenantContext | null;
