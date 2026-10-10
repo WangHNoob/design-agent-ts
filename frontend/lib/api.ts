@@ -10,6 +10,61 @@ function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Res
   });
 }
 
+/** 从错误响应中提取后端给出的友好 message（429/4xx 引导文案），退化为原文。 */
+async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json() as { message?: string };
+    if (data?.message) return data.message;
+  } catch { /* 非 JSON 响应体 */ }
+  const text = await res.text().catch(() => '');
+  return text || fallback;
+}
+
+// ─── 演示模式（访客免登录 + 主人密码 + 免费额度） ─────────────────────
+
+export interface DemoStatus {
+  enabled: boolean;
+  quotaEnabled?: boolean;
+  usedToday?: number;
+  limit?: number;
+  remaining?: number;
+  resetAt?: string;
+}
+
+/** 免费额度用量（公开接口，未登录也可读）。 */
+export async function getDemoStatus(): Promise<DemoStatus> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/demo/status`, { cache: 'no-store' });
+    if (!res.ok) return { enabled: false };
+    return res.json();
+  } catch {
+    return { enabled: false };
+  }
+}
+
+/** 主人登录：校验管理员密码，成功后浏览器即持有管理员会话。 */
+export async function demoOwnerLogin(password: string): Promise<{ ok: boolean; mode: string }> {
+  const res = await apiFetch(`${API_BASE}/api/demo/owner-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, '密码不正确'));
+  }
+  return res.json();
+}
+
+/** 访客自动登录：为当前浏览器创建/复用匿名演示账号（服务端种会话 cookie）。 */
+export async function demoCreateSession(): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/demo/session`, { method: 'POST' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export interface ExecuteRequest {
   requirement: string;
   sessionId?: string;
@@ -220,8 +275,9 @@ export function executeDesignStream(
     signal: controller.signal,
   }).then(async (res) => {
     if (!res.ok) {
-      const text = await res.text().catch(() => `HTTP ${res.status}`);
-      onError?.(new Error(`后端错误 (${res.status}): ${text}`));
+      // 429/4xx 携带后端引导文案（如免费额度用完），优先展示 message
+      const message = await extractErrorMessage(res, `HTTP ${res.status}`);
+      onError?.(new Error(message));
       return;
     }
     executionId = res.headers.get('X-Execution-Id');

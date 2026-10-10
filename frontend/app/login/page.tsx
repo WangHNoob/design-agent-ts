@@ -9,8 +9,8 @@ type Mode = "login" | "register";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<Mode>("login");
-  const [email, setEmail] = useState("visitor@biaodev.site");
-  const [password, setPassword] = useState("visitor2026");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -145,7 +145,7 @@ export default function LoginPage() {
 
                 {mode === "login" && (
                   <p className="text-center text-xs text-ink/35">
-                    演示环境：已预填访客账号，直接点「登录」即可体验
+                    直接体验无需登录——返回控制台将自动进入演示模式
                   </p>
                 )}
               </form>

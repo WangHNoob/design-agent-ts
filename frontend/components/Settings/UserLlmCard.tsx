@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { KeyRound, Trash2, AlertTriangle, Brain } from 'lucide-react';
+import { KeyRound, Trash2, AlertTriangle, Brain, ShieldCheck } from 'lucide-react';
 
 /** /api/settings/models 返回的模型元数据（models.dev 快照裁剪版） */
 interface ModelMetaOption {
@@ -212,10 +212,20 @@ export default function UserLlmCard() {
         <h2 className="font-semibold text-ink">我的模型（BYOK）</h2>
         {configured && <span className="text-[11px] rounded-full bg-emerald-100 text-emerald-600 px-2 py-0.5">已配置 {apiKeyMasked}</span>}
       </div>
-      <p className="text-xs text-ink/45 mb-4">
-        配置你自己的模型 Key 后，你的执行将使用你自己的账号与额度，不消耗平台共享配额。
-        <span className="text-coral font-medium">体验完成后请及时删除 Key（下方按钮）。</span>
+      <p className="text-xs text-ink/45 mb-3">
+        配置你自己的模型 Key 后，你的执行将使用你自己的账号与额度，不消耗平台免费额度（长策划生成任务推荐）。
       </p>
+      {/* 安全提醒（醒目横幅）：加密存储说明 + 用后删 Key 建议 */}
+      <div className="mb-4 space-y-1.5 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
+        <p className="flex items-start gap-2 text-[12px] leading-relaxed text-amber-800">
+          <ShieldCheck size={14} className="mt-0.5 shrink-0" />
+          <span><b>你的 Key 仅存储在本平台服务端</b>，已使用 AES-256-GCM 加密落盘，任何界面都只显示尾号预览、不回传明文。</span>
+        </p>
+        <p className="flex items-start gap-2 text-[12px] leading-relaxed text-amber-800">
+          <Trash2 size={14} className="mt-0.5 shrink-0" />
+          <span><b>体验完成后请及时删除 Key</b>（下方删除按钮，或到模型供应商控制台吊销），以防泄漏。</span>
+        </p>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>

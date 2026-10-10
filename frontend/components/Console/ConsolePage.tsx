@@ -12,8 +12,10 @@ import RightPanel from '@/components/Console/RightPanel';
 import { ProgressCard } from '@/components/Console/ProgressCard';
 import { reportUserSignal } from '@/lib/userSignals';
 import SetupModal from '@/components/Console/SetupModal';
+import DemoChoiceModal from '@/components/Console/DemoChoiceModal';
 import HitlReviewModal from '@/components/Console/HitlReviewModal';
-import { executeDesign, executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, compactSession, getSessionContext, type SessionContextUsageInfo, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
+import { useAuth } from '@/components/AuthProvider';
+import { executeDesign, executeDesignStream, resumeExecutionStream, getExecution, getConfigStatus, listHITLCheckpoints, getSessionTurns, compactSession, getSessionContext, getDemoStatus, type DemoStatus, type SessionContextUsageInfo, type SessionMeta, type SessionTurn, type StreamHandle } from '@/lib/api';
 import { useTaskStore, type TaskMode, type ChatMessage, type KnowledgeSource } from '@/lib/stores/taskStore';
 import { handleStreamEvent, resetTaskTracking, dedupeSources } from '@/lib/streamHandler';
 import ModePicker from '@/components/Console/ModePicker';
@@ -136,6 +138,10 @@ export default function ConsolePage({ initialMode }: Props) {
   const [useStream, setUseStream] = useState(true);
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(false);
+  // 演示模式：访客首次进入弹"免费额度 / 配置自己的 Key"选择（localStorage 记忆）
+  const { user, isDemoUser } = useAuth();
+  const [demoModalOpen, setDemoModalOpen] = useState(false);
+  const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [hitlModalOpen, setHitlModalOpen] = useState(false);
   const [hitlFallbackContent, setHitlFallbackContent] = useState<string | undefined>();
@@ -170,13 +176,54 @@ export default function ConsolePage({ initialMode }: Props) {
   useEffect(() => {
     getConfigStatus()
       .then((status) => {
-        if (status.needsApiKey) {
+        // 全局 API Key 引导只对管理员弹——演示/普通用户改不了全局配置，
+        // 他们的引导入口是 DemoChoiceModal / 设置页 BYOK 卡片
+        if (status.needsApiKey && user?.role === 'admin') {
           setShowSetupModal(true);
           setIsFirstTimeSetup(true);
         }
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role]);
+
+  // 演示访客：首次进入弹选择弹窗并拉取额度状态；之后定期刷新额度
+  useEffect(() => {
+    if (!isDemoUser) return;
+    let seen = true;
+    try { seen = localStorage.getItem('demo-choice-seen') === '1'; } catch { seen = true; }
+    getDemoStatus().then(setDemoStatus).catch(() => {});
+    if (!seen) setDemoModalOpen(true);
+  }, [isDemoUser]);
+
+  useEffect(() => {
+    if (!isDemoUser) return;
+    const timer = setInterval(() => {
+      getDemoStatus().then(setDemoStatus).catch(() => {});
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [isDemoUser]);
+
+  const closeDemoModal = useCallback(() => {
+    setDemoModalOpen(false);
+    try { localStorage.setItem('demo-choice-seen', '1'); } catch { /* 隐私模式忽略 */ }
   }, []);
+
+  const formatTokens = useCallback((n?: number) => {
+    if (n === undefined || n === null) return '';
+    return n >= 10000 ? `${(n / 10000).toFixed(n % 10000 === 0 ? 0 : 1)}万` : String(n);
+  }, []);
+
+  const identityChip = user
+    ? {
+        isDemo: isDemoUser,
+        label: isDemoUser ? '演示模式' : user.role === 'admin' ? '管理员' : (user.name || '成员'),
+        quota: isDemoUser && demoStatus?.quotaEnabled
+          ? `今日额度 ${formatTokens(demoStatus.usedToday ?? 0)}/${formatTokens(demoStatus.limit)} tokens`
+          : undefined,
+        onClick: isDemoUser ? () => setDemoModalOpen(true) : undefined,
+      }
+    : null;
 
   // Refresh: if we have an executionId and task still looks in-flight, pull terminal/waiting state.
   useEffect(() => {
@@ -1010,6 +1057,7 @@ export default function ConsolePage({ initialMode }: Props) {
         onToggleRightPanel={() => setRightPanelOpen((v) => !v)}
         rightPanelOpen={rightPanelOpen}
         onOpenSettings={() => { router.push('/settings'); }}
+        identityChip={identityChip}
       />
 
       <div ref={containerRef} className="flex-1 flex overflow-hidden">
@@ -1219,6 +1267,13 @@ export default function ConsolePage({ initialMode }: Props) {
         onClose={() => setShowSetupModal(false)}
         onConfigured={() => { setShowSetupModal(false); setIsFirstTimeSetup(false); }}
         isFirstTime={isFirstTimeSetup}
+      />
+
+      {/* 演示访客选择弹窗：免费额度 / 配置自己的 Key / 主人登录 */}
+      <DemoChoiceModal
+        open={demoModalOpen}
+        onClose={closeDemoModal}
+        status={demoStatus}
       />
 
       <HitlReviewModal
