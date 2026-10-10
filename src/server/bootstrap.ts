@@ -60,6 +60,7 @@ import { ResilientToolWrapper, type ResilientToolOptions } from "../core/tool/Re
 import { ToolCircuitRegistry } from "../core/resilience/ToolCircuitRegistry.js";
 import { BlackboardStore } from "../core/blackboard/BlackboardStore.js";
 import { loadPrompt, clearPromptCache } from "./PromptLoader.js";
+import { IntentClassifier } from "../core/agent/director/IntentClassifier.js";
 import { SettingsManager } from "../core/settings/SettingsManager.js";
 import { UserLlmSettingsStore } from "./UserLlmSettingsStore.js";
 import { setUserLlmSettingsStore } from "./routes/settings.js";
@@ -191,6 +192,33 @@ function buildDirectorStreamingAndFaqDeps(
 }
 
 /**
+ * design/table 模式闲聊快路径：IntentClassifier 复用 Director 模型
+ * （MeteredChatModel——成本记账 / TPM / 演示额度 / BYOK 与规划路径一致）。
+ * 分类 prompt 缺失时禁用（分类质量无保障不如不开）。
+ */
+function buildChatFastPath(
+  config: FrameworkConfig,
+  model: ChatModelPort,
+  prompts: Record<string, string | undefined>,
+): DirectorDeps["chatFastPath"] {
+  if (!config.intent.chatFastPathEnabled) {
+    return { enabled: false, classify: async () => "task" };
+  }
+  if (!prompts.intentClassify) {
+    console.warn("[Bootstrap/Director] prompts/intent_classify.md 缺失，闲聊快路径禁用");
+    return { enabled: false, classify: async () => "task" };
+  }
+  const classifier = new IntentClassifier(model, {
+    prompt: prompts.intentClassify,
+    timeoutMs: config.intent.timeoutMs,
+  });
+  return {
+    enabled: true,
+    classify: (requirement, history) => classifier.classify(requirement, history),
+  };
+}
+
+/**
  * Single source of truth for DirectorAgent deps. All three construction sites
  * (bootstrap main path / lateBootstrapDirector / reloadDirector) go through
  * this — edit here, not at the call sites.
@@ -301,6 +329,7 @@ function buildDirectorDeps(params: {
       allowInvoke: params.config.guards.multiAgentAllowInvoke,
     },
     ...buildDirectorStreamingAndFaqDeps(params.config, toolRegistry, params.settings),
+    chatFastPath: buildChatFastPath(params.config, params.model, params.prompts),
   };
 }
 
@@ -466,6 +495,8 @@ export async function bootstrap() {
     querySystem: loadPrompt("query_knowledge") || undefined,
     taskPlanner: loadPrompt("task_planner_freeform") || undefined,
     router: loadPrompt("router_classify") || undefined,
+    directChat: loadPrompt("direct_chat") || undefined,
+    intentClassify: loadPrompt("intent_classify") || undefined,
   };
 
   const toolRegistry = new ToolManager();
@@ -1419,6 +1450,8 @@ export async function reloadDirector(): Promise<void> {
   directorPrompts.querySystem = loadPrompt("query_knowledge") || undefined;
   directorPrompts.taskPlanner = loadPrompt("task_planner_freeform") || undefined;
   directorPrompts.router = loadPrompt("router_classify") || undefined;
+  directorPrompts.directChat = loadPrompt("direct_chat") || undefined;
+  directorPrompts.intentClassify = loadPrompt("intent_classify") || undefined;
 
   // 2. Reconfigure sub-agent descriptors
   resetSubAgentDescriptors();

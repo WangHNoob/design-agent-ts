@@ -202,6 +202,16 @@ export interface FrameworkConfig {
     faqRequireMetrics: boolean;
   };
   /**
+   * design/table 模式闲聊快路径：LLM 意图分类，命中 chat 直接对话回复，
+   * 不进规划/工作流。fail-safe：超时/解析失败/异常一律按 task 处理。
+   */
+  intent: {
+    /** INTENT_CHAT_FAST_PATH — default true. */
+    chatFastPathEnabled: boolean;
+    /** INTENT_TIMEOUT_MS — 单次分类超时，超时判 task。default 3000. */
+    timeoutMs: number;
+  };
+  /**
    * Short-term sliding-window memory: protect recent messages, archive summaries on eviction.
    */
   memory: {
