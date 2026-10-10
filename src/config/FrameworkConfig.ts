@@ -397,6 +397,21 @@ export interface FrameworkConfig {
     tpmEstimatePerCall: number;
   };
   /**
+   * 演示模式：访客自动登录匿名账号，未配自己 Key 的调用共享每日免费
+   * token 额度（保护平台 Key 不被刷）；主人密码即管理员账号密码。
+   */
+  demo: {
+    enabled: boolean;
+    /** 每日全局免费额度（tokens）；0 = 不限。 */
+    dailyTokenLimit: number;
+    /** 主人（管理员）账号邮箱，owner-login 校验目标。 */
+    adminEmail: string;
+    /** 仅首次播种管理员账号时需要；已有账号则无需配置。 */
+    adminPassword?: string;
+    /** 匿名演示账号邮箱域。 */
+    anonEmailDomain: string;
+  };
+  /**
    * Security: audit logging, tool risk levels, irreversible HITL gate, param sandbox.
    */
   security: {
