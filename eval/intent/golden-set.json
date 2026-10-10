@@ -1,0 +1,130 @@
+{
+  "version": "v1",
+  "description": "design/table 模式意图分类黄金评测集。expect: chat=直接对话回复 / task=走任务规划流程。标注口径：凡需要检索平台知识库、产出策划文档/配置表、或延续既有任务产出的消息一律 task；寒暄/能力询问/纯附和/不依赖平台知识库的轻量问答与点子→chat。",
+  "cases": [
+    { "id": "greet-001", "category": "greeting", "expect": "chat", "requirement": "你好" },
+    { "id": "greet-002", "category": "greeting", "expect": "chat", "requirement": "在吗" },
+    { "id": "greet-003", "category": "greeting", "expect": "chat", "requirement": "下午好" },
+    { "id": "greet-004", "category": "greeting", "expect": "chat", "requirement": "hi，你好呀" },
+    { "id": "greet-005", "category": "greeting", "expect": "chat", "requirement": "hello" },
+    { "id": "greet-006", "category": "greeting", "expect": "chat", "requirement": "大家好，我是新来的策划", "note": "自我介绍+寒暄，无产出诉求" },
+
+    { "id": "thanks-001", "category": "thanks_farewell", "expect": "chat", "requirement": "谢谢" },
+    { "id": "thanks-002", "category": "thanks_farewell", "expect": "chat", "requirement": "辛苦了，答得很好" },
+    { "id": "thanks-003", "category": "thanks_farewell", "expect": "chat", "requirement": "拜拜" },
+    { "id": "thanks-004", "category": "thanks_farewell", "expect": "chat", "requirement": "多谢，很受用" },
+    { "id": "thanks-005", "category": "thanks_farewell", "expect": "chat", "requirement": "感谢解答，先这样" },
+
+    { "id": "cap-001", "category": "capability_query", "expect": "chat", "requirement": "你能做什么", "note": "线上真实语料，本次修复的直接触发消息" },
+    { "id": "cap-002", "category": "capability_query", "expect": "chat", "requirement": "你是谁" },
+    { "id": "cap-003", "category": "capability_query", "expect": "chat", "requirement": "这个平台能干什么" },
+    { "id": "cap-004", "category": "capability_query", "expect": "chat", "requirement": "你有什么功能" },
+    { "id": "cap-005", "category": "capability_query", "expect": "chat", "requirement": "介绍一下你自己" },
+    { "id": "cap-006", "category": "capability_query", "expect": "chat", "requirement": "你能帮我做什么" },
+    { "id": "cap-007", "category": "capability_query", "expect": "chat", "requirement": "你会写策划案吗" },
+    { "id": "cap-008", "category": "capability_query", "expect": "chat", "requirement": "这个平台怎么用" },
+
+    { "id": "affirm-001", "category": "affirmation", "expect": "chat", "requirement": "好的" },
+    { "id": "affirm-002", "category": "affirmation", "expect": "chat", "requirement": "明白了" },
+    { "id": "affirm-003", "category": "affirmation", "expect": "chat", "requirement": "收到" },
+    { "id": "affirm-004", "category": "affirmation", "expect": "chat", "requirement": "OK" },
+    { "id": "affirm-005", "category": "affirmation", "expect": "chat", "requirement": "不错，有进步" },
+
+    { "id": "chitchat-001", "category": "general_chitchat", "expect": "chat", "requirement": "今天天气怎么样" },
+    { "id": "chitchat-002", "category": "general_chitchat", "expect": "chat", "requirement": "讲个笑话" },
+    { "id": "chitchat-003", "category": "general_chitchat", "expect": "chat", "requirement": "你喜欢什么游戏" },
+    { "id": "chitchat-004", "category": "general_chitchat", "expect": "chat", "requirement": "什么是 roguelike", "note": "通用概念问答，不需要平台知识库" },
+    { "id": "chitchat-005", "category": "general_chitchat", "expect": "chat", "requirement": "游戏数值策划中，什么是期望值", "note": "线上真实语料，通用概念" },
+    { "id": "chitchat-006", "category": "general_chitchat", "expect": "chat", "requirement": "什么是心流体验" },
+    { "id": "chitchat-007", "category": "general_chitchat", "expect": "chat", "requirement": "用一句话解释什么是抽卡保底" },
+    { "id": "chitchat-008", "category": "general_chitchat", "expect": "chat", "requirement": "帮我想 3 个赛博朋克风格的游戏名", "note": "轻量点子，无需知识库/文档产出" },
+
+    { "id": "chat-cont-001", "category": "chitchat_continuation", "expect": "chat", "requirement": "再讲一个",
+      "history": [
+        { "role": "user", "content": "讲个笑话" },
+        { "role": "assistant", "content": "好的：策划说要上线一个功能，程序员问了三遍『这期真的要做吗』……" }
+      ],
+      "note": "闲聊延续，历史上下文是笑话" },
+    { "id": "chat-cont-002", "category": "chitchat_continuation", "expect": "chat", "requirement": "继续",
+      "history": [
+        { "role": "user", "content": "什么是心流体验" },
+        { "role": "assistant", "content": "心流（Flow）是玩家完全沉浸于活动的心理状态，由心理学家米哈里提出……" }
+      ],
+      "note": "通用话题的『继续』，非任务延续" },
+
+    { "id": "task-001", "category": "task_design", "expect": "task", "requirement": "我想上线一个新角色，最好能对当前的某些角色进行一些平衡，给我一个初步方案。", "note": "线上真实语料" },
+    { "id": "task-002", "category": "task_design", "expect": "task", "requirement": "我想上线一期元旦活动，主要目的是刺激日活增长，同时吸引玩家消费，请给我一个初步方案。", "note": "线上真实语料" },
+    { "id": "task-003", "category": "task_design", "expect": "task", "requirement": "做一个极简的新角色上线初步方案：只做新角色定位与验证方案两件事，一页纸即可。", "note": "线上真实语料" },
+    { "id": "task-004", "category": "task_design", "expect": "task", "requirement": "帮我设计一个每日签到系统，要求7天一个循环，第7天给大奖" },
+    { "id": "task-005", "category": "task_design", "expect": "task", "requirement": "设计一个背包系统，支持物品分类、堆叠上限和批量使用" },
+    { "id": "task-006", "category": "task_design", "expect": "task", "requirement": "为一个二次元卡牌游戏设计核心战斗系统，包含元素克制" },
+    { "id": "task-007", "category": "task_design", "expect": "task", "requirement": "给我出一版抽卡概率体系：含保底、歪卡机制和概率公示" },
+    { "id": "task-008", "category": "task_design", "expect": "task", "requirement": "设计新手引导流程，前30分钟不能出现卡关点" },
+    { "id": "task-009", "category": "task_design", "expect": "task", "requirement": "帮我写一段主线剧情：主角在废墟中觉醒火系能力" },
+    { "id": "task-010", "category": "task_design", "expect": "task", "requirement": "优化当前经济系统，金币产出过量导致通胀" },
+    { "id": "task-011", "category": "task_design", "expect": "task", "requirement": "设计一个公会战玩法，支持 20v20" },
+    { "id": "task-012", "category": "task_design", "expect": "task", "requirement": "给我设计10个日常任务模板，附奖励" },
+    { "id": "task-013", "category": "task_design", "expect": "task", "requirement": "做一个 PVP 匹配机制的设计方案，考虑段位保护" },
+    { "id": "task-014", "category": "task_design", "expect": "task", "requirement": "分析一下当前成就系统的完成率为什么低，给出改进方案" },
+
+    { "id": "task-kb-001", "category": "task_kb_question", "expect": "task", "requirement": "知识库里关于世界Boss的玩法文档叫什么？给出文档标题。", "note": "线上真实语料改写，需要检索平台知识库" },
+    { "id": "task-kb-002", "category": "task_kb_question", "expect": "task", "requirement": "角色养成线包含哪些系统？各自的成长节奏和产出途径是怎样的？", "note": "线上真实语料，问的是本游戏知识库" },
+    { "id": "task-kb-003", "category": "task_kb_question", "expect": "task", "requirement": "这个游戏的核心战斗规则和核心玩法循环是什么？", "note": "线上真实语料" },
+    { "id": "task-kb-004", "category": "task_kb_question", "expect": "task", "requirement": "公会点（GUILD_POINT）如何产出与消耗？", "note": "线上真实语料" },
+    { "id": "task-kb-005", "category": "task_kb_question", "expect": "task", "requirement": "H014 燎原·羽的元素抗性分布是什么？", "note": "线上真实语料，需要查KB" },
+    { "id": "task-kb-006", "category": "task_kb_question", "expect": "task", "requirement": "我们游戏里各卡池的5★单抽概率是否一致？保底数是多少？" },
+    { "id": "task-kb-007", "category": "task_kb_question", "expect": "task", "requirement": "BF031 狂暴的效果是什么？" },
+    { "id": "task-kb-008", "category": "task_kb_question", "expect": "task", "requirement": "帮我查一下掉落组 DR 与副本的对应关系" },
+
+    { "id": "refine-001", "category": "task_refine_history", "expect": "task", "requirement": "继续",
+      "history": [
+        { "role": "user", "content": "设计一个背包系统" },
+        { "role": "assistant", "content": "已产出背包系统方案：分类、堆叠、批量使用三部分……" }
+      ],
+      "note": "任务语境的『继续』，必须走原流程" },
+    { "id": "refine-002", "category": "task_refine_history", "expect": "task", "requirement": "把上面的战斗系统再细化一下，补充技能释放顺序",
+      "history": [
+        { "role": "user", "content": "设计核心战斗系统" },
+        { "role": "assistant", "content": "已产出战斗系统方案……" }
+      ] },
+    { "id": "refine-003", "category": "task_refine_history", "expect": "task", "requirement": "基于上面的回答，为焰星·玲设计一个简单的成长系统方案，3条成长线即可。",
+      "history": [
+        { "role": "user", "content": "焰星·玲的职业和元素是什么？" },
+        { "role": "assistant", "content": "焰星·玲是火系法师……" }
+      ],
+      "note": "线上真实语料改写" },
+    { "id": "refine-004", "category": "task_refine_history", "expect": "task", "requirement": "第二条成长线的数值再平衡一下，前期太陡了",
+      "history": [
+        { "role": "user", "content": "设计角色成长线" },
+        { "role": "assistant", "content": "已产出三条成长线……" }
+      ] },
+    { "id": "refine-005", "category": "task_refine_history", "expect": "task", "requirement": "补充一版元旦活动的排期表",
+      "history": [
+        { "role": "user", "content": "出一版元旦活动方案" },
+        { "role": "assistant", "content": "已产出活动方案……" }
+      ] },
+    { "id": "refine-006", "category": "task_refine_history", "expect": "task", "requirement": "上面方案里的金币产出不太合理，重新调一下",
+      "history": [
+        { "role": "user", "content": "优化经济系统" },
+        { "role": "assistant", "content": "已产出经济系统优化方案……" }
+      ] },
+
+    { "id": "table-001", "category": "task_table", "expect": "task", "requirement": "把下面的成长线整理成一张配表（字段用英文命名，附3行示例数据）：等级成长每级生命+80；品质升星每星攻击+50", "note": "线上真实语料改写" },
+    { "id": "table-002", "category": "task_table", "expect": "task", "requirement": "生成装备强化费用表，+1到+15" },
+    { "id": "table-003", "category": "task_table", "expect": "task", "requirement": "出一份1-30级推荐战力对照表" },
+    { "id": "table-004", "category": "task_table", "expect": "task", "requirement": "帮我调一下这份表：VIP等级1-5的每日体力购买次数分别是2/4/6/8/10，改成递增更平滑的曲线" },
+
+    { "id": "adv-chat-001", "category": "adversarial_chat_lookalike", "expect": "task", "requirement": "你好，帮我设计一个签到系统" },
+    { "id": "adv-chat-002", "category": "adversarial_chat_lookalike", "expect": "task", "requirement": "在吗？帮我看看现在的抽卡概率合不合理" },
+    { "id": "adv-chat-003", "category": "adversarial_chat_lookalike", "expect": "task", "requirement": "哈哈不错，把数值表也出了吧" },
+    { "id": "adv-chat-004", "category": "adversarial_chat_lookalike", "expect": "task", "requirement": "谢谢！另外帮我补一个退款流程的策划案" },
+    { "id": "adv-chat-005", "category": "adversarial_chat_lookalike", "expect": "task", "requirement": "你真棒，帮我画个技能树" },
+    { "id": "adv-chat-006", "category": "adversarial_chat_lookalike", "expect": "task", "requirement": "再见之前帮我把上周的活动方案优化一下" },
+
+    { "id": "adv-task-001", "category": "adversarial_task_lookalike", "expect": "chat", "requirement": "你能做什么设计", "note": "问能力，不是下需求" },
+    { "id": "adv-task-002", "category": "adversarial_task_lookalike", "expect": "chat", "requirement": "帮我看看你能做什么" },
+    { "id": "adv-task-003", "category": "adversarial_task_lookalike", "expect": "chat", "requirement": "你会做数值策划吗" },
+    { "id": "adv-task-004", "category": "adversarial_task_lookalike", "expect": "chat", "requirement": "你会写剧情吗" },
+    { "id": "adv-task-005", "category": "adversarial_task_lookalike", "expect": "chat", "requirement": "你设计过什么游戏" }
+  ]
+}

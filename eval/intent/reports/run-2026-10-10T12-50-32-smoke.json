@@ -1,0 +1,77 @@
+{
+  "tag": "smoke",
+  "timestamp": "2026-10-10T12:50:32.730Z",
+  "setPath": "eval/intent/golden-set.json",
+  "setVersion": "v1",
+  "promptPath": "prompts/intent_classify.md",
+  "promptHash": "3e707364328d",
+  "model": "anthropic/glm-5.3-flash",
+  "total": 4,
+  "correct": 4,
+  "accuracy": 1,
+  "missChatToTask": 0,
+  "swallowTaskToChat": 0,
+  "byCategory": {
+    "greeting": {
+      "total": 4,
+      "correct": 4,
+      "accuracy": 1
+    }
+  },
+  "latencyMs": {
+    "mean": 1320,
+    "p50": 1313,
+    "p95": 1333,
+    "max": 1333
+  },
+  "tokens": {
+    "llmCalls": 4,
+    "inputTotal": 0,
+    "outputTotal": 32,
+    "inputAvgPerCase": 0,
+    "outputAvgPerCase": 8
+  },
+  "wallMs": 1335,
+  "results": [
+    {
+      "id": "greet-001",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1333,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-002",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1299,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-003",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1333,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-004",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1313,
+      "degraded": false,
+      "attempts": 1
+    }
+  ]
+}
