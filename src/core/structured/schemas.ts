@@ -238,18 +238,21 @@ export const RefinedRequirementsArraySchema = z
   .min(1, "refined requirements must be a non-empty array");
 
 export interface IntentClassifyParsed {
-  intent: "chat" | "task";
+  intent: "chat" | "query" | "task" | "unknown";
 }
 
-function normalizeIntent(raw: unknown): "chat" | "task" {
+function normalizeIntent(raw: unknown): "chat" | "query" | "task" {
   const value = String(raw ?? "").trim().toLowerCase();
-  return value === "chat" ? "chat" : "task";
+  if (value === "chat") return "chat";
+  if (value === "query" || value === "knowledge_query") return "query";
+  return "task";
 }
 
 /**
- * 意图分类输出（design/table 闲聊快路径）。宽容解析：intent 只有 "chat"
- * （不区分大小写）判 chat，其余一律 task——schema 层保证 fail-safe 方向；
- * 整体解析失败（非 JSON / 缺字段）走 generateStructured 降级 → task。
+ * 意图路由输出（全模式统一前置路由：chat=直答 / query=知识查询管道 /
+ * task=当前模式默认管道）。宽容解析：只有明确的 "chat"/"query"（不区分
+ * 大小写）才改道，其余一律 task——schema 层保证 fail-safe 方向；整体
+ * 解析失败（非 JSON / 缺字段）走 generateStructured 降级 → task。
  */
 export const IntentClassifySchema = z
   .object({ intent: z.unknown() })

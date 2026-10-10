@@ -217,8 +217,8 @@ function buildChatFastPath(
     enabled: true,
     // 包装一层观测：每次分类的意图/延迟/是否降级落 span，供快路径调优
     // （journalctl 只有超时/命中两条日志，尾巴延迟分布在这里看）
-    classify: async (requirement, history) => {
-      const trace = await classifier.classifyWithTrace(requirement, history);
+    classify: async (requirement, history, modeHint) => {
+      const trace = await classifier.classifyWithTrace(requirement, history, modeHint);
       try {
         await tracer?.recordSpan({
           name: "intent.classified",

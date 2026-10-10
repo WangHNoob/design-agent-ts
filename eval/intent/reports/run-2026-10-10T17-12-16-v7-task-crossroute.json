@@ -1,0 +1,1021 @@
+{
+  "tag": "v7-task-crossroute",
+  "timestamp": "2026-10-10T17:12:16.569Z",
+  "setPath": "eval/intent/golden-set.json",
+  "setVersion": "v2",
+  "promptPath": "prompts/intent_classify.md",
+  "promptHash": "f48ecb1addd9",
+  "model": "anthropic/glm-5.3-flash",
+  "total": 91,
+  "correct": 90,
+  "accuracy": 0.989,
+  "swallowToChat": 0,
+  "missChat": 0,
+  "queryToTask": 0,
+  "taskToQuery": 0,
+  "confusion": {
+    "chat": {},
+    "query": {},
+    "task": {
+      "unknown": 1
+    }
+  },
+  "byCategory": {
+    "greeting": {
+      "total": 6,
+      "correct": 6,
+      "accuracy": 1
+    },
+    "thanks_farewell": {
+      "total": 5,
+      "correct": 5,
+      "accuracy": 1
+    },
+    "capability_query": {
+      "total": 8,
+      "correct": 8,
+      "accuracy": 1
+    },
+    "affirmation": {
+      "total": 5,
+      "correct": 5,
+      "accuracy": 1
+    },
+    "general_chitchat": {
+      "total": 8,
+      "correct": 8,
+      "accuracy": 1
+    },
+    "chitchat_continuation": {
+      "total": 2,
+      "correct": 2,
+      "accuracy": 1
+    },
+    "task_design": {
+      "total": 14,
+      "correct": 14,
+      "accuracy": 1
+    },
+    "task_kb_question": {
+      "total": 8,
+      "correct": 8,
+      "accuracy": 1
+    },
+    "task_refine_history": {
+      "total": 6,
+      "correct": 6,
+      "accuracy": 1
+    },
+    "task_table": {
+      "total": 4,
+      "correct": 4,
+      "accuracy": 1
+    },
+    "adversarial_chat_lookalike": {
+      "total": 6,
+      "correct": 6,
+      "accuracy": 1
+    },
+    "adversarial_task_lookalike": {
+      "total": 5,
+      "correct": 5,
+      "accuracy": 1
+    },
+    "kb_query_variants": {
+      "total": 5,
+      "correct": 5,
+      "accuracy": 1
+    },
+    "routing_edge": {
+      "total": 9,
+      "correct": 8,
+      "accuracy": 0.8889
+    }
+  },
+  "latencyMs": {
+    "mean": 1387,
+    "p50": 1043,
+    "p95": 3549,
+    "max": 6567
+  },
+  "tokens": {
+    "llmCalls": 92,
+    "inputTotal": 0,
+    "outputTotal": 824,
+    "inputAvgPerCase": 0,
+    "outputAvgPerCase": 9
+  },
+  "wallMs": 32333,
+  "results": [
+    {
+      "id": "greet-001",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1287,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-002",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1930,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-003",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1268,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-004",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1212,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-005",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 989,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "greet-006",
+      "category": "greeting",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1319,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "thanks-001",
+      "category": "thanks_farewell",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1135,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "thanks-002",
+      "category": "thanks_farewell",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1251,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "thanks-003",
+      "category": "thanks_farewell",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 992,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "thanks-004",
+      "category": "thanks_farewell",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1022,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "thanks-005",
+      "category": "thanks_farewell",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1806,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-001",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 959,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-002",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 3804,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-003",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1011,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-004",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1002,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-005",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 933,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-006",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1024,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-007",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1009,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "cap-008",
+      "category": "capability_query",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1187,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "affirm-001",
+      "category": "affirmation",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1785,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "affirm-002",
+      "category": "affirmation",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1821,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "affirm-003",
+      "category": "affirmation",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 902,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "affirm-004",
+      "category": "affirmation",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 3863,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "affirm-005",
+      "category": "affirmation",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1839,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-001",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1357,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-002",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 3039,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-003",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 955,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-004",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1069,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-005",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1037,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-006",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1089,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-007",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1160,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chitchat-008",
+      "category": "general_chitchat",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 983,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chat-cont-001",
+      "category": "chitchat_continuation",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1088,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "chat-cont-002",
+      "category": "chitchat_continuation",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1026,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-001",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1331,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-002",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1163,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-003",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1186,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-004",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1105,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-005",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 972,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-006",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 988,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-007",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 933,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-008",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 977,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-009",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 985,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-010",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 2628,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-011",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 932,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-012",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 895,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-013",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 982,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-014",
+      "category": "task_design",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1212,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-001",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 861,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-002",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1286,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-003",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 932,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-004",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 3549,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-005",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 986,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-006",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1656,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-007",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 2291,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "task-kb-008",
+      "category": "task_kb_question",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1200,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "refine-001",
+      "category": "task_refine_history",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1072,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "refine-002",
+      "category": "task_refine_history",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1514,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "refine-003",
+      "category": "task_refine_history",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 949,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "refine-004",
+      "category": "task_refine_history",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 990,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "refine-005",
+      "category": "task_refine_history",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 3007,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "refine-006",
+      "category": "task_refine_history",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 934,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "table-001",
+      "category": "task_table",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1340,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "table-002",
+      "category": "task_table",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1043,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "table-003",
+      "category": "task_table",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1001,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "table-004",
+      "category": "task_table",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 967,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-chat-001",
+      "category": "adversarial_chat_lookalike",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1050,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-chat-002",
+      "category": "adversarial_chat_lookalike",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1185,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-chat-003",
+      "category": "adversarial_chat_lookalike",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 1007,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-chat-004",
+      "category": "adversarial_chat_lookalike",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 950,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-chat-005",
+      "category": "adversarial_chat_lookalike",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 968,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-chat-006",
+      "category": "adversarial_chat_lookalike",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 2625,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-task-001",
+      "category": "adversarial_task_lookalike",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 914,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-task-002",
+      "category": "adversarial_task_lookalike",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 901,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-task-003",
+      "category": "adversarial_task_lookalike",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1000,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-task-004",
+      "category": "adversarial_task_lookalike",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 962,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "adv-task-005",
+      "category": "adversarial_task_lookalike",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 990,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "kbv-001",
+      "category": "kb_query_variants",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 859,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "kbv-002",
+      "category": "kb_query_variants",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1290,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "kbv-003",
+      "category": "kb_query_variants",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 6567,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "kbv-004",
+      "category": "kb_query_variants",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 994,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "kbv-005",
+      "category": "kb_query_variants",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1034,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-001",
+      "category": "routing_edge",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 1451,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-002",
+      "category": "routing_edge",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1067,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-003",
+      "category": "routing_edge",
+      "expect": "task",
+      "actual": "unknown",
+      "correct": false,
+      "latencyMs": 4161,
+      "degraded": true,
+      "attempts": 2
+    },
+    {
+      "id": "edge-005",
+      "category": "routing_edge",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 879,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-006",
+      "category": "routing_edge",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 902,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-007",
+      "category": "routing_edge",
+      "expect": "task",
+      "actual": "task",
+      "correct": true,
+      "latencyMs": 986,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-008",
+      "category": "routing_edge",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1407,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-009",
+      "category": "routing_edge",
+      "expect": "chat",
+      "actual": "chat",
+      "correct": true,
+      "latencyMs": 920,
+      "degraded": false,
+      "attempts": 1
+    },
+    {
+      "id": "edge-010",
+      "category": "routing_edge",
+      "expect": "query",
+      "actual": "query",
+      "correct": true,
+      "latencyMs": 1169,
+      "degraded": false,
+      "attempts": 1
+    }
+  ]
+}
