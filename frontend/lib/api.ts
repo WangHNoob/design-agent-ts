@@ -20,6 +20,15 @@ async function extractErrorMessage(res: Response, fallback: string): Promise<str
   return text || fallback;
 }
 
+/**
+ * 写操作统一错误检查：403/4xx/5xx 必须抛错，绝不能把错误体当成功返回
+ * （历史缺陷：savePrompt 等不查 res.ok，访客保存被后端 403 拒绝却提示"保存成功"）。
+ */
+async function assertApiOk(res: Response, fallback: string): Promise<void> {
+  if (res.ok) return;
+  throw new Error(await extractErrorMessage(res, `${fallback} (HTTP ${res.status})`));
+}
+
 // ─── 演示模式（访客免登录 + 主人密码 + 免费额度） ─────────────────────
 
 export interface DemoStatus {
@@ -384,7 +393,8 @@ export async function getSessionTurns(sessionId: string, limit = 50): Promise<{ 
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  await apiFetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
+  await assertApiOk(res, '删除失败');
 }
 
 export async function listHITLCheckpoints(sessionId?: string): Promise<{ checkpoints: HITLCheckpoint[] }> {
@@ -410,6 +420,7 @@ export async function reviewHITLCheckpoint(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...options }),
   });
+  await assertApiOk(res, '审批失败');
   return res.json();
 }
 
@@ -447,6 +458,7 @@ export async function saveSettings(settings: Partial<AppSettingsResponse> & { ta
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
   });
+  await assertApiOk(res, '保存失败');
   return res.json();
 }
 
@@ -561,11 +573,13 @@ export async function savePrompt(name: string, content: string): Promise<{ succe
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   });
+  await assertApiOk(res, '保存失败');
   return res.json();
 }
 
 export async function deletePrompt(name: string): Promise<{ success: boolean }> {
   const res = await apiFetch(`${API_BASE}/api/prompts/${name}`, { method: 'DELETE' });
+  await assertApiOk(res, '删除失败');
   return res.json();
 }
 
@@ -600,11 +614,13 @@ export async function saveSkill(name: string, content: string): Promise<{ succes
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   });
+  await assertApiOk(res, '保存失败');
   return res.json();
 }
 
 export async function deleteSkill(name: string): Promise<{ success: boolean }> {
   const res = await apiFetch(`${API_BASE}/api/skills/${name}`, { method: 'DELETE' });
+  await assertApiOk(res, '删除失败');
   return res.json();
 }
 
@@ -657,11 +673,13 @@ export async function saveWorkflow(name: string, def: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(def),
   });
+  await assertApiOk(res, '保存失败');
   return res.json();
 }
 
 export async function deleteWorkflow(name: string): Promise<{ success: boolean }> {
   const res = await apiFetch(`${API_BASE}/api/workflows/${name}`, { method: 'DELETE' });
+  await assertApiOk(res, '删除失败');
   return res.json();
 }
 
@@ -671,6 +689,7 @@ export async function validateWorkflow(content: string): Promise<{ valid: boolea
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   });
+  await assertApiOk(res, '校验失败');
   return res.json();
 }
 
@@ -680,5 +699,6 @@ export async function llmGenerateWorkflowContent(prompt: string, context?: strin
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, context }),
   });
+  await assertApiOk(res, 'AI 生成失败');
   return res.json();
 }

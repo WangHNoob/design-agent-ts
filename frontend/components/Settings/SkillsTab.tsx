@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
+import { useAuth } from '@/components/AuthProvider';
 import {
   listSkills,
   getSkill,
@@ -25,6 +26,9 @@ import {
 } from '@/lib/api';
 
 export default function SkillsTab({ embedded = false }: { embedded?: boolean } = {}) {
+  // 技能是平台共享资产：仅管理员可写（后端 403 门禁），其他人只读查看
+  const { user } = useAuth();
+  const canEdit = user?.role === 'admin';
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState('');
@@ -224,6 +228,7 @@ Skill content here...
                     className="w-full rounded-lg border border-ink/8 bg-paper/50 pl-8 pr-3 py-2 text-xs text-ink placeholder:text-ink/25 focus:border-coral/50 focus:outline-none transition-all"
                   />
                 </div>
+                {canEdit && (
                 <button
                   onClick={() => setShowNewSkill(true)}
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-coral px-3 py-2 text-xs font-medium text-white hover:bg-coral/90 transition-colors"
@@ -231,6 +236,7 @@ Skill content here...
                   <Plus size={14} />
                   New Skill
                 </button>
+                )}
               </div>
 
               {/* Skill Items */}
@@ -300,6 +306,7 @@ Skill content here...
                       </span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      {canEdit && (
                       <button
                         onClick={() => setDeleteTarget(selectedName)}
                         className="flex items-center gap-1.5 rounded-lg border border-ink/10 px-3 py-1.5 text-xs font-medium text-ink/50 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
@@ -307,6 +314,8 @@ Skill content here...
                         <Trash2 size={13} />
                         Delete
                       </button>
+                      )}
+                      {canEdit && (
                       <button
                         onClick={handleSave}
                         disabled={saving}
@@ -323,6 +332,7 @@ Skill content here...
                             ? 'Saved'
                             : 'Save'}
                       </button>
+                      )}
                     </div>
                   </div>
 
@@ -334,12 +344,13 @@ Skill content here...
                   ) : (
                     <textarea
                       value={editorContent}
+                      readOnly={!canEdit}
                       onChange={(e) => {
                         setEditorContent(e.target.value);
                         setSaved(false);
                       }}
                       spellCheck={false}
-                      className="w-full h-[calc(100vh-340px)] min-h-[400px] resize-none bg-paper/30 px-5 py-4 font-mono text-sm text-ink leading-relaxed focus:outline-none placeholder:text-ink/25"
+                      className={`w-full h-[calc(100vh-340px)] min-h-[400px] resize-none bg-paper/30 px-5 py-4 font-mono text-sm text-ink leading-relaxed focus:outline-none placeholder:text-ink/25 ${!canEdit ? 'opacity-80 cursor-default' : ''}`}
                       placeholder="Write your SKILL.md content here..."
                     />
                   )}
