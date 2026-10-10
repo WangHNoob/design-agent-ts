@@ -13,6 +13,7 @@ import {
   type ExecutionWorker,
 } from "../worker/ExecutionWorker.js";
 import type { RateLimitGuard } from "../../core/cost/RateLimitGuard.js";
+import { DemoQuotaExceededError, type DemoQuotaUsage } from "../../core/cost/DemoQuotaGuard.js";
 import type { FrameworkConfig } from "../../config/FrameworkConfig.js";
 import type { VersionStorePort } from "../../port/versioning/VersionStorePort.js";
 import { ensureSessionVersionSnapshot } from "../versioning/sessionVersionBinding.js";
@@ -42,6 +43,7 @@ let dependencies: ConsoleExecutionDependencies | null = null;
 let directorConfigured = false;
 let rateLimitGuard: RateLimitGuard | null = null;
 let rateLimitEnabled = false;
+let demoQuotaGuard: import("../../core/cost/DemoQuotaGuard.js").DemoQuotaGuard | null = null;
 
 export function setDirector(director: DirectorAgent): void {
   directorConfigured = true;
@@ -55,6 +57,10 @@ export function setConsoleExecutionDependencies(next: ConsoleExecutionDependenci
 export function setConsoleRateLimit(guard: RateLimitGuard | null, enabled: boolean): void {
   rateLimitGuard = guard;
   rateLimitEnabled = enabled;
+}
+
+export function setConsoleDemoQuota(guard: import("../../core/cost/DemoQuotaGuard.js").DemoQuotaGuard | null): void {
+  demoQuotaGuard = guard;
 }
 
 export function hasActiveExecutions(): boolean {
@@ -103,6 +109,33 @@ async function assertRpmAllowed(userId: string) {
     error: result.code ?? "RATE_LIMIT_RPM",
     code: result.code ?? "RATE_LIMIT_RPM",
     retryAfterMs: result.retryAfterMs,
+  };
+}
+
+/** 演示免费额度入口预检：耗尽时返回 429 响应体（含引导文案），未启用返回 null。 */
+async function assertDemoQuotaAllowed(userId: string) {
+  if (!demoQuotaGuard) return null;
+  try {
+    await demoQuotaGuard.assertAllowed(userId);
+    return null;
+  } catch (err) {
+    if (err instanceof DemoQuotaExceededError) {
+      return demoQuotaDeniedBody(err.usage);
+    }
+    return null; // 额度后端故障不拦截入口（运行时钩子与计数侧同样降级）
+  }
+}
+
+function demoQuotaDeniedBody(usage: DemoQuotaUsage) {
+  return {
+    error: "DEMO_QUOTA_EXCEEDED",
+    code: "DEMO_QUOTA_EXCEEDED",
+    message:
+      `今日免费额度已用完（${usage.usedToday}/${usage.limitPerDay} tokens）。` +
+      `注册账号并配置你自己的 LLM Key 即可继续——长策划生成任务建议使用自己的 Key，免费额度不一定够。`,
+    usedToday: usage.usedToday,
+    limit: usage.limitPerDay,
+    resetAt: usage.resetAt,
   };
 }
 
@@ -200,6 +233,10 @@ consoleRoute.post("/execute", async (c) => {
   if (rpmDenied) {
     return c.json(rpmDenied, 429);
   }
+  const quotaDenied = await assertDemoQuotaAllowed(tenant.userId);
+  if (quotaDenied) {
+    return c.json(quotaDenied, 429);
+  }
   try {
     const result = await createExecution(
       body,
@@ -236,6 +273,10 @@ consoleRoute.post("/execute/stream", async (c) => {
   const rpmDenied = await assertRpmAllowed(tenant.userId);
   if (rpmDenied) {
     return c.json(rpmDenied, 429);
+  }
+  const quotaDenied = await assertDemoQuotaAllowed(tenant.userId);
+  if (quotaDenied) {
+    return c.json(quotaDenied, 429);
   }
   const created = await createExecution(body, tenant, c.req.header("Idempotency-Key"));
   const afterCursor = c.req.header("Last-Event-ID")?.trim() || "0-0";

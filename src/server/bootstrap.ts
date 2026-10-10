@@ -14,8 +14,8 @@ import type { HumanReviewGateway } from "../core/agent/director/HumanReviewGatew
 import type { ToolPort } from "../port/tool/ToolPort.js";
 import { configureSubAgentDescriptors, resetSubAgentDescriptors, setExtraSubAgentToolNames } from "../core/agent/subagents/SubAgentFactory.js";
 import { resolveExposedMcpTools } from "../core/structured/mcpExpose.js";
-import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, hasActiveExecutions } from "./routes/console.js";
-import { setSessionRepositoryFactory, setExecutionRepositoryFactory, setWorkspaceManager, setSessionCompactService, setSessionContextService } from "./routes/sessions.js";
+import { setDirector, setConsoleExecutionDependencies, setConsoleRateLimit, setConsoleDemoQuota, hasActiveExecutions } from "./routes/console.js";
+import { setSessionRepositoryFactory, setExecutionRepositoryFactory, setWorkspaceManager, setSessionCompactService, setSessionContextService, setSessionDemoQuota } from "./routes/sessions.js";
 import { setHITLRouteDependencies } from "./routes/hitl.js";
 import { DurableHumanReviewGateway } from "../core/hitl/DurableHumanReviewGateway.js";
 import { LoggingHook } from "../core/hook/LoggingHook.js";
@@ -33,6 +33,12 @@ import { InMemoryCompensateFailureQueue } from "../core/saga/InMemoryCompensateF
 import type { CompensateFailureQueuePort } from "../port/saga/CompensateFailureQueuePort.js";
 import { CostAccountingHook } from "../core/hook/CostAccountingHook.js";
 import { RateLimitHook } from "../core/hook/RateLimitHook.js";
+import { DemoQuotaHook } from "../core/hook/DemoQuotaHook.js";
+import { DemoQuotaGuard } from "../core/cost/DemoQuotaGuard.js";
+import { QuotaCountingCostStore } from "../core/cost/QuotaCountingCostStore.js";
+import { MeteredChatModel } from "../core/cost/MeteredChatModel.js";
+import { RedisQuotaCounterAdapter } from "../adapter/redis/RedisQuotaCounterAdapter.js";
+import { setDemoRouteDependencies } from "./routes/demo.js";
 import { RateLimitGuard } from "../core/cost/RateLimitGuard.js";
 import type { ChatModelPort } from "../port/model/ChatModelPort.js";
 import type { CostStorePort } from "../port/cost/CostStorePort.js";
@@ -374,7 +380,40 @@ export async function lateBootstrapDirector(): Promise<void> {
     setSettingsContainer(container);
   }
 
-  export async function bootstrap() {
+  /**
+ * 确保演示主人（管理员）账号存在：已有账号仅纠偏角色；缺账号且配置了
+ * DEMO_ADMIN_PASSWORD 时播种。主人密码即管理员密码，owner-login 直接走
+ * Better Auth 校验，本函数不持有任何明文。
+ */
+async function ensureDemoAdmin(config: FrameworkConfig, adapter: BetterAuthAdapter): Promise<void> {
+  try {
+    const admin = await adapter.getUserByEmail(config.demo.adminEmail);
+    if (!admin) {
+      if (!config.demo.adminPassword) {
+        console.warn(
+          `[Bootstrap] 演示主人账号 ${config.demo.adminEmail} 不存在且未配置 DEMO_ADMIN_PASSWORD，主人登录不可用`,
+        );
+        return;
+      }
+      await adapter.auth.api.signUpEmail({
+        body: { email: config.demo.adminEmail, password: config.demo.adminPassword, name: "管理员" },
+      });
+      const created = await adapter.getUserByEmail(config.demo.adminEmail);
+      if (created && created.role !== "admin") {
+        await adapter.updateUser(created.id, { role: "admin" });
+      }
+      console.log(`[Bootstrap] 演示主人账号已创建: ${config.demo.adminEmail}`);
+    } else if (admin.role !== "admin") {
+      await adapter.updateUser(admin.id, { role: "admin" });
+    }
+  } catch (err) {
+    console.warn(
+      `[Bootstrap] 演示主人账号确保失败（不影响启动）: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+export async function bootstrap() {
   const config = loadConfig();
   const fileSystem = new NodeFileSystemAdapter();
   const contextStorage = new NodeContextStorageAdapter<TenantContext>();
@@ -701,8 +740,10 @@ export async function lateBootstrapDirector(): Promise<void> {
   let redisAdapter: TenantIsolationPort | null;
   let mqAdapter: RedisMessageQueueAdapter | null = null;
   let eventStore: RedisExecutionEventStoreAdapter | null;
-  let costStoreAdapter: PostgresCostStoreAdapter | null = null;
+  let costStoreAdapter: CostStorePort | null = null;
   let rateLimitAdapter: RedisRateLimitAdapter | null = null;
+  let quotaCounterAdapter: RedisQuotaCounterAdapter | null = null;
+  let demoQuota: DemoQuotaGuard | null = null;
 
   {
     console.log("[Bootstrap] Initializing user system (multi-tenant with Better Auth)...");
@@ -800,6 +841,34 @@ export async function lateBootstrapDirector(): Promise<void> {
       dbAdapter,
     );
     console.log("[Bootstrap] Better Auth initialized");
+
+    // ─── 演示模式：主人账号确保 + 匿名登录/额度路由 ─────────────────
+    if (config.demo.enabled) {
+      await ensureDemoAdmin(config, betterAuthAdapter);
+      quotaCounterAdapter = new RedisQuotaCounterAdapter(config.userSystem.redisUrl);
+      await quotaCounterAdapter.connect();
+      demoQuota = new DemoQuotaGuard({
+        limitPerDay: config.demo.dailyTokenLimit,
+        counter: quotaCounterAdapter,
+        resolveRole: () => contextStorage.getStore()?.role,
+        resolveByok: async (userId) =>
+          !!(await userLlmStore.getModelConfig(userId))?.apiKey,
+      });
+      setDemoRouteDependencies({
+        auth: betterAuthAdapter,
+        quota: demoQuota,
+        enabled: true,
+        adminEmail: config.demo.adminEmail,
+        anonEmailDomain: config.demo.anonEmailDomain,
+        secret: config.userSystem.betterAuthSecret,
+        counter: quotaCounterAdapter,
+      });
+      console.log(
+        `[Bootstrap] Demo mode enabled: free quota ${config.demo.dailyTokenLimit} tokens/day` +
+          ` (admin & BYOK exempt), owner login: ${config.demo.adminEmail}`,
+      );
+    }
+
     if (config.userSystem.adminEmailDomains) {
       console.log(`[Bootstrap] Admin email domains: ${config.userSystem.adminEmailDomains}`);
     }
@@ -858,6 +927,11 @@ export async function lateBootstrapDirector(): Promise<void> {
       });
       await rateLimitAdapter.connect();
 
+      // 免费额度计数挂在记账入口：装饰器覆盖 agent 钩子与 Director 计量两条路径
+      if (demoQuota) {
+        costStoreAdapter = new QuotaCountingCostStore(costStoreAdapter, demoQuota);
+      }
+
       const resolveUserId = () => contextStorage.getStore()?.userId;
       hooks.push(
         new CostAccountingHook({
@@ -875,6 +949,11 @@ export async function lateBootstrapDirector(): Promise<void> {
           resolveUserId,
         }),
       );
+      // 免费额度运行中守卫：pre_reasoning 校验，耗尽即中止当前任务
+      if (demoQuota) {
+        hooks.push(new DemoQuotaHook({ quota: demoQuota, tracer, resolveUserId }));
+        setConsoleDemoQuota(demoQuota);
+      }
 
       const rpmEnabled =
         config.cost.rpmLimitPerUser > 0 || config.cost.globalRpmLimit > 0;
@@ -1051,7 +1130,20 @@ export async function lateBootstrapDirector(): Promise<void> {
       ChatMessage.text("user", "user", turn.requirement),
       ChatMessage.text("assistant", "assistant", turn.output || "（本轮无产出）"),
     ]);
-    const summarizer = new LLMSummarizerAdapter(container.model, {
+    // 压缩同样是 LLM 调用：经 MeteredChatModel 入账（免费额度计数在记账装饰器层生效）
+    const compactModel: ChatModelPort = bootstrapState?.costStore && bootstrapState?.rateLimit
+      ? new MeteredChatModel(container.model, {
+          costEnabled: true,
+          rateLimitEnabled: false,
+          tpmEstimatePerCall: 0,
+          rateLimit: bootstrapState.rateLimit,
+          costStore: bootstrapState.costStore,
+          demoQuota: demoQuota ?? undefined,
+          resolveUserId: () => contextStorage.getStore()?.userId,
+          defaultAgentName: "SessionCompactor",
+        })
+      : container.model;
+    const summarizer = new LLMSummarizerAdapter(compactModel, {
       maxInputChars: 48_000,
       maxOutputTokens: 1_500,
       systemPrompt: `你是会话上下文压缩器。把一个游戏策划工作会话的多轮历史压缩为后续工作所需的背景摘要。
@@ -1064,6 +1156,7 @@ export async function lateBootstrapDirector(): Promise<void> {
     });
     return summarizer.summarize(messages);
   });
+  setSessionDemoQuota(demoQuota);
   // 会话上下文用量：实时跟踪（最近一次 LLM 调用的真实 input tokens）+ 压缩预算口径
   setSessionContextService(async (sessionId) => {
     const usage = getSessionContextUsage(sessionId);
