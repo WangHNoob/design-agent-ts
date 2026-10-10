@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
+import { useAuth } from '@/components/AuthProvider';
 import {
   listWorkflows,
   getWorkflow,
@@ -89,6 +90,9 @@ interface ValidationErrors {
 // ── Page Component ───────────────────────────────────────────
 
 export default function WorkflowsTab({ embedded = false }: { embedded?: boolean } = {}) {
+  // 工作流是平台共享资产：仅管理员可写（后端 403 门禁），其他人只读查看
+  const { user } = useAuth();
+  const canEdit = user?.role === 'admin';
   const [workflows, setWorkflows] = useState<WorkflowInfo[]>([]);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -436,6 +440,7 @@ export default function WorkflowsTab({ embedded = false }: { embedded?: boolean 
             <div className="rounded-2xl border border-ink/8 bg-white p-4 shadow-warm">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-ink">已有工作流</h2>
+                {canEdit && (
                 <button
                   onClick={handleNew}
                   className="flex items-center gap-1 rounded-lg bg-coral/10 px-2.5 py-1 text-xs font-medium text-coral hover:bg-coral/20 transition-colors"
@@ -443,6 +448,7 @@ export default function WorkflowsTab({ embedded = false }: { embedded?: boolean 
                   <FilePlus size={12} />
                   新建
                 </button>
+                )}
               </div>
 
               {workflows.length === 0 ? (
@@ -504,6 +510,14 @@ export default function WorkflowsTab({ embedded = false }: { embedded?: boolean 
                 transition={{ duration: 0.2 }}
                 className="space-y-5"
               >
+                {/* 只读提示：工作流为平台共享资产，非管理员只可查看 */}
+                {!canEdit && (
+                  <div className="rounded-xl border border-ink/8 bg-white px-4 py-3 text-xs text-ink/50">
+                    工作流为平台共享资产，仅管理员可修改——当前为只读查看。
+                  </div>
+                )}
+                {/* disabled fieldset 一次性禁用表单内所有输入/按钮（只读查看） */}
+                <fieldset disabled={!canEdit} className="min-w-0 border-0 p-0 m-0 space-y-5">
                 {/* ── Section 1: Basic Info ──────────────── */}
                 <div className="rounded-2xl border border-ink/8 bg-white p-6 shadow-warm">
                   <div className="flex items-center gap-2 mb-5">
@@ -969,6 +983,7 @@ export default function WorkflowsTab({ embedded = false }: { embedded?: boolean 
                     )}
                   </div>
                 </div>
+                </fieldset>
               </motion.div>
             </AnimatePresence>
           </motion.div>

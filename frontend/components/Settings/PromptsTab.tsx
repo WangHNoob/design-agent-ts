@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import DeerflowBadge from '@/components/DeerflowBadge';
+import { useAuth } from '@/components/AuthProvider';
 import {
   listPrompts,
   getPrompt,
@@ -29,6 +30,9 @@ interface Toast {
 }
 
 export default function PromptsTab({ embedded = false }: { embedded?: boolean } = {}) {
+  // 提示词是平台共享资产：仅管理员可写（后端 403 门禁），其他人只读查看
+  const { user } = useAuth();
+  const canEdit = user?.role === 'admin';
   const [prompts, setPrompts] = useState<PromptInfo[]>([]);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [selectedContent, setSelectedContent] = useState('');
@@ -189,7 +193,9 @@ export default function PromptsTab({ embedded = false }: { embedded?: boolean } 
             </div>
             <div>
               <h1 className="font-display text-3xl font-bold text-ink">提示词管理</h1>
-              <p className="text-sm text-ink/40">查看和编辑 Agent 使用的系统提示词模板</p>
+              <p className="text-sm text-ink/40">
+                {canEdit ? '查看和编辑 Agent 使用的系统提示词模板' : '查看 Agent 使用的系统提示词模板（仅管理员可修改）'}
+              </p>
             </div>
           </div>
         </motion.div>
@@ -206,6 +212,7 @@ export default function PromptsTab({ embedded = false }: { embedded?: boolean } 
             <div className="rounded-2xl border border-ink/8 bg-white p-4 shadow-warm">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-ink">提示词列表</h2>
+                {canEdit && (
                 <button
                   onClick={() => setShowNewDialog(true)}
                   className="flex h-7 w-7 items-center justify-center rounded-lg bg-coral/10 text-coral hover:bg-coral/20 transition-colors"
@@ -213,6 +220,7 @@ export default function PromptsTab({ embedded = false }: { embedded?: boolean } 
                 >
                   <Plus size={14} />
                 </button>
+                )}
               </div>
 
               {/* New prompt dialog */}
@@ -326,7 +334,7 @@ export default function PromptsTab({ embedded = false }: { embedded?: boolean } 
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {!selectedIsBuiltin && (
+                      {canEdit && !selectedIsBuiltin && (
                         <button
                           onClick={() => setShowDeleteConfirm(true)}
                           className="flex items-center gap-1.5 rounded-xl border border-ink/10 px-4 py-2 text-sm font-medium text-ink/60 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
@@ -335,6 +343,7 @@ export default function PromptsTab({ embedded = false }: { embedded?: boolean } 
                           删除
                         </button>
                       )}
+                      {canEdit && (
                       <button
                         onClick={handleSave}
                         disabled={saving || !isDirty}
@@ -347,6 +356,7 @@ export default function PromptsTab({ embedded = false }: { embedded?: boolean } 
                         )}
                         {saving ? '保存中...' : '保存'}
                       </button>
+                      )}
                     </div>
                   </div>
 
@@ -359,11 +369,12 @@ export default function PromptsTab({ embedded = false }: { embedded?: boolean } 
                   ) : (
                     <textarea
                       value={selectedContent}
+                      readOnly={!canEdit}
                       onChange={(e) => {
                         setSelectedContent(e.target.value);
                         setIsDirty(true);
                       }}
-                      className="w-full h-[calc(100vh-380px)] min-h-[400px] rounded-xl border-2 border-ink/8 bg-paper/30 p-4 font-mono text-sm text-ink leading-relaxed resize-none focus:border-coral/30 focus:outline-none transition-all"
+                      className={`w-full h-[calc(100vh-380px)] min-h-[400px] rounded-xl border-2 border-ink/8 bg-paper/30 p-4 font-mono text-sm text-ink leading-relaxed resize-none focus:border-coral/30 focus:outline-none transition-all ${!canEdit ? 'opacity-80 cursor-default' : ''}`}
                       placeholder="在此输入提示词内容..."
                       spellCheck={false}
                     />
