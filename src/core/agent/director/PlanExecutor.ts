@@ -21,6 +21,31 @@ import type { DirectorDeps, DirectorMultiAgentConfig, DirectorPlanHardConfig, Di
 import type { DirectorContext } from "./DirectorContext.js";
 import type { ToolPlanResolver } from "./ToolPlanResolver.js";
 import type { Integrator } from "./Integrator.js";
+import type { ModelOptions } from "../../../port/model/ModelOptions.js";
+
+/** 直答回复的成本上限：闲聊回答不需要长输出，防止失控长文。 */
+const DIRECT_CHAT_MODEL_OPTIONS: ModelOptions = {
+  maxTokens: 2048,
+  maxCompletionTokens: 2048,
+};
+
+/** prompts/direct_chat.md 缺失时的兜底，保证功能可用（部署正常时不会走到）。 */
+const DEFAULT_DIRECT_CHAT_PROMPT = `你是「游戏策划工作台」的对话助手。用户当前的消息是寒暄、闲聊或在了解平台能力，不需要任务规划，请直接用中文友好、简洁地回复，并引导用户描述具体的设计需求。不要编造平台没有的能力。`;
+
+function buildDirectChatMessages(
+  requirement: string,
+  history: ReadonlyArray<{ role: "user" | "assistant"; content: string }> | undefined,
+  directChatPrompt: string | undefined,
+): import("../../../port/message/ChatMessage.js").ChatMessage[] {
+  const messages = [
+    ChatMessage.text("system", "system", directChatPrompt || DEFAULT_DIRECT_CHAT_PROMPT),
+  ];
+  for (const h of (history ?? []).slice(-10)) {
+    messages.push(ChatMessage.text(h.role === "user" ? "user" : "assistant", h.role, h.content));
+  }
+  messages.push(ChatMessage.text("user", "user", requirement));
+  return messages;
+}
 
 /**
  * PlanExecutor：多智能体策划主执行流（design/query/table 三模式的非流式与
@@ -914,6 +939,86 @@ export class PlanExecutor {
       yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
+  /**
+   * 闲聊直答（design/table 意图快路径，分类命中 chat 时由 DirectorAgent 调用）：
+   * 不经规划/工作流，直接用 Director 模型（MeteredChatModel——成本记账、TPM、
+   * 演示额度、BYOK 与常规路径完全一致）流式回复。事件形状 start → chunk* →
+   * complete 与 query 模式一致，前端零改动即可渲染为普通 AI 消息。
+   */
+  async *executeDirectChatStream(
+    requirement: string,
+    sessionId: string,
+    mode: "design" | "table",
+    role: string,
+    history: ReadonlyArray<{ role: "user" | "assistant"; content: string }> | undefined,
+    options?: DirectorStreamOptions,
+  ): AsyncIterable<StreamEvent> {
+    yield { type: "start", data: { sessionId, mode, role, directChat: true } };
+
+    const messages = buildDirectChatMessages(requirement, history, this.ctx.deps.prompts?.directChat);
+    const streamingEnabled = this.ctx.deps.streamingEnabled !== false;
+
+    let output = "";
+    try {
+      if (!streamingEnabled) {
+        const response = await this.ctx.deps.model.generate(
+          messages,
+          DIRECT_CHAT_MODEL_OPTIONS,
+          options?.signal,
+        );
+        output = ChatMessage.textContent(response.message);
+        if (output) {
+          yield { type: "chunk", data: { text: output } };
+        }
+      } else {
+        for await (const chunk of this.ctx.deps.model.stream(messages, DIRECT_CHAT_MODEL_OPTIONS, options?.signal)) {
+          if (options?.signal?.aborted) break;
+          const text = ChatMessage.textContent(chunk.message);
+          if (!text) continue;
+          output += text;
+          yield { type: "chunk", data: { text } };
+        }
+      }
+    } catch (err) {
+      if (options?.signal?.aborted) {
+        yield {
+          type: "cancelled",
+          data: { ...buildCancellationPayload([], output, "直答回复已取消") },
+        };
+        return;
+      }
+      yield { type: "error", data: { error: err instanceof Error ? err.message : String(err) } };
+      return;
+    }
+
+    if (!output.trim()) {
+      yield { type: "error", data: { error: "直答回复为空（模型未产出可见内容），请重试" } };
+      return;
+    }
+
+    yield { type: "complete", data: { success: true, output, directChat: true } };
+  }
+
+  /** 非流式闲聊直答（POST /api/console/execute 路径），语义与流式版一致。 */
+  async executeDirectChatFlow(
+    requirement: string,
+    sessionId: string,
+    role: string,
+    history: ReadonlyArray<{ role: "user" | "assistant"; content: string }> | undefined,
+    options?: DirectorStreamOptions,
+  ): Promise<AgentResponse> {
+    const messages = buildDirectChatMessages(requirement, history, this.ctx.deps.prompts?.directChat);
+    const response = await this.ctx.deps.model.generate(messages, DIRECT_CHAT_MODEL_OPTIONS, options?.signal);
+    const output = ChatMessage.textContent(response.message);
+    return {
+      agentName: "Director",
+      message: response.message,
+      metadata: { directChat: true },
+      success: output.trim().length > 0,
+      errorMessage: output.trim().length > 0 ? null : "直答回复为空",
+    };
+  }
+
   async *executeDesignStream(
     requirement: string,
     sessionId: string,

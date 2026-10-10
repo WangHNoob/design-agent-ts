@@ -23,6 +23,7 @@ import type { BlackboardStorePort } from "../../../port/blackboard/BlackboardPor
 import type { ExecutionOverrides } from "../../versioning/buildExecutionOverrides.js";
 import { AgentCallGuard, type CallContext, type HandoffLimits, type HandoffPayload } from "../../multiagent/index.js";
 import type { FaqMatchRaw } from "../../faq/types.js";
+import type { UserIntent } from "./IntentClassifier.js";
 
 
 export interface StreamEvent {
@@ -62,6 +63,8 @@ export interface DirectorPrompts {
   querySystem?: string;
   taskPlanner?: string;
   router?: string;
+  /** 闲聊直答系统提示（prompts/direct_chat.md）。 */
+  directChat?: string;
 }
 
 /** Plan hard-guard knobs injected from FrameworkConfig.guards (composition root). */
@@ -174,6 +177,18 @@ export interface DirectorDeps {
     enabled: boolean;
     threshold: number;
     match: (query: string) => Promise<FaqMatchRaw | null>;
+  };
+  /**
+   * design/table 模式闲聊快路径：意图分类命中 chat 时直接对话回复，
+   * 不进规划/工作流。enabled=false 或 classify 缺失时完全跳过；
+   * classify 结果 fail-safe（超时/异常一律 task，由 IntentClassifier 保证）。
+   */
+  chatFastPath?: {
+    enabled: boolean;
+    classify: (
+      requirement: string,
+      history?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
+    ) => Promise<UserIntent>;
   };
 }
 
@@ -294,6 +309,12 @@ export class DirectorAgent {
   ): Promise<AgentResponse> {
     return this.withRootTrace(sessionId, mode, options, async (traceId) => {
       let result: AgentResponse;
+      if (mode === "design" || mode === "table") {
+        const direct = await this.tryDirectChatFlow(requirement, sessionId, mode, role, history, options);
+        if (direct) {
+          return { ...direct, metadata: { ...direct.metadata, traceId } };
+        }
+      }
       switch (mode) {
           case "design":
             result = await this.executor.executeDesignFlow(requirement, sessionId, role, traceId, options);
@@ -378,6 +399,10 @@ export class DirectorAgent {
     options: DirectorStreamOptions | undefined,
   ): AsyncGenerator<StreamEvent> {
     const signal = options?.signal;
+    if (mode === "design" || mode === "table") {
+      const answered = yield* this.tryDirectChatStream(requirement, sessionId, mode, role, history, options);
+      if (answered) return;
+    }
     switch (mode) {
       case "query":
         yield* this.executor.executeQueryStream(requirement, sessionId, history, signal, options);
@@ -387,6 +412,64 @@ export class DirectorAgent {
         yield* this.executor.executeDesignStream(requirement, sessionId, role, options);
         break;
     }
+  }
+
+  /**
+   * 闲聊快路径（流式）：命中 chat 时产出完整直答事件流并返回 true。
+   * 任何跳过条件（未启用 / HITL 续跑 / 判为 task / 分类失败）都静默放行
+   * 返回 false，不产出任何事件、不影响原流程。
+   */
+  private async *tryDirectChatStream(
+    requirement: string,
+    sessionId: string,
+    mode: "design" | "table",
+    role: string,
+    history: Array<{ role: "user" | "assistant"; content: string }> | undefined,
+    options: DirectorStreamOptions | undefined,
+  ): AsyncGenerator<StreamEvent, boolean> {
+    const fp = this.deps.chatFastPath;
+    if (!fp?.enabled || !fp.classify) return false;
+    // HITL 审阅后的续跑：requirement 是原始需求，必然是 task，跳过分类省一次调用。
+    if (options?.resumePlan || (options?.initialTaskResults?.length ?? 0) > 0) return false;
+
+    let intent: UserIntent;
+    try {
+      intent = await fp.classify(requirement, history);
+    } catch {
+      return false;
+    }
+    if (intent !== "chat") return false;
+
+    this.logger.info(`[DirectorAgent] chat fast-path hit, direct reply (mode=${mode}, role=${role})`);
+    void this.executor.safeRecordPlanSpan("intent.chat_hit", { mode, role, chars: requirement.length });
+    yield* this.executor.executeDirectChatStream(requirement, sessionId, mode, role, history, options);
+    return true;
+  }
+
+  /** 闲聊快路径（非流式）：命中 chat 返回直答 AgentResponse，否则 null。 */
+  private async tryDirectChatFlow(
+    requirement: string,
+    sessionId: string,
+    mode: "design" | "table",
+    role: string,
+    history: Array<{ role: "user" | "assistant"; content: string }> | undefined,
+    options: DirectorStreamOptions | undefined,
+  ): Promise<AgentResponse | null> {
+    const fp = this.deps.chatFastPath;
+    if (!fp?.enabled || !fp.classify) return null;
+    if (options?.resumePlan || (options?.initialTaskResults?.length ?? 0) > 0) return null;
+
+    let intent: UserIntent;
+    try {
+      intent = await fp.classify(requirement, history);
+    } catch {
+      return null;
+    }
+    if (intent !== "chat") return null;
+
+    this.logger.info(`[DirectorAgent] chat fast-path hit, direct reply (mode=${mode}, role=${role})`);
+    void this.executor.safeRecordPlanSpan("intent.chat_hit", { mode, role, chars: requirement.length });
+    return this.executor.executeDirectChatFlow(requirement, sessionId, role, history, options);
   }
 
   private async withRootTrace<T>(

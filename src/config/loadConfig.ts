@@ -221,6 +221,10 @@ export function loadConfig(): FrameworkConfig {
       faqToolName: process.env.FAQ_TOOL_NAME ?? "kb_faq_match",
       faqRequireMetrics: process.env.FAQ_REQUIRE_METRICS !== "false",
     },
+    intent: {
+      chatFastPathEnabled: process.env.INTENT_CHAT_FAST_PATH !== "false",
+      timeoutMs: Number(process.env.INTENT_TIMEOUT_MS ?? 3000),
+    },
     memory: {
       archiveEnabled: process.env.MEMORY_ARCHIVE_ENABLED !== "false",
       protectRecentTurns: Number(process.env.MEMORY_PROTECT_RECENT_TURNS ?? 10),

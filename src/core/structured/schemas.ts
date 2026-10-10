@@ -236,3 +236,21 @@ export const RefinedRequirementsArraySchema = z
     }),
   )
   .min(1, "refined requirements must be a non-empty array");
+
+export interface IntentClassifyParsed {
+  intent: "chat" | "task";
+}
+
+function normalizeIntent(raw: unknown): "chat" | "task" {
+  const value = String(raw ?? "").trim().toLowerCase();
+  return value === "chat" ? "chat" : "task";
+}
+
+/**
+ * 意图分类输出（design/table 闲聊快路径）。宽容解析：intent 只有 "chat"
+ * （不区分大小写）判 chat，其余一律 task——schema 层保证 fail-safe 方向；
+ * 整体解析失败（非 JSON / 缺字段）走 generateStructured 降级 → task。
+ */
+export const IntentClassifySchema = z
+  .object({ intent: z.unknown() })
+  .transform((raw): IntentClassifyParsed => ({ intent: normalizeIntent(raw.intent) }));
