@@ -325,6 +325,13 @@ export function loadConfig(): FrameworkConfig {
       globalTpmLimit: Number(process.env.COST_GLOBAL_TPM_LIMIT ?? 0),
       tpmEstimatePerCall: Number(process.env.COST_TPM_ESTIMATE_PER_CALL ?? 8000),
     },
+    demo: {
+      enabled: process.env.DEMO_MODE_ENABLED !== "false",
+      dailyTokenLimit: Number(process.env.DEMO_DAILY_TOKEN_LIMIT ?? 2_000_000),
+      adminEmail: process.env.DEMO_ADMIN_EMAIL ?? "demo@admin.com",
+      adminPassword: process.env.DEMO_ADMIN_PASSWORD || undefined,
+      anonEmailDomain: process.env.DEMO_ANON_EMAIL_DOMAIN ?? "demo.local",
+    },
     security: {
       auditEnabled: process.env.SECURITY_AUDIT_ENABLED !== "false",
       irreversibleRequireHitl: process.env.SECURITY_IRREVERSIBLE_REQUIRE_HITL !== "false",

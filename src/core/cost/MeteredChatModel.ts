@@ -9,6 +9,7 @@ import type { TracerPort } from "../../port/tracing/TracerPort.js";
 import { RateLimitError } from "./RateLimitError.js";
 import type { LoggerPort } from "../../port/infra/LoggerPort.js";
 import { ConsoleLogger } from "../observability/ConsoleLogger.js";
+import type { DemoQuotaGuard } from "./DemoQuotaGuard.js";
 
 export interface MeteredChatModelOptions {
   /** Record token usage to CostStore. */
@@ -18,6 +19,8 @@ export interface MeteredChatModelOptions {
   tpmEstimatePerCall: number;
   rateLimit: RateLimitPort;
   costStore: CostStorePort;
+  /** 演示免费额度预检（admin/BYOK 在 guard 内豁免）；可缺省。 */
+  demoQuota?: DemoQuotaGuard;
   tracer?: TracerPort;
   resolveUserId?: () => string | undefined;
   resolveWorkflowId?: () => string | undefined;
@@ -47,6 +50,7 @@ export class MeteredChatModel implements ChatModelPort {
     const userId = this.resolveUserId();
     const agentName = this.options.defaultAgentName ?? "Director";
 
+    await this.preCheckDemoQuota(userId);
     await this.preCheckTpm(userId);
 
     const response = await this.base.generate(messages, modelOptions, signal);
@@ -64,6 +68,7 @@ export class MeteredChatModel implements ChatModelPort {
     const userId = this.resolveUserId();
     const agentName = this.options.defaultAgentName ?? "Director";
 
+    await this.preCheckDemoQuota(userId);
     await this.preCheckTpm(userId);
 
     let lastResponse: ModelResponse | undefined;
@@ -100,6 +105,11 @@ export class MeteredChatModel implements ChatModelPort {
     if (attrs && typeof attrs.workflowId === "string") return attrs.workflowId;
     if (attrs && typeof attrs.skillId === "string") return attrs.skillId;
     return this.options.resolveWorkflowId?.();
+  }
+
+  private async preCheckDemoQuota(userId: string | undefined): Promise<void> {
+    if (!userId || !this.options.demoQuota) return;
+    await this.options.demoQuota.assertAllowed(userId);
   }
 
   private async preCheckTpm(userId: string | undefined): Promise<void> {
