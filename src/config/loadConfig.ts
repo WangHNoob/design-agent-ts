@@ -132,12 +132,18 @@ export function loadConfig(): FrameworkConfig {
     },
     hitl: {
       enabled: hitlEnabled,
+      // 内容审阅点按点粒度：HITL_REVIEW_POINTS 逗号分隔点名（hitl-1-task-plan /
+      // hitl-2-agent-output / hitl-3-final），默认空 = 内容审阅全关（2026-10-11
+      // 产品决策：AI 产出内容用户无法有效人工审阅；HITL 价值在有副作用的
+      // 危险操作，走独立的 hitl-tool-irreversible 审批链路，不受本开关影响）
       reviewPoints: hitlEnabled
-        ? {
-            "hitl-1-task-plan": true,
-            "hitl-2-agent-output": true,
-            "hitl-3-final": true,
-          }
+        ? Object.fromEntries(
+            (process.env.HITL_REVIEW_POINTS ?? "")
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .map((point) => [point, true]),
+          )
         : {},
       timeout: Number(process.env.HITL_TIMEOUT ?? 300000),
       autoContinueOnTimeout: process.env.HITL_AUTO_CONTINUE === "true",
