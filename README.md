@@ -11,7 +11,7 @@ game-designer-ts 想解决的，不是"让大模型帮我写点策划文案"—�
 
 ![策划 AI 团队控制台](docs/Agent.png)
 
-> 策划控制台：一句需求 → 主策划（Director）拆解任务清单 → 六位专职策划并行产出 → 跨领域冲突检测 → 人审（HITL）验收终稿；query / design / table 三种模式。
+> 策划控制台：一条消息先过**意图路由**（chat / query / task）→ task 进规划：主策划（Director）拆解任务清单 → 六位专职策划并行产出 → 跨领域冲突检测 → 终稿交付；三级人工审阅按需开启（不可逆操作审批常开），访客免登录直接体验。
 
 ---
 
@@ -54,10 +54,10 @@ game-designer-ts 的回答是：**把一份策划案当成一个团队项目来�
 - **一位主策划统筹全局**：`DirectorAgent` 接到需求后，先把它拆成一张带依赖关系的任务清单，再把每项任务派给最合适的专职 Agent。
 - **六位专职策划各司其职**：战斗、数值、玩法、系统、执行、质量审查——每位都有自己的专业提示词、自己的工具集，钻进各自领域做深。
 - **都从同一口井取水**：各 Agent 优先查询 [Knowledge Hub](https://github.com/WangHNoob/knowledge-hub) 里**已发布、带证据、可追溯**的知识资产，不足时再联网补充——保证大家基于同一份事实工作，而非各自臆想。
-- **人始终在环里**：任务拆解后、单份产出后、最终整合后，三个节点都可以让人确认或修改，绝不"静默往下冲"。
+- **人按需在环里**：三级审阅点（任务拆解后 / 单份产出后 / 最终整合后）默认直达、可按点开启——演示与低风险场景不被打断，需要人把关时一行配置打开；唯一的例外是**不可逆操作审批常开**：内容可以自动通过，危险不可以。
 - **产出会自动对账**：所有 Agent 交稿后，系统提取各自定义的字段，检测跨领域冲突（同一属性被赋了不同值），生成冲突报告——而不是把六份文档一拼了事。
 
-支持三种工作模式：**design**（完整策划流程）、**query**（直接问答知识库）、**table**（产出结构化配表）。
+入口是**意图路由**：每条消息先分类为 chat（直接聊）/ query（查知识库）/ task（进规划）；界面上选择的「执行策略」（策划生成 / 知识查询 / 配表工具）只是模糊意图的**偏置**——明确意图跨模式自动纠偏，说闲聊就聊天、问游戏数据就查知识库、要方案就进规划，不需要先懂模式才能用对。**开箱即玩**：访客免注册免登录（匿名会话 + 每日共享额度），也可在设置里自带模型 Key（BYOK，AES-256-GCM 加密落盘）。
 
 ---
 
@@ -149,6 +149,16 @@ game-designer-ts 的回答是：**把一份策划案当成一个团队项目来�
 
 ## 五、编排的关键设计
 
+### 意图路由：全模式统一前置（chat / query / task）
+
+每条消息进入 Director 前先过 `IntentClassifier`（LLM 结构化输出，`prompts/intent_classify.md` v9）：
+
+- **分流**：`chat` → 直接流式回复（不走规划/工作流）；`query` → 知识查询管道；`task` → 规划管道（design/table 共用）。
+- **模式 = 偏置而非开关**（Cursor 式"自动为主、手动覆盖"）：用户显式选择的执行策略只在意图模糊/两可时起作用（design/table→task，query→query），明确意图跨模式纠偏。
+- **fail-safe 四值**：超时（`INTENT_TIMEOUT_MS` 6s，按评测实测网关 p95 校准）/ 结构化解析降级 / 异常 / 超长输入（>400 字跳过分类）/ HITL 续跑 → 一律 `unknown` 回落当前模式默认管道——**路由器只能放行「明确不该走当前管道」的消息，永远不能挡住真实任务**。显性寒暄（全串锚定的问候/身份/致谢短语，`OBVIOUS_CHAT_RE`）超时时静态判 chat，避免回落规划产出伪计划。
+- **零旁路**：分类复用 Director 模型（成本记账、TPM 限流、演示额度、BYOK 与主链完全一致）。
+- **评测闭环**：黄金集 91 例 × 14 类别（人工构造 + 线上真实语料 + 误判回流），v1 94.8% → v9 100%（双跑复测）；task→chat 误吞是 **0 容忍**危险指标。完整方案、行业调研、逐轮错例分析与线上事故复盘见 `eval/intent/ITERATION_LOG.md`。
+
 ### Pipeline：依赖感知的并行执行
 
 `PlanPipeline` 把任务按依赖关系拓扑排序，分层并行:
@@ -171,19 +181,19 @@ Layer 2: [玩法设计] [执行规划]      ← 依赖数值，并行
 
 诚实边界：复杂 prose 里的隐含矛盾可能漏检——报告为空不等于真一致。
 
-### HITL：人始终能按下暂停键
+### HITL：审阅点按需开启，危险操作审批常开
 
-标准审阅点契约（`FrameworkConfig.hitl.reviewPoints`，可独立开关）：
+标准审阅点契约（`FrameworkConfig.hitl.reviewPoints`，按点粒度）：
 
 ```
-hitl-1-task-plan    → 任务规划完成后，人工确认/修改
-hitl-2-agent-output → 单个 Agent 产出后，人工审阅（契约位）
-hitl-3-final        → 最终整合结果，人工验收（契约位）
+hitl-1-task-plan    → 任务规划完成后，人工确认/修改（可选）
+hitl-2-agent-output → 单个 Agent 产出后，人工审阅（可选）
+hitl-3-final        → 最终整合结果，人工验收（可选）
 ```
 
-**生产主链**（`bootstrap` → `DirectorAgent`）使用 `DurableHumanReviewGateway`：审阅点写入 PostgreSQL，Execution 进入七态中的 `waiting_hitl`，人审批后经 Redis 队列 resume。缺 `executionId` / 租户上下文直接抛错；超时走 `HITL_TIMEOUT_POLICY`（默认 `auto_reject`）并带 `fallback: true`，**禁止静默自动批准**。
-
-诚实边界：当前 `DirectorAgent` design 流**已落地 HITL-1**；HITL-2/3 在配置与 `LangGraphDirectorGraph` 脚手架中存在，跨 Agent 冲突主要靠 `Integrator` 冲突报告 fail loud。组装时务必用 Durable 网关覆盖 `Container` 默认的 `LangGraphHumanReviewGateway`（后者依赖图内 `interrupt`，不适合多 Worker 生产）。
+- **默认全部关闭**（`HITL_ENABLED=false`）：演示与低风险场景直达结果；开启后用 `HITL_REVIEW_POINTS=hitl-1-task-plan,hitl-3-final` 按点选择，人工卡点只在需要时出现。
+- **唯一常开的例外**：`hitl-tool-irreversible` 工具审批（`SECURITY_IRREVERSIBLE_REQUIRE_HITL=true`，delete/drop/rm 类不可逆操作）——内容可以自动通过，危险不可以。
+- **生产主链**（`bootstrap` → `DirectorAgent`）使用 `DurableHumanReviewGateway`：审阅点写入 PostgreSQL，Execution 进入七态中的 `waiting_hitl`，人审批后经 Redis 队列 resume。缺 `executionId` / 租户上下文直接抛错；超时走 `HITL_TIMEOUT_POLICY`（默认 `auto_reject`）并带 `fallback: true`，**禁止静默自动批准**。组装时务必用 Durable 网关覆盖 `Container` 默认的 `LangGraphHumanReviewGateway`（后者依赖图内 `interrupt`，不适合多 Worker 生产）。
 
 ### Plan 硬保障与工具白名单三态
 
@@ -261,7 +271,7 @@ HTTP 只负责创建幂等 Execution 并入队；`ExecutionWorker` 消费 Redis 
 |----|------|---------|
 | 语言 | TypeScript 5.9, Node.js >= 20, ESM | — |
 | Agent 运行时 | LangGraph TS（通过 adapter） | 新增 adapter 即可切换 |
-| LLM | OpenAI / Anthropic / 兼容协议 | 通过 `ChatModelPort` 抽象 |
+| LLM | OpenAI / Anthropic / 兼容协议 · BYOK | 通过 `ChatModelPort` 抽象；模型注册表来自 models.dev 快照（16 家 / 888 模型），思考参数五档统一映射，Key AES-256-GCM 加密 |
 | HTTP | Hono | 轻量，可替换为 Express/Fastify |
 | 数据库 | PostgreSQL 16 + pgvector | 通过 `DatabasePort` 抽象 |
 | 缓存/队列 | Redis 7 | 通过 `MessageQueuePort` 抽象 |
@@ -380,6 +390,15 @@ pnpm eval:gate      # 回归门禁：跑 offline eval 并与 eval/baseline.json 
 
 联调 Knowledge Hub：`MCP_ENABLED=true`、`MCP_SERVERS` 指向 KH `/mcp`、**显式**设置 `MCP_PROJECT_ID`；MCP 已加载 `kb_search` 时默认禁用本地 wiki 双源（`MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY`）。
 
+### 演示模式（线上开箱即玩）
+
+线上 demo 默认开启演示模式（`DEMO_MODE_ENABLED=true`）：
+
+- **免注册免登录**：首次进入自动创建匿名会话（`demo_browser_id` cookie），弹窗三选一——使用免费额度 / 配置自己的模型 Key / 主人登录。
+- **额度**：所有访客共享每日 2M token 免费额度（`DEMO_DAILY_TOKEN_LIMIT`，零点重置），耗尽时入口 429 并给出引导文案；Header 常驻余量提示。
+- **BYOK**：访客自带 Key 走设置页「我的模型」（注册表选型 + 思考档位控制），Key 以 AES-256-GCM 加密落盘。
+- **主人密码**：即管理员账号（`DEMO_ADMIN_PASSWORD`），登录后升级为管理员会话，可改全局配置。
+
 ### 共享库（5433）迁移：用 `db:apply`，不要用 `db:migrate`
 
 本仓与观测台共用 `localhost:5433/game_designer`（观测契约）。该库的 `__drizzle_migrations`
@@ -416,12 +435,13 @@ POSTGRES_URL=postgresql://game_designer:***@localhost:5433/game_designer  # 默�
 
 知识库升级与 Agent 改动是否真的"变好了"，靠一套**可复算、可审计**的评测体系回答：
 
+- **意图路由黄金集**：91 例 × 14 类别（chat / query / task + unknown 回落），双向对抗样例与带历史的模糊延续；task→chat 误吞 0 容忍；v1 94.8% 迭代至 v9 100%（双跑复测）。运行器 `eval/intent/run-eval.ts`（prompt sha256 绑定报告），完整迭代与事故复盘见 `eval/intent/ITERATION_LOG.md`。
 - **黄金评测集**：78 道知识问答用例（含回归集与新增集），覆盖单表检索、跨表关联、数值计算、经济闭环、一致性、证据链、防幻觉七类能力，每题带关键事实断言、字段数值断言与幻觉锚点。
 - **自动打分**：数值严格匹配（精确值 / 容差），表达形式兼容内联与表格；未注册 ID 计入幻觉记录，防幻觉类题目出现幻觉 ID 直接判失败。
 - **数值审计**：评测集里每个期望值由程序从配表数据重新计算比对，防止"拿错误答案考模型"（评测集与数据更新需同步）。
 - **回归门禁**：Agent / 知识库改动后重跑评测，对比前后得分确认无"旧通过 → 新失败"回归。
 
-评测脚本与黄金集位于配套的 [knowledge-hub](https://github.com/WangHNoob/knowledge-hub) 工程 `evals/` 目录。
+评测脚本与黄金集位于配套的 [knowledge-hub](https://github.com/WangHNoob/knowledge-hub) 工程 `evals/` 目录（该系统线上已由 WeKnora 取代，评测资产保留原处）。
 
 ### 执行结果信号（flywheel 01-P4）
 
