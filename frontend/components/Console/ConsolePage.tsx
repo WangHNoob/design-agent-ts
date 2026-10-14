@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Sparkles, Loader2, Zap, User, Bot, Info, Download, Copy, Check, BookOpen, Scissors } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -83,6 +83,11 @@ export default function ConsolePage({ initialMode }: Props) {
   // Resizable panel ratio: dialog : monitor = 3 : 2
   const [dialogFlex, setDialogFlex] = useState(3);
   const [monitorFlex, setMonitorFlex] = useState(2);
+  // 拖动分隔条：mousemove 以浏览器事件频率触发，直接 setState 会让 1500 行的
+  // 控制台整页按事件频率重渲染。用 rAF 合帧——每帧最多写一次布局状态
+  // （rerender-use-ref-transient-values / js-request-idle-callback）。
+  const dragRatioRef = useRef(0.6);
+  const dragRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -91,11 +96,16 @@ export default function ConsolePage({ initialMode }: Props) {
       const sidebarWidth = 256; // w-64
       const availableWidth = rect.width - sidebarWidth;
       const offsetX = e.clientX - rect.left - sidebarWidth;
-      const ratio = Math.min(Math.max(offsetX / availableWidth, 0.3), 0.7);
-      const total = 5;
-      const newDialogFlex = ratio * total;
-      setDialogFlex(newDialogFlex);
-      setMonitorFlex(total - newDialogFlex);
+      dragRatioRef.current = Math.min(Math.max(offsetX / availableWidth, 0.3), 0.7);
+      if (dragRafRef.current === null) {
+        dragRafRef.current = requestAnimationFrame(() => {
+          dragRafRef.current = null;
+          const total = 5;
+          const newDialogFlex = dragRatioRef.current * total;
+          setDialogFlex(newDialogFlex);
+          setMonitorFlex(total - newDialogFlex);
+        });
+      }
     };
 
     const handleMouseUp = () => {
@@ -104,6 +114,10 @@ export default function ConsolePage({ initialMode }: Props) {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
       }
+      if (dragRafRef.current !== null) {
+        cancelAnimationFrame(dragRafRef.current);
+        dragRafRef.current = null;
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -111,6 +125,7 @@ export default function ConsolePage({ initialMode }: Props) {
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      if (dragRafRef.current !== null) cancelAnimationFrame(dragRafRef.current);
     };
   }, []);
 
@@ -184,13 +199,12 @@ export default function ConsolePage({ initialMode }: Props) {
         }
       })
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 
   // 演示访客：首次进入弹选择弹窗并拉取额度状态；之后定期刷新额度
   useEffect(() => {
     if (!isDemoUser) return;
-    let seen = true;
+    let seen: boolean;
     try { seen = localStorage.getItem('demo-choice-seen') === '1'; } catch { seen = true; }
     getDemoStatus().then(setDemoStatus).catch(() => {});
     if (!seen) setDemoModalOpen(true);
@@ -214,16 +228,24 @@ export default function ConsolePage({ initialMode }: Props) {
     return n >= 10000 ? `${(n / 10000).toFixed(n % 10000 === 0 ? 0 : 1)}万` : String(n);
   }, []);
 
-  const identityChip = user
-    ? {
-        isDemo: isDemoUser,
-        label: isDemoUser ? '演示模式' : user.role === 'admin' ? '管理员' : (user.name || '成员'),
-        quota: isDemoUser && demoStatus?.quotaEnabled
-          ? `今日额度 ${formatTokens(demoStatus.usedToday ?? 0)}/${formatTokens(demoStatus.limit)} tokens`
-          : undefined,
-        onClick: isDemoUser ? () => setDemoModalOpen(true) : undefined,
-      }
-    : null;
+  const openDemoModal = useCallback(() => setDemoModalOpen(true), []);
+
+  // identityChip 每次渲染重建会让 memo 化的 Header 全部失效（新对象身份），
+  // 用 useMemo + 稳定 onClick 保持引用稳定（rerender-memo-with-default-value）。
+  const identityChip = useMemo(
+    () =>
+      user
+        ? {
+            isDemo: isDemoUser,
+            label: isDemoUser ? '演示模式' : user.role === 'admin' ? '管理员' : (user.name || '成员'),
+            quota: isDemoUser && demoStatus?.quotaEnabled
+              ? `今日额度 ${formatTokens(demoStatus.usedToday ?? 0)}/${formatTokens(demoStatus.limit)} tokens`
+              : undefined,
+            onClick: isDemoUser ? openDemoModal : undefined,
+          }
+        : null,
+    [user, isDemoUser, demoStatus?.quotaEnabled, demoStatus?.usedToday, demoStatus?.limit, formatTokens, openDemoModal],
+  );
 
   // Refresh: if we have an executionId and task still looks in-flight, pull terminal/waiting state.
   useEffect(() => {
@@ -367,9 +389,14 @@ export default function ConsolePage({ initialMode }: Props) {
   const syncStreamMeta = useCallback((sessionId: string, handle: StreamHandle) => {
     const executionId = handle.getExecutionId();
     const lastEventId = handle.getLastEventId();
+    const current = store.getTask(sessionId);
+    if (!current) return;
     const patch: Partial<import('@/lib/stores/taskStore').TaskState> = {};
-    if (executionId) patch.executionId = executionId;
-    if (lastEventId) patch.lastEventId = lastEventId;
+    // 只在真正变化时写 store：attachStream 的 250ms 轮询会在 10s 内重复读到
+    // 同一对 id，每次都写会生成新 task 对象、让整页无谓重渲染
+    // （rerender-derived-state-no-effect）。
+    if (executionId && executionId !== current.executionId) patch.executionId = executionId;
+    if (lastEventId && lastEventId !== current.lastEventId) patch.lastEventId = lastEventId;
     if (Object.keys(patch).length > 0) store.updateTask(sessionId, patch);
   }, [store]);
 
@@ -453,14 +480,43 @@ export default function ConsolePage({ initialMode }: Props) {
     return true;
   }, [store, attachStream]);
 
+  // 无执行记录时的兜底：用会话摘要拼一个只读视图。声明在消费它的水合
+  // effect 之前——effect 的依赖数组在渲染期求值，晚声明会落入 TDZ。
+  const appendSessionSummary = useCallback((sid: string, session: SessionMeta) => {
+    if (session.requirement) {
+      store.appendMessage(sid, {
+        id: `msg_${Date.now()}_u_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'user',
+        content: session.requirement,
+        timestamp: getCurrentTime(),
+        mode: session.mode,
+      });
+    }
+    if (session.output) {
+      store.appendMessage(sid, {
+        id: `msg_${Date.now()}_a_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'ai',
+        content: session.output,
+        timestamp: getCurrentTime(),
+        mode: session.mode,
+      });
+    }
+    if (session.error) {
+      store.appendMessage(sid, {
+        id: `msg_${Date.now()}_e_${Math.random().toString(36).slice(2, 4)}`,
+        type: 'system',
+        content: `历史错误: ${session.error}`,
+        timestamp: getCurrentTime(),
+      });
+    }
+  }, [store]);
+
   // 消费待水合任务：跨页选会话时选择页可能已随路由卸载，由挂载中的
   // 目标页面接手回放（事件回调保持存活，不会被 mountedRef 丢弃）
-  const hydrateTaskRef = task;
   useEffect(() => {
-    const t = hydrateTaskRef;
-    if (!t?.pendingHydration || !t.executionId) return;
-    const sid = t.sessionId;
-    const execId = t.pendingHydration;
+    if (!task?.pendingHydration || !task.executionId) return;
+    const sid = task.sessionId;
+    const execId = task.pendingHydration;
     store.updateTask(sid, { pendingHydration: null });
     hydratingSessionsRef.current.add(sid);
     store.getTask(sid)?.streamRef?.close();
@@ -486,7 +542,10 @@ export default function ConsolePage({ initialMode }: Props) {
       },
     );
     store.setStreamRef(sid, handle);
-  }, [hydrateTaskRef?.pendingHydration, hydrateTaskRef?.executionId, hydrateTaskRef, store]);
+    // 依赖收敛到触发水合的三个标量：原先把整个 task 对象放进 deps，
+    // 会让本 effect 随每次 store 更新空转（任务整个生命周期内持续重跑）
+    // （rerender-dependencies）。
+  }, [task?.pendingHydration, task?.executionId, task?.sessionId, store, appendSessionSummary]);
 
   // Timer for active task
   useEffect(() => {
@@ -511,6 +570,22 @@ export default function ConsolePage({ initialMode }: Props) {
       }
     };
   }, [task?.loading, task?.startedAt, task?.sessionId]);
+
+  // 流式正文按帧降频展示：chunk 事件持续增长 store.streamingText，但正文由
+  // react-markdown 解析、重渲染相对昂贵。用 rAF 合帧，每帧最多解析一次最新
+  // 文本，避免高频 chunk 把 Markdown 解析率打到事件频率
+  // （rerender-use-deferred-value / rendering-usetransition-loading）。
+  const [deferredStreamingText, setDeferredStreamingText] = useState('');
+  useEffect(() => {
+    const text = task?.streamingText ?? '';
+    if (!text) {
+      // 流结束：清空展示副本（同值 setState 会被 React 跳过，不会空渲染）
+      setDeferredStreamingText((prev) => (prev ? '' : prev));
+      return;
+    }
+    const frame = requestAnimationFrame(() => setDeferredStreamingText(text));
+    return () => cancelAnimationFrame(frame);
+  }, [task?.streamingText]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -855,10 +930,13 @@ export default function ConsolePage({ initialMode }: Props) {
     }
   }, [activeSessionId, compactBusy, store]);
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     store.setActiveSession(null);
     setRequirement('');
-  };
+  }, [store]);
+
+  const toggleRightPanel = useCallback(() => setRightPanelOpen((v) => !v), []);
+  const openSettings = useCallback(() => { router.push('/settings'); }, [router]);
 
   // 稳定回调：传给 memo 化的 WelcomeScreen / ModePicker / ChatBubble，
   // 否则每次渲染（含每个流式 chunk）都会击穿 memo（rerender-memo 系列）
@@ -875,37 +953,11 @@ export default function ConsolePage({ initialMode }: Props) {
 
   const openEvidence = useCallback(() => setRightPanelTab('knowledge'), []);
 
-  const appendSessionSummary = (sid: string, session: SessionMeta) => {
-    // 无执行记录时的兜底：用会话摘要拼一个只读视图
-    if (session.requirement) {
-      store.appendMessage(sid, {
-        id: `msg_${Date.now()}_u_${Math.random().toString(36).slice(2, 4)}`,
-        type: 'user',
-        content: session.requirement,
-        timestamp: getCurrentTime(),
-        mode: session.mode,
-      });
-    }
-    if (session.output) {
-      store.appendMessage(sid, {
-        id: `msg_${Date.now()}_a_${Math.random().toString(36).slice(2, 4)}`,
-        type: 'ai',
-        content: session.output,
-        timestamp: getCurrentTime(),
-        mode: session.mode,
-      });
-    }
-    if (session.error) {
-      store.appendMessage(sid, {
-        id: `msg_${Date.now()}_e_${Math.random().toString(36).slice(2, 4)}`,
-        type: 'system',
-        content: `历史错误: ${session.error}`,
-        timestamp: getCurrentTime(),
-      });
-    }
-  };
+  const handleClearLogs = useCallback(() => {
+    if (activeSessionId) store.updateTask(activeSessionId, { logs: [] });
+  }, [activeSessionId, store]);
 
-  const handleSelectSession = async (session: SessionMeta) => {
+  const handleSelectSession = useCallback(async (session: SessionMeta) => {
     if (!session.mode) return;
     // 一会话三模式：选会话 = 同页切换（不再跳路由），组件不卸载、
     // 在播的流不中断；mode 仅表示该会话的末次执行策略。
@@ -1018,7 +1070,7 @@ export default function ConsolePage({ initialMode }: Props) {
     }
 
     appendSessionSummary(sid, session);
-  };
+  }, [store, router, appendSessionSummary]);
 
   const handleInputKeydown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1054,9 +1106,9 @@ export default function ConsolePage({ initialMode }: Props) {
         status={status}
         statusText={statusText}
         onNewChat={handleNewChat}
-        onToggleRightPanel={() => setRightPanelOpen((v) => !v)}
+        onToggleRightPanel={toggleRightPanel}
         rightPanelOpen={rightPanelOpen}
-        onOpenSettings={() => { router.push('/settings'); }}
+        onOpenSettings={openSettings}
         identityChip={identityChip}
       />
 
@@ -1083,7 +1135,19 @@ export default function ConsolePage({ initialMode }: Props) {
             ) : (
               <div className="space-y-4">
                 {messages.map((msg) => (
-                  <ChatBubble key={msg.id} msg={msg} sessionId={sessionId} role={effectiveRole} executionId={task?.executionId ?? null} onOpenEvidence={openEvidence} />
+                  <ChatBubble
+                    key={msg.id}
+                    type={msg.type}
+                    content={msg.content}
+                    timestamp={msg.timestamp}
+                    mode={msg.mode}
+                    sources={msg.sources}
+                    progress={msg.progress}
+                    sessionId={sessionId}
+                    role={effectiveRole}
+                    executionId={task?.executionId ?? null}
+                    onOpenEvidence={openEvidence}
+                  />
                 ))}
                 {streaming && (
                   streamingText ? (
@@ -1097,7 +1161,7 @@ export default function ConsolePage({ initialMode }: Props) {
                       </div>
                       <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed bg-white border border-ink/6 text-ink overflow-x-auto">
                         <div className="markdown-content">
-                          <Markdown>{streamingText}</Markdown>
+                          <Markdown>{deferredStreamingText}</Markdown>
                         </div>
                         <span className="inline-block w-1.5 h-4 bg-coral/60 animate-pulse ml-0.5 align-text-bottom" />
                       </div>
@@ -1251,9 +1315,7 @@ export default function ConsolePage({ initialMode }: Props) {
               sessionId={sessionId}
               messageCount={messageCount}
               executionTime={executionTime}
-              onClearLogs={() => {
-                if (activeSessionId) store.updateTask(activeSessionId, { logs: [] });
-              }}
+              onClearLogs={handleClearLogs}
               activeTab={rightPanelTab}
               onChangeTab={setRightPanelTab}
             />
@@ -1288,13 +1350,23 @@ export default function ConsolePage({ initialMode }: Props) {
 }
 
 const ChatBubble = React.memo(function ChatBubble({
-  msg,
+  type,
+  content,
+  timestamp,
+  mode,
+  sources,
+  progress,
   sessionId,
   role,
   executionId,
   onOpenEvidence,
 }: {
-  msg: ChatMessage;
+  type: ChatMessage['type'];
+  content: string;
+  timestamp: string;
+  mode?: ChatMessage['mode'];
+  sources?: ChatMessage['sources'];
+  progress?: ChatMessage['progress'];
   sessionId: string | null;
   role: string;
   executionId: string | null;
@@ -1307,8 +1379,8 @@ const ChatBubble = React.memo(function ChatBubble({
 
   // 任务进度卡片：plan 时锚定的单条消息，状态由 ProgressCard 自订阅
   // timeline 按 taskId 原地更新，一个执行只占一个消息位
-  if (msg.type === 'progress') {
-    if (!sessionId || !msg.progress?.tasks?.length) return null;
+  if (type === 'progress') {
+    if (!sessionId || !progress?.tasks?.length) return null;
     return (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
@@ -1319,29 +1391,29 @@ const ChatBubble = React.memo(function ChatBubble({
           <Bot size={14} />
         </div>
         <div className="flex-1 min-w-0">
-          <ProgressCard sessionId={sessionId} tasks={msg.progress.tasks} />
+          <ProgressCard sessionId={sessionId} tasks={progress.tasks} />
         </div>
       </motion.div>
     );
   }
 
-  if (msg.type === 'system') {
+  if (type === 'system') {
     return (
       <div className="flex items-center justify-center">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-ink/10 text-[11px] text-ink/60">
           <Info size={12} />
-          {msg.content}
-          <span className="text-ink/40">{msg.timestamp}</span>
+          {content}
+          <span className="text-ink/40">{timestamp}</span>
         </div>
       </div>
     );
   }
 
-  const isUser = msg.type === 'user';
-  const showDownload = !isUser && sessionId && role !== 'chief_designer' && msg.content.length > 0;
+  const isUser = type === 'user';
+  const showDownload = !isUser && sessionId && role !== 'chief_designer' && content.length > 0;
   const handleCopy = () => {
     if (isUser) return;
-    navigator.clipboard.writeText(msg.content);
+    navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     // 用户明确复制结果 → 观测台在线评测采样信号（flywheel 03-P4）
@@ -1362,37 +1434,37 @@ const ChatBubble = React.memo(function ChatBubble({
         isUser ? 'bg-coral text-white' : 'bg-white border border-ink/6 text-ink'
       }`}>
         {isUser ? (
-          <div className="whitespace-pre-wrap">{msg.content}</div>
+          <div className="whitespace-pre-wrap">{content}</div>
         ) : (
           <div className="markdown-content">
-            <Markdown>{msg.content}</Markdown>
+            <Markdown>{content}</Markdown>
           </div>
         )}
         <div className="flex items-center justify-between mt-1">
           <div className="flex items-center gap-2">
             {/* 产出模式徽标：会话内混用策略的直接证据；旧消息无 mode 不渲染 */}
-            {!isUser && msg.mode && (
+            {!isUser && mode && (
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${MODE_META[msg.mode].chipClass}`}
+                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${MODE_META[mode].chipClass}`}
               >
-                <span className={`w-1 h-1 rounded-full ${MODE_META[msg.mode].dotClass}`} />
-                {MODE_META[msg.mode].label}
+                <span className={`w-1 h-1 rounded-full ${MODE_META[mode].dotClass}`} />
+                {MODE_META[mode].label}
               </span>
             )}
             {/* 引用证据徽标：本轮 WeKnora 检索命中的文档数；点击跳右侧「证据」面板 */}
-            {!isUser && msg.sources && msg.sources.length > 0 && (
+            {!isUser && sources && sources.length > 0 && (
               <button
                 type="button"
                 onClick={onOpenEvidence}
-                title={msg.sources.map((s) => s.title || s.id).join('\n')}
+                title={sources.map((s) => s.title || s.id).join('\n')}
                 className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-teal-700 bg-teal-500/10 hover:bg-teal-500/20"
               >
                 <BookOpen size={10} />
-                引用 {msg.sources.length} 篇知识库文档
+                引用 {sources.length} 篇知识库文档
               </button>
             )}
             <span className={`text-[10px] ${isUser ? 'text-white/60' : 'text-ink/50'}`}>
-              {msg.timestamp}
+              {timestamp}
             </span>
           </div>
           <div className="flex items-center gap-2">

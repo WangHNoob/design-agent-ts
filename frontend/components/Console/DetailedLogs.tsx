@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Terminal, ChevronDown, ChevronRight, Download } from 'lucide-react';
 
 export interface DetailedLog {
@@ -18,21 +18,25 @@ interface Props {
   onClear: () => void;
 }
 
-export default function DetailedLogs({ logs, onClear }: Props) {
+function DetailedLogsInner({ logs, onClear }: Props) {
   const [levelFilter, setLevelFilter] = useState<Set<string>>(new Set(['info', 'warn', 'error']));
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
 
-  const handleExport = () => {
-    const data = logs.map(({ id: _id, ...rest }) => rest);
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `gdt-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // 派生列表用 useMemo 缓存：日志随执行高频追加，父级（RightPanel）也会因
+  // 计时器/流式文本重渲染，若每次渲染都重跑 Set/filter，会把长任务的日志
+  // 面板变成 O(n) 的纯开销（js-combine-iterations / rerender-memo）。
+  const sources = useMemo(() => Array.from(new Set(logs.map((log) => log.source))), [logs]);
+
+  const filteredLogs = useMemo(
+    () =>
+      logs.filter((log) => {
+        if (!levelFilter.has(log.level)) return false;
+        if (sourceFilter !== 'all' && log.source !== sourceFilter) return false;
+        return true;
+      }),
+    [logs, levelFilter, sourceFilter],
+  );
 
   if (logs.length === 0) {
     return (
@@ -42,16 +46,6 @@ export default function DetailedLogs({ logs, onClear }: Props) {
       </div>
     );
   }
-
-  // Extract unique sources
-  const sources = Array.from(new Set(logs.map((log) => log.source)));
-
-  // Filter logs
-  const filteredLogs = logs.filter((log) => {
-    if (!levelFilter.has(log.level)) return false;
-    if (sourceFilter !== 'all' && log.source !== sourceFilter) return false;
-    return true;
-  });
 
   const toggleLevel = (level: string) => {
     const newFilter = new Set(levelFilter);
@@ -73,6 +67,17 @@ export default function DetailedLogs({ logs, onClear }: Props) {
     setExpandedLogs(newExpanded);
   };
 
+  const handleExport = () => {
+    const data = logs.map(({ id: _id, ...rest }) => rest);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gdt-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-2">
       {/* Filters */}
@@ -85,7 +90,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
               onClick={() => toggleLevel(level)}
               className={`text-xs px-1.5 py-0.5 rounded transition-colors ${
                 levelFilter.has(level)
-                  ? getLevelStyle(level as DetailedLog['level']).active
+                  ? LEVEL_STYLES[level as DetailedLog['level']].active
                   : 'bg-ink/5 text-ink/80'
               }`}
             >
@@ -138,7 +143,7 @@ export default function DetailedLogs({ logs, onClear }: Props) {
         {filteredLogs.map((log) => {
           const hasData = log.data && Object.keys(log.data).length > 0;
           const isExpanded = expandedLogs.has(log.id);
-          const levelStyle = getLevelStyle(log.level);
+          const levelStyle = LEVEL_STYLES[log.level];
 
           return (
             <div
@@ -200,26 +205,29 @@ export default function DetailedLogs({ logs, onClear }: Props) {
   );
 }
 
-function getLevelStyle(level: DetailedLog['level']) {
-  return {
-    debug: {
-      badge: 'text-slate-600 bg-slate-50',
-      active: 'bg-slate-100 text-slate-700',
-    },
-    info: {
-      badge: 'text-blue-600 bg-blue-50',
-      active: 'bg-blue-100 text-blue-700',
-    },
-    warn: {
-      badge: 'text-amber-600 bg-amber-50',
-      active: 'bg-amber-100 text-amber-700',
-    },
-    error: {
-      badge: 'text-red-600 bg-red-50',
-      active: 'bg-red-100 text-red-700',
-    },
-  }[level];
-}
+const LEVEL_STYLES: Record<DetailedLog['level'], { badge: string; active: string }> = {
+  debug: {
+    badge: 'text-slate-600 bg-slate-50',
+    active: 'bg-slate-100 text-slate-700',
+  },
+  info: {
+    badge: 'text-blue-600 bg-blue-50',
+    active: 'bg-blue-100 text-blue-700',
+  },
+  warn: {
+    badge: 'text-amber-600 bg-amber-50',
+    active: 'bg-amber-100 text-amber-700',
+  },
+  error: {
+    badge: 'text-red-600 bg-red-50',
+    active: 'bg-red-100 text-red-700',
+  },
+};
+
+const DetailedLogs = memo(DetailedLogsInner);
+DetailedLogs.displayName = 'DetailedLogs';
+
+export default DetailedLogs;
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;

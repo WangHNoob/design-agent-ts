@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { memo, useState, useEffect, useRef, useMemo } from 'react';
 import { Search, MessageSquare, Clock, Trash2, Plus } from 'lucide-react';
 import { listSessions, deleteSession, type SessionMeta } from '@/lib/api';
 import { useTaskStore } from '@/lib/stores/taskStore';
@@ -17,7 +17,7 @@ function formatTime(iso: string) {
   return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 
-export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTick }: Props) {
+function SessionSidebar({ selectedId, onSelect, onNew, refreshTick }: Props) {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -162,3 +162,8 @@ export default function SessionSidebar({ selectedId, onSelect, onNew, refreshTic
     </aside>
   );
 }
+
+const MemoSessionSidebar = memo(SessionSidebar);
+MemoSessionSidebar.displayName = 'SessionSidebar';
+
+export default MemoSessionSidebar;

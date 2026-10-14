@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { Settings, Plus, PanelRight, LogOut, UserRound } from 'lucide-react';
 
 interface IdentityChip {
@@ -33,7 +34,7 @@ const ROLES = [
   { value: 'qa_planner', label: 'QA 策划' },
 ];
 
-export default function Header({
+function Header({
   role,
   onRoleChange,
   roleLocked,
@@ -156,3 +157,8 @@ export default function Header({
     </header>
   );
 }
+
+const MemoHeader = memo(Header);
+MemoHeader.displayName = 'Header';
+
+export default MemoHeader;

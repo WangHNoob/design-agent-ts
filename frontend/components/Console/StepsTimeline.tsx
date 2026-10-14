@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useState, type ReactNode } from 'react';
 import { GitBranch, ChevronDown, ChevronRight } from 'lucide-react';
 
 export interface TimelineEntry {
@@ -21,7 +21,31 @@ interface Props {
   entries: TimelineEntry[];
 }
 
-export default function StepsTimeline({ entries }: Props) {
+// 状态 → 展示元数据提升到模块级：TimelineNode 每个任务行都会取一次，
+// 之前每次渲染都重建三个对象字面量（含静态 JSX），纯属浪费
+// （rendering-hoist-jsx / js-cache-function-results）。
+const STATUS_ICONS: Record<TimelineEntry['status'], ReactNode> = {
+  running: <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />,
+  completed: <span className="text-emerald-500 text-xs">✓</span>,
+  error: <span className="text-red-500 text-xs">✗</span>,
+  pending: <span className="w-2 h-2 rounded-full bg-ink/20" />,
+};
+
+const STATUS_LABELS: Record<TimelineEntry['status'], string> = {
+  running: '进行中',
+  completed: '已完成',
+  error: '失败',
+  pending: '等待',
+};
+
+const STATUS_LABEL_CLASSES: Record<TimelineEntry['status'], string> = {
+  running: 'text-amber-500',
+  completed: 'text-emerald-600',
+  error: 'text-red-500',
+  pending: 'text-ink/60',
+};
+
+function StepsTimelineInner({ entries }: Props) {
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -40,35 +64,19 @@ export default function StepsTimeline({ entries }: Props) {
   );
 }
 
-function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number }) {
+const TimelineNode = memo(function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = entry.children && entry.children.length > 0;
 
-  const statusIcon = {
-    running: <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />,
-    completed: <span className="text-emerald-500 text-xs">✓</span>,
-    error: <span className="text-red-500 text-xs">✗</span>,
-    pending: <span className="w-2 h-2 rounded-full bg-ink/20" />,
-  }[entry.status];
-
-  const statusLabel = {
-    running: '进行中',
-    completed: '已完成',
-    error: '失败',
-    pending: '等待',
-  }[entry.status];
-  const statusLabelClass = {
-    running: 'text-amber-500',
-    completed: 'text-emerald-600',
-    error: 'text-red-500',
-    pending: 'text-ink/60',
-  }[entry.status];
+  const statusIcon = STATUS_ICONS[entry.status];
+  const statusLabel = STATUS_LABELS[entry.status];
+  const statusLabelClass = STATUS_LABEL_CLASSES[entry.status];
 
   const indentClass = level === 0 ? '' : 'ml-4';
   const connector = level > 0 ? '├─ ' : '';
 
   return (
-    <div>
+    <div className="[content-visibility:auto] [contain-intrinsic-size:auto_40px]">
       <div
         className={`flex items-start gap-2 text-sm py-1.5 px-2 rounded hover:bg-ink/10 transition-colors ${indentClass}`}
       >
@@ -125,7 +133,12 @@ function TimelineNode({ entry, level }: { entry: TimelineEntry; level: number })
       )}
     </div>
   );
-}
+});
+
+const StepsTimeline = memo(StepsTimelineInner);
+StepsTimeline.displayName = 'StepsTimeline';
+
+export default StepsTimeline;
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;

@@ -1,14 +1,26 @@
 'use client';
 
+import { useMemo } from 'react';
 import type { KnowledgeSource } from '@/lib/stores/taskStore';
 
 interface Props {
   sources: KnowledgeSource[];
 }
 
+/** 按 type:id 去重知识来源（多次检索命中同一文档片段时只保留一条）。 */
+function dedupeSources(sources: KnowledgeSource[]): KnowledgeSource[] {
+  const map = new Map<string, KnowledgeSource>();
+  for (const source of sources) {
+    map.set(`${source.type}:${source.id}`, source);
+  }
+  return [...map.values()];
+}
+
 // 仅在有证据时由 RightPanel 渲染（空 tab 不出现），故无需空态分支
 export default function KnowledgeSourcesPanel({ sources }: Props) {
-  const deduped = dedupeSources(sources);
+  // 去重结果缓存：父级每次渲染（流式文本/计时器）都传同一个 sources 引用，
+  // 但之前每次渲染都重跑 O(n) 去重（js-set-map-lookups / rerender-memo）。
+  const deduped = useMemo(() => dedupeSources(sources), [sources]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -33,14 +45,6 @@ export default function KnowledgeSourcesPanel({ sources }: Props) {
       ))}
     </div>
   );
-}
-
-function dedupeSources(sources: KnowledgeSource[]): KnowledgeSource[] {
-  const map = new Map<string, KnowledgeSource>();
-  for (const source of sources) {
-    map.set(`${source.type}:${source.id}`, source);
-  }
-  return [...map.values()];
 }
 
 /** 检索得分着色：高分离命中越近，低分提示弱相关 */

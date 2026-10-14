@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { GitBranch, Terminal, FolderOpen, BookOpen } from 'lucide-react';
 import StepsTimeline, { type TimelineEntry } from './StepsTimeline';
 import DetailedLogs, { type DetailedLog } from './DetailedLogs';
@@ -20,7 +20,7 @@ interface Props {
   onChangeTab?: (tab: 'steps' | 'logs' | 'files' | 'knowledge') => void;
 }
 
-export default function RightPanel({
+function RightPanel({
   timeline,
   logs,
   knowledgeSources,
@@ -86,6 +86,11 @@ export default function RightPanel({
     </div>
   );
 }
+
+const MemoRightPanel = memo(RightPanel);
+MemoRightPanel.displayName = 'RightPanel';
+
+export default MemoRightPanel;
 
 function TabBtn({ active, onClick, icon, label, count }: {
   active: boolean;

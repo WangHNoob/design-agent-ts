@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitBranch,
@@ -375,9 +375,14 @@ export default function WorkflowsTab({ embedded = false }: { embedded?: boolean 
     );
   };
 
-  const isDirty =
-    JSON.stringify(form) !== JSON.stringify(originalForm) ||
-    (selectedName === null && (form.name || form.description || form.tasks.length > 0));
+  // 脏检查：每次按键都重跑两次 JSON.stringify（任务多时是全表单结构序列化），
+  // 用 useMemo 只在 form/originalForm 变化时重算（js-cache-function-results）。
+  const isDirty = useMemo(
+    () =>
+      JSON.stringify(form) !== JSON.stringify(originalForm) ||
+      (selectedName === null && (form.name || form.description || form.tasks.length > 0)),
+    [form, originalForm, selectedName],
+  );
 
   // ── Render ──────────────────────────────────────────────
 
