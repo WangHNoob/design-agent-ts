@@ -9,9 +9,9 @@ game-designer-ts 想解决的，不是"让大模型帮我写点策划文案"—�
 
 ## 界面预览
 
-![策划 AI 团队控制台](docs/Agent.png)
+![策划 AI 团队控制台](assets/console.png)
 
-> 策划控制台：一条消息先过**意图路由**（chat / query / task）→ task 进规划：主策划（Director）拆解任务清单 → 六位专职策划并行产出 → 跨领域冲突检测 → 终稿交付；三级人工审阅按需开启（不可逆操作审批常开），访客免登录直接体验。
+> 策划控制台：一条消息先过**意图路由**（chat / query / task）→ task 进规划：主策划（Director）拆解任务清单 → 六位专职策划并行产出 → 跨领域冲突检测（截图检出 28 处字段冲突）→ 终稿交付；三级人工审阅按需开启（不可逆操作审批常开），访客免登录直接体验。
 
 ---
 
@@ -48,12 +48,12 @@ game-designer-ts 的回答是：**把一份策划案当成一个团队项目来�
    (CombatDes) (Numerical) (Gameplay) (System) (Executive)   (QA)
         └──────────┴──────────┴────────┴────────┴──────────┘
                           都从同一份可信知识取材
-                    （Knowledge Hub 已发布知识 + 联网补充）
+                    （WeKnora 知识库 + 联网补充）
 ```
 
 - **一位主策划统筹全局**：`DirectorAgent` 接到需求后，先把它拆成一张带依赖关系的任务清单，再把每项任务派给最合适的专职 Agent。
 - **六位专职策划各司其职**：战斗、数值、玩法、系统、执行、质量审查——每位都有自己的专业提示词、自己的工具集，钻进各自领域做深。
-- **都从同一口井取水**：各 Agent 优先查询 [Knowledge Hub](https://github.com/WangHNoob/knowledge-hub) 里**已发布、带证据、可追溯**的知识资产，不足时再联网补充——保证大家基于同一份事实工作，而非各自臆想。
+- **都从同一口井取水**：各 Agent 优先查询 WeKnora 知识库里**已发布、带证据、可追溯**的知识资产，不足时再联网补充——保证大家基于同一份事实工作，而非各自臆想。
 - **人按需在环里**：三级审阅点（任务拆解后 / 单份产出后 / 最终整合后）默认直达、可按点开启——演示与低风险场景不被打断，需要人把关时一行配置打开；唯一的例外是**不可逆操作审批常开**：内容可以自动通过，危险不可以。
 - **产出会自动对账**：所有 Agent 交稿后，系统提取各自定义的字段，检测跨领域冲突（同一属性被赋了不同值），生成冲突报告——而不是把六份文档一拼了事。
 
@@ -244,23 +244,22 @@ HTTP 只负责创建幂等 Execution 并入队；`ExecutionWorker` 消费 Redis 
 
 ---
 
-## 六、知识来源：站在 Knowledge Hub 之上
+## 六、知识来源：站在 WeKnora 之上
 
 各专职 Agent 的知识取材遵循一条明确的优先级策略（见各 `prompts/*.md`）：
 
-1. **Knowledge Hub 优先**（`kb_*` MCP 工具）——查已发布、带信任分与证据链的知识资产。`MCP_ENABLED=true` 显式开启（`.env.example` 默认开，代码默认关，未配置即不挂 MCP）。
-2. **本地 wiki / kg 仅作灾难降级**——当 MCP 已成功加载 `kb_search` 时，默认**不再注册**本地 `wiki_*` / `grep` / `kg_*`，避免双源冲突；需要双开时设 `MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY=false`。
-3. **主动联网补充**（`tavily-search`）——涉及时效性内容、检索无果或用户明确要求时，精准联网 1–3 次。
-4. **来源标注与飞轮回写**——任务侧栏展示 trust / evidence；低证据或空检索时由代码钩子调用 `kb_report_*`，会话结束批量 `kb_submit_attribution`，而不仅依赖 prompt 自觉。
+1. **WeKnora 知识库优先**（MCP 工具）——先用 `list_knowledge_bases` 拿到知识库清单（`kb_id`，一次调用即可复用），再用 `hybrid_search(kb_id, query)` 做混合检索；命中后用 `get_knowledge` / `list_chunks` 深读条目原文。`MCP_ENABLED=true` 显式开启（代码默认关，未配置即不挂 MCP）。
+2. **本地 wiki / kg 仅作灾难降级**——当 MCP 已成功加载 `hybrid_search` 时，默认**不再注册**本地 `wiki_*` / `grep_search` / `kg_*`，避免双源冲突；需要双开时设 `MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY=false`。
+3. **主动联网补充**（`tavily_search`）——涉及时效性内容、检索无果或用户明确要求时，精准联网 1–3 次；需要网页详情用 `tavily_extract`。
+4. **来源标注**——回答气泡与任务产出末尾附「📚 参考来源」章节，列出引用的知识库条目；检索无果时明确标注「无知识库参考」，而非编造来源。
 
 联调必配：
 
 | 变量 | 说明 |
 |------|------|
 | `MCP_ENABLED=true` | 打开 MCP |
-| `MCP_SERVERS` | 指向 KH `/mcp`（HTTP + Bearer JWT） |
-| `MCP_PROJECT_ID` | **显式** Knowledge Hub 项目 ID，禁止静默 `default_project` |
-| （勿设）`toolPrefix: "kb_"` | 工具名已是 `kb_*`，再加前缀会变成 `kb_kb_search` |
+| `MCP_SERVERS` | 指向 WeKnora MCP 服务器（现役形态为 stdio，见 `.env.example` 示例） |
+| （勿设）`toolPrefix: "kb_"` | WeKnora 工具名已带语义（`hybrid_search` 等），再加前缀会失配 |
 
 这套策略让 AI 的产出**有据可查**：每一句设计判断，尽量落到一份可追溯的知识来源上。
 ---
@@ -386,9 +385,9 @@ pnpm eval:gate      # 回归门禁：跑 offline eval 并与 eval/baseline.json 
 | 后端 | http://localhost:4527 |
 | 前端 | http://localhost:4528 |
 
-`pnpm dev:local` 还会尝试拉起同级目录的 Knowledge Hub；脚本内 KH 路径与部分凭据是本机约定，换机器需改 `scripts/start-local.mjs`。
+`pnpm dev:local` 还会尝试拉起同级目录的 Knowledge Hub（`scripts/start-local.mjs` 内的 KH 路径与凭据是本机约定，换机器需改脚本）。
 
-联调 Knowledge Hub：`MCP_ENABLED=true`、`MCP_SERVERS` 指向 KH `/mcp`、**显式**设置 `MCP_PROJECT_ID`；MCP 已加载 `kb_search` 时默认禁用本地 wiki 双源（`MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY`）。
+联调 WeKnora 知识库：`MCP_ENABLED=true`、`MCP_SERVERS` 指向 WeKnora MCP 服务器；MCP 已加载 `hybrid_search` 时默认禁用本地 wiki 双源（`MCP_DISABLE_LOCAL_KNOWLEDGE_WHEN_HEALTHY`）。
 
 ### 演示模式（线上开箱即玩）
 
@@ -435,13 +434,14 @@ POSTGRES_URL=postgresql://game_designer:***@localhost:5433/game_designer  # 默�
 
 知识库升级与 Agent 改动是否真的"变好了"，靠一套**可复算、可审计**的评测体系回答：
 
-- **意图路由黄金集**：91 例 × 14 类别（chat / query / task + unknown 回落），双向对抗样例与带历史的模糊延续；task→chat 误吞 0 容忍；v1 94.8% 迭代至 v9 100%（双跑复测）。运行器 `eval/intent/run-eval.ts`（prompt sha256 绑定报告），完整迭代与事故复盘见 `eval/intent/ITERATION_LOG.md`。
-- **黄金评测集**：78 道知识问答用例（含回归集与新增集），覆盖单表检索、跨表关联、数值计算、经济闭环、一致性、证据链、防幻觉七类能力，每题带关键事实断言、字段数值断言与幻觉锚点。
+- **意图路由黄金集**（本仓）：91 例 × 14 类别（chat / query / task + unknown 回落），双向对抗样例与带历史的模糊延续；task→chat 误吞 0 容忍；v1 94.8% 迭代至 v9 100%（双跑复测）。运行器 `eval/intent/run-eval.ts`（prompt sha256 绑定报告），完整迭代与事故复盘见 `eval/intent/ITERATION_LOG.md`。
+- **设计黄金集**（本仓，`eval/datasets/design-golden.v1.json`）：11 例（3 个 fixture 回放 + 8 个在线真跑），三项度量——文档结构关键字段（exact_match）、计划合理性 / 回答质量（LLM Judge）。`pnpm eval:offline` / `pnpm eval:gate` 只对带 `recordedOutput` 的离线用例打分。
+- **知识问答黄金集**（配套 [knowledge-hub](https://github.com/WangHNoob/knowledge-hub) 仓 `evals/`）：78 道知识问答用例（含回归集与新增集），覆盖单表检索、跨表关联、数值计算、经济闭环、一致性、证据链、防幻觉七类能力，每题带关键事实断言、字段数值断言与幻觉锚点。
 - **自动打分**：数值严格匹配（精确值 / 容差），表达形式兼容内联与表格；未注册 ID 计入幻觉记录，防幻觉类题目出现幻觉 ID 直接判失败。
 - **数值审计**：评测集里每个期望值由程序从配表数据重新计算比对，防止"拿错误答案考模型"（评测集与数据更新需同步）。
 - **回归门禁**：Agent / 知识库改动后重跑评测，对比前后得分确认无"旧通过 → 新失败"回归。
 
-评测脚本与黄金集位于配套的 [knowledge-hub](https://github.com/WangHNoob/knowledge-hub) 工程 `evals/` 目录（该系统线上已由 WeKnora 取代，评测资产保留原处）。
+评测脚本与黄金集位于配套的 [knowledge-hub](https://github.com/WangHNoob/knowledge-hub) 工程 `evals/` 目录（该知识库系统线上已由 WeKnora 取代，评测资产保留原处）。
 
 ### 执行结果信号（flywheel 01-P4）
 

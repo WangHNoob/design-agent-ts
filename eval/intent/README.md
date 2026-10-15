@@ -6,7 +6,7 @@
 ## 运行
 
 ```bash
-# 全量（77 例，约 2 分钟，直连 .env 配置的真实模型）
+# 全量（91 例 × 14 类别，约 2 分钟，直连 .env 配置的真实模型）
 npx tsx --env-file=.env eval/intent/run-eval.ts --tag v3-final
 
 # 冒烟（只跑前 4 例，验证脚本连通性）
@@ -23,12 +23,12 @@ npx tsx --env-file=.env eval/intent/run-eval.ts --tag v4-experiment --prompt /tm
 
 ```json
 {
-  "version": "v1",
+  "version": "v2",
   "cases": [
     {
       "id": "adv-chat-001",          // 唯一 ID
-      "category": "adversarial_chat_lookalike",  // 类别，报告按类聚合
-      "expect": "task",              // 黄金标签：chat | task
+      "category": "adversarial_chat_lookalike",  // 类别，报告按类聚合（共 14 类）
+      "expect": "task",              // 黄金标签：chat | query | task
       "requirement": "你好，帮我设计一个签到系统",
       "history": [ ... ],            // 可选，多轮上下文（模糊延续词用例必备）
       "note": "标注理由（可选）"

@@ -60,8 +60,12 @@ docker-compose.override.yml
 # ZCode session artifacts
 .zcode/
 
-# Personal interview prep material (local only)
-docs/interview-qna-2026-08.md
+# Agent 工具态与本地工作产物（不入库）
+.cursor/
+workspace/
+
+# 内部设计/规划文档（本地保留，不随仓库分发）；对外截图在 assets/
+docs/
 
 # Cache
 .eslintcache
